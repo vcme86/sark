@@ -13,5 +13,6 @@
     "import/no-duplicates": ["error", { "considerQueryString": true, "preferInline": true }],
     "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }],
     "typescript/no-import-type-side-effects": "error"
-  }
+  },
+  "ignorePatterns": ["**/.build/**", "**/dist/**"]
 }

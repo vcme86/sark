@@ -1,0 +1,93 @@
+import { createClient } from '@olivaw/sark/http'
+import { createApp, defineApp } from '@olivaw/sark/server'
+import { createDefinition } from '@olivaw/sark/runtime/core'
+import { defineNodeRuntime } from '@olivaw/sark/server/node'
+import type { TypedResponse } from 'hono'
+import type { Api } from './generated/app'
+
+const client = createClient<Api>({ baseUrl: 'https://example.test' })
+client.get('/files/*path', { params: { path: 'guide/setup' } })
+// @ts-expect-error Required catch-all parameters cannot be omitted.
+client.get('/files/*path')
+client.get('/search', { query: { term: 'book' } })
+// @ts-expect-error Required query requires options.
+client.get('/search')
+// @ts-expect-error Required query cannot be omitted.
+client.get('/search', {})
+// @ts-expect-error Unknown route.
+client.get('/missing')
+// @ts-expect-error Wrong method.
+client.post('/search')
+// @ts-expect-error GET has no request body.
+client.get('/search', { query: { term: 'book' }, json: {} })
+client.get('/users/:id', { params: { id: 'Alice' } })
+// @ts-expect-error Required path parameters cannot be omitted.
+client.get('/users/:id')
+client.post('/convert', { text: '42' })
+// @ts-expect-error Input before the transform is string.
+client.post('/convert', { text: 42 })
+const conflictingBody = { text: '42', json: {} }
+// @ts-expect-error Conflicting body fields are rejected through variables too.
+client.post('/convert', conflictingBody)
+client.post('/optional')
+client.post('/optional', { headers: { 'X-Example': 'value' } })
+client.post('/form', { form: new FormData() })
+client.post('/form', { form: new URLSearchParams({ name: 'Alice' }) })
+client.post('/form', { form: { name: 'Alice' } })
+client.head('/date')
+client.get('/api/items')
+const fallback: string = (await client.get('/fallback', { query: { term: 'book' } })).fallback
+client.post('/fallback', { query: { term: 'book' } })
+client.head('/fallback', { query: { term: 'book' } })
+// @ts-expect-error ALL fallback retains required input.
+client.get('/fallback')
+// @ts-expect-error GET cannot acquire a request body through ALL.
+client.get('/fallback', { query: { term: 'book' }, json: {} })
+const specific: boolean = (await client.get('/mixed')).specific
+const mixedFallback: number = (await client.post('/mixed', { json: { value: 42 } })).fallback
+// @ts-expect-error A concrete method does not inherit ALL's input.
+client.get('/mixed', { json: { value: 42 } })
+const found: string = (await client.query('/lookup', { json: { term: 'book' } })).found
+// @ts-expect-error QUERY retains required input.
+client.query('/lookup')
+// @ts-expect-error QUERY does not enable GET for the endpoint.
+client.get('/lookup')
+// @ts-expect-error Default registration must enforce the same routes.
+createClient().get('/missing')
+const date = await client.get('/date')
+const iso: string = date.date
+// @ts-expect-error JSON dates are strings.
+const wrongDate: Date = date.date
+const text: string = await client.get('/text')
+const empty: undefined = await client.get('/empty')
+const dynamic = await client.get('/dynamic')
+const dynamicOk: boolean = dynamic.ok
+// @ts-expect-error Hono requires StatusCode, not an unrestricted number.
+type InvalidStatus = TypedResponse<{ ok: boolean }, number, 'json'>
+const decoded = await client.get('/raw')
+// @ts-expect-error A native Response has unknown decoded representation.
+decoded.status
+void [iso, wrongDate, text, empty, dynamicOk, fallback, specific, mixedFallback, found]
+
+const requiresHost = defineApp((env: { REQUIRED_HOST: string }) => ({ hosts: env.REQUIRED_HOST }))
+const unconstrained = defineNodeRuntime(() => ({ port: 0 }))
+const definition = createDefinition({ app: requiresHost, declarations: [unconstrained] })
+// @ts-expect-error An unconstrained factory must not erase the other factory requirement.
+createApp(definition, { env: {} })
+createApp(definition, { env: { REQUIRED_HOST: 'localhost' } })
+
+type ResolvedHttp = Awaited<ReturnType<typeof createApp>>['config']
+// @ts-expect-error Resolved Cookie attributes cannot remain optional downstream.
+const incompleteCookie: ResolvedHttp['cookie'] = { secret: 'secret' }
+// @ts-expect-error An unprocessed application option is not a resolved HTTP configuration.
+const incompleteHttp: ResolvedHttp = { bodyLimit: 100 }
+void [incompleteCookie, incompleteHttp]
+
+client.get('/read/:id', { params: { id: 42 } })
+client.get('/rawfiles/*path', { params: { path: 'guide/setup' } })
+// @ts-expect-error File path parameters are required even without a validation schema.
+client.get('/read/:id')
+// @ts-expect-error File path parameter names are checked even without a validation schema.
+client.get('/read/:id', { params: { missing: 'Alice' } })
+// @ts-expect-error Catch-all parameters are required even without a validation schema.
+client.get('/rawfiles/*path')

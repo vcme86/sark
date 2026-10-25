@@ -10,15 +10,69 @@
   "license": "MIT",
   "author": "vcme86",
   "type": "module",
+  "bin": "./dist/tooling/cli/index.mjs",
+  "exports": {
+    "./server": {
+      "types": "./dist/entries/server.d.mts",
+      "import": "./dist/entries/server.mjs"
+    },
+    "./server/node": {
+      "types": "./dist/entries/server/node.d.mts",
+      "import": "./dist/entries/server/node.mjs"
+    },
+    "./http": {
+      "types": "./dist/entries/http.d.mts",
+      "import": "./dist/entries/http.mjs"
+    },
+    "./middleware": {
+      "types": "./dist/entries/middleware.d.mts",
+      "import": "./dist/entries/middleware.mjs"
+    },
+    "./utils": {
+      "types": "./dist/entries/utils.d.mts",
+      "import": "./dist/entries/utils.mjs"
+    },
+    "./vite": {
+      "types": "./dist/entries/vite.d.mts",
+      "import": "./dist/entries/vite.mjs"
+    },
+    "./runtime/core": {
+      "types": "./dist/entries/runtime/core.d.mts",
+      "import": "./dist/entries/runtime/core.mjs"
+    },
+    "./runtime/node": {
+      "types": "./dist/entries/runtime/node.d.mts",
+      "import": "./dist/entries/runtime/node.mjs"
+    }
+  },
   "scripts": {
-    "check": "pnpm lint && pnpm fmt:check",
+    "build": "obuild",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "typecheck": "tsc",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check",
+    "test": "pnpm build && vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:types": "pnpm build && vitest run tests/types",
+    "test:contract": "pnpm build && vitest run tests/contract"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@logtape/logtape": "^2.4.2",
+    "hono": "^4.13.13",
+    "negotiator": "^1.1.0",
+    "vite": "^8.3.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "oxfmt": "^0.73.0",
-    "oxlint": "^1.89.0"
+    "@types/negotiator": "^0.6.5",
+    "@types/node": "^26.6.5",
+    "obuild": "^0.4.45",
+    "oxfmt": "^0.74.0",
+    "oxlint": "^1.89.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }

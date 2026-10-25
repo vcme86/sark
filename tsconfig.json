@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "module": "preserve",
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "exclude": ["**/dist"]
+}
