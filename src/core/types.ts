@@ -30,7 +30,7 @@ export interface AppInstance<D = unknown> {
   /** Definition used to create this instance. */
   readonly definition: D
 
-  /** Resolved application HTTP configuration. */
+  /** Resolved instance configuration; event hosts expose the current event configuration only within its scope. */
   readonly config: ResolvedHttpConfig
 
   /** Underlying Hono instance for advanced extension and inspection. */
@@ -43,10 +43,11 @@ export interface AppInstance<D = unknown> {
    * Dispatches an external request in a new execution scope.
    *
    * @param request - Incoming Fetch API request, including its cancellation signal.
-   * @param env - Request metadata supplied by the Node host.
+   * @param env - Platform environment bindings (e.g. Cloudflare Workers bindings).
+   * @param executionCtx - Platform execution context (e.g. Cloudflare ExecutionContext).
    * @returns The HTTP response, including framework-generated error responses.
    */
-  fetch(request: Request, env?: unknown): Promise<Response>
+  fetch(request: Request, env?: unknown, executionCtx?: unknown): Promise<Response>
 
   /**
    * Dispatches an internal request using the current same-application scope.

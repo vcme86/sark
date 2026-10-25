@@ -219,15 +219,15 @@ describe('development instance handoff coordinator', () => {
     }
   })
 
-  it('rejects Workers targets before installing Node development handling', async () => {
+  it('does not mount the Node request listener for Cloudflare targets', async () => {
     const project = createProject()
+    const load = vi.fn(async () => ({ definition: createDefinition({}) }))
+    const harness = await createDevHandoff(project.root, sark({ target: 'cloudflare' }), load)
     try {
-      await expect(
-        createDevHandoff(project.root, sark({ target: 'cloudflare' }), async () => ({
-          definition: createDefinition({}),
-        })),
-      ).rejects.toThrow(/Workers runtime integration/)
+      expect((await harness.request('/api/work')).status).toBe(404)
+      expect(load).not.toHaveBeenCalled()
     } finally {
+      await harness.close()
       project.remove()
     }
   })

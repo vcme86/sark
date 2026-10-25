@@ -54,18 +54,22 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
       builder: { sharedConfigBuild: true },
     })
     const project = await projectFromConfig(builder.config)
-    // Reuse Vite's resolved configuration and public environment merging; do not load it again.
-    const environment = new BuildEnvironment('ssr', builder.config, {
-      options: {
-        build: {
-          ssr: resolve(project.generatedDir, 'start.ts'),
-          outDir: builder.config.build.outDir,
-          rolldownOptions: { output: { entryFileNames: 'server.mjs' } },
+    if (project.options.target === 'cloudflare') {
+      await builder.buildApp()
+    } else {
+      // Reuse Vite's resolved configuration and public environment merging; do not load it again.
+      const environment = new BuildEnvironment('ssr', builder.config, {
+        options: {
+          build: {
+            ssr: resolve(project.generatedDir, 'start.ts'),
+            outDir: builder.config.build.outDir,
+            rolldownOptions: { output: { entryFileNames: 'server.mjs' } },
+          },
         },
-      },
-    })
-    await environment.init()
-    await builder.build(environment)
+      })
+      await environment.init()
+      await builder.build(environment)
+    }
   } else {
     console.log(`
 Sark CLI

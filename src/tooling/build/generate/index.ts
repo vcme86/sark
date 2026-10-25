@@ -44,8 +44,23 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
   const { generatedDir, appEntryPath, appExports, routes, apiPrefix, target } = options
   mkdirSync(generatedDir, { recursive: true })
 
-  if (target !== 'node') {
-    throw new Error('Cloudflare Workers target requires the Workers runtime integration.')
+  // Platform boundary validation
+  if (target === 'cloudflare') {
+    if (appExports.hasRuntime) {
+      throw new Error(
+        'Cloudflare Workers target does not support Node runtime configuration ("runtime"). Use Wrangler configuration for Workers bindings.',
+      )
+    }
+    if (appExports.exports.includes('health')) {
+      throw new Error(
+        'Cloudflare Workers target does not support Node health probes ("health"). Probes are managed by the deployment platform.',
+      )
+    }
+    if (appExports.exports.includes('metrics')) {
+      throw new Error(
+        'Cloudflare Workers target does not support Node metrics ("metrics"). Platform analytics are provided by Cloudflare.',
+      )
+    }
   }
 
   // 1. Generate app.ts
@@ -194,5 +209,24 @@ const instance = await createApp(definition, { env: process.env })
 await startNodeServer(instance, runtime, process.env)
 `
     writeFileIfChanged(join(generatedDir, 'start.ts'), startTsContent)
+  } else if (target === 'cloudflare') {
+    rmSync(join(generatedDir, 'start.ts'), { force: true })
+    const workerTsContent = `/// <reference types="vite/client" />
+import { createWorkerHandler, type CloudflareExecutionContext } from '@olivaw/sark/runtime/cloudflare'
+import { definition } from './app'
+
+declare global {
+  interface Env {}
+}
+
+const handler = createWorkerHandler(definition, import.meta.env.PROD)
+
+export default {
+  fetch(request: Request, env: Env, ctx: CloudflareExecutionContext): Promise<Response> {
+    return handler.fetch(request, env, ctx)
+  },
+}
+`
+    writeFileIfChanged(join(generatedDir, 'worker.ts'), workerTsContent)
   }
 }

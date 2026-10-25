@@ -116,6 +116,11 @@ describe('Contract: Built Package Exports', () => {
     expect(Object.keys(runtimeNode).toSorted()).toEqual(['loadNodeEnv', 'startNodeServer'])
   })
 
+  it('imports @olivaw/sark/runtime/cloudflare from build output', async () => {
+    const runtimeCf = await import('@olivaw/sark/runtime/cloudflare')
+    expect(Object.keys(runtimeCf).toSorted()).toEqual(['createWorkerHandler'])
+  })
+
   it('imports @olivaw/sark/vite from build output', async () => {
     const vite = await import('@olivaw/sark/vite')
     expect(vite.sark).toBeDefined()

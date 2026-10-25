@@ -43,6 +43,10 @@
     "./runtime/node": {
       "types": "./dist/entries/runtime/node.d.mts",
       "import": "./dist/entries/runtime/node.mjs"
+    },
+    "./runtime/cloudflare": {
+      "types": "./dist/entries/runtime/cloudflare.d.mts",
+      "import": "./dist/entries/runtime/cloudflare.mjs"
     }
   },
   "scripts": {
@@ -67,12 +71,14 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.65.0",
     "@types/negotiator": "^0.6.5",
     "@types/node": "^26.6.5",
     "obuild": "^0.4.45",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
   }
 }

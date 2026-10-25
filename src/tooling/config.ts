@@ -5,7 +5,7 @@ import { DEFAULT_API_PREFIX } from '../web/http/defaults'
 /** Configuration options for the Sark Vite plugin. */
 export interface SarkOptions {
   /**
-   * Deployment target platform. Workers startup/build integration is not yet implemented.
+   * Deployment target platform.
    * @default 'node'
    */
   target?: 'node' | 'cloudflare'

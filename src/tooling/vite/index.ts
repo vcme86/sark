@@ -58,6 +58,11 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       },
     },
 
+    config(config) {
+      // The official Workers plugin needs the entry before final configuration is available.
+      generateResolvedProject(resolveProjectConfig(resolve(config.root ?? '.'), resolved))
+    },
+
     configResolved(config) {
       project = resolveProjectConfig(config.root, resolved)
       generateResolvedProject(project)
@@ -76,6 +81,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
     },
 
     configureServer(server: ViteDevServer) {
+      if (resolved.target === 'cloudflare') return
       const projectConfig = getProject()
 
       let currentAppInstance: AppInstance | null = null

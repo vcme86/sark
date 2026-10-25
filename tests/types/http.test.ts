@@ -24,6 +24,12 @@ export const app = defineApp((env: NodeJS.ProcessEnv) => ({ hosts: env.HOST }))
 export const runtime = defineNodeRuntime((env: NodeJS.ProcessEnv) => ({ port: Number(env.PORT ?? 0) }))
 `,
     )
+    writeFileSync(
+      join(root, 'api/_middleware.ts'),
+      `import { createMiddleware } from 'hono/factory'
+export default createMiddleware(async (_ctx, next) => next())
+`,
+    )
     const routes: Record<string, string> = {
       'files.[...path].get':
         'route().validate({ params: z.object({ path: z.string() }) }).handler((ctx, input) => ({ path: input.params.path, id: ctx.var.requestId }))',
@@ -103,6 +109,54 @@ export const runtime = defineNodeRuntime((env: NodeJS.ProcessEnv) => ({ port: Nu
   }
 }
 
+async function compileWorkerFixture(appSource: string, envDeclaration?: string) {
+  mkdirSync(join(projectRoot, '.build'), { recursive: true })
+  const root = mkdtempSync(join(projectRoot, '.build/types-worker-'))
+  try {
+    mkdirSync(join(root, 'api'))
+    writeFileSync(join(root, 'app.ts'), appSource)
+    writeFileSync(
+      join(root, 'api/ping.get.ts'),
+      "import { route } from '@olivaw/sark/server'\nexport default route().handler(() => 'pong')\n",
+    )
+    if (envDeclaration) {
+      writeFileSync(join(root, 'env.d.ts'), envDeclaration)
+    }
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({
+        extends: resolve('tsconfig.json'),
+        include: ['**/*.ts'],
+      }),
+    )
+    await resolveConfig(
+      {
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: [sark({ target: 'cloudflare', generatedDir: 'generated' })],
+      },
+      'build',
+    )
+    const pnpm = process.env.npm_execpath
+    if (!pnpm) throw new Error('Run type contracts through the project pnpm scripts.')
+    const args = ['typecheck', '--project', join(root, 'tsconfig.json')]
+    const nodeScript = /\.(?:c|m)?js$/i.test(pnpm)
+    const result = spawnSync(
+      nodeScript ? process.execPath : pnpm,
+      nodeScript ? [pnpm, ...args] : args,
+      {
+        cwd: projectRoot,
+        encoding: 'utf8',
+      },
+    )
+    if (result.error) throw result.error
+    return result
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
 describe('generated application type contracts', () => {
   for (const prefix of ['/api', '/v1/service', '/']) {
     it(`checks generated assembly, registration, startup and client calls for ${prefix}`, async () => {
@@ -131,4 +185,45 @@ export const runtime = defineNodeRuntime((env: { REQUIRED_PORT: string }) => ({ 
       expect(result.stdout).not.toContain("Unused '@ts-expect-error'")
     })
   }
+
+  it('checks generated worker entry type contracts against project Wrangler Env', async () => {
+    // 1. Positive case: Env satisfies application requirements
+    const okResult = await compileWorkerFixture(
+      `
+import { defineApp } from '@olivaw/sark/server'
+export const app = defineApp((env: { KV: string; SECRET: string }) => ({}))
+`,
+      `
+declare global {
+  interface Env {
+    KV: string
+    SECRET: string
+  }
+}
+export {}
+`,
+    )
+    expect(okResult.status, okResult.stdout + okResult.stderr).toBe(0)
+
+    // 2. Negative case: Env missing required binding fails typecheck in generated worker.ts
+    const failResult = await compileWorkerFixture(
+      `
+import { defineApp } from '@olivaw/sark/server'
+export const app = defineApp((env: { REQUIRED_BINDING: string }) => ({}))
+`,
+      `
+declare global {
+  interface Env {
+    DIFFERENT_BINDING: string
+  }
+}
+export {}
+`,
+    )
+    expect(failResult.status).not.toBe(0)
+    expect(failResult.stdout).toContain('generated/worker.ts')
+    expect(failResult.stdout).toMatch(
+      /(?:Property 'REQUIRED_BINDING' is missing|Type 'Env' is not assignable)/,
+    )
+  })
 })

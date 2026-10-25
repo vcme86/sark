@@ -14,6 +14,7 @@ export default defineBuildConfig({
         'src/tooling/cli/index.ts',
         'src/entries/runtime/core.ts',
         'src/entries/runtime/node.ts',
+        'src/entries/runtime/cloudflare.ts',
       ],
     },
   ],
