@@ -224,6 +224,7 @@ describe('Application configuration and generated assembly regressions', () => {
         appExports: { hasApp: true, hasRuntime: false, exports: ['app'] },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'node',
       })
       expect(existsSync(join(generatedDir, 'start.ts'))).toBe(true)
@@ -236,6 +237,7 @@ describe('Application configuration and generated assembly regressions', () => {
         appExports: { hasApp: true, hasRuntime: false, exports: ['app'] },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'cloudflare',
       })
       expect(existsSync(join(generatedDir, 'worker.ts'))).toBe(true)
@@ -248,6 +250,7 @@ describe('Application configuration and generated assembly regressions', () => {
         appExports: { hasApp: true, hasRuntime: false, exports: ['app'] },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'node',
       })
       expect(existsSync(join(generatedDir, 'start.ts'))).toBe(true)
@@ -352,6 +355,7 @@ export default route().handler(() => ({ users: [] }))
         appExports: { hasApp: false, hasRuntime: false, exports: [] },
         routes,
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'node',
       })
 

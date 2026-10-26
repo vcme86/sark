@@ -82,6 +82,7 @@ it('inherits request ID and dedup across nested internal calls, without sharing 
 
 it('skips internal CORS and CSRF while retaining validation, authorization and body limits', async () => {
   const observed: string[] = []
+  const handled: string[] = []
   let corsCalls = 0
   const app = await createApp(
     createDefinition({
@@ -130,7 +131,10 @@ it('skips internal CORS and CSRF while retaining validation, authorization and b
           'write.post.ts',
           route()
             .validate({ text: z.string().min(1) })
-            .handler((_ctx, input) => input.text),
+            .handler((_ctx, input) => {
+              handled.push(input.text)
+              return input.text
+            }),
         ),
         entry(
           'private.post.ts',
@@ -148,7 +152,14 @@ it('skips internal CORS and CSRF while retaining validation, authorization and b
       { status: 403, cors: null },
     ])
     expect(corsCalls).toBe(1)
-    expect(observed).toEqual(['/api/outer', '/api/write', '/api/write', '/api/private'])
+    expect(observed).toEqual([
+      '/api/outer',
+      '/api/write',
+      '/api/write',
+      '/api/write',
+      '/api/private',
+    ])
+    expect(handled).toEqual(['ok'])
   } finally {
     await app.close()
   }

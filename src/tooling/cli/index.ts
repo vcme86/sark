@@ -5,12 +5,14 @@
  * @module
  */
 
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import type { ResolvedConfig } from 'vite'
+import type { Manifest, ResolvedConfig } from 'vite'
 
+import { productionAssets, publicFiles, writePageAssets } from '../build/assets'
+import { discoverPages } from '../build/discover/pages'
 import { type ResolvedProjectConfig, resolveProjectConfig, resolveSarkOptions } from '../config'
 import type { SarkPluginApi } from '../vite'
 
@@ -30,7 +32,7 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
     const config = await resolveConfig({}, 'build', 'production', 'production')
     if (!config.plugins.some((plugin) => plugin.name === '@olivaw/sark')) {
       const { generateResolvedProject } = await import('../vite')
-      generateResolvedProject(resolveProjectConfig(config.root, resolveSarkOptions()))
+      generateResolvedProject(resolveProjectConfig(config.root, resolveSarkOptions()), config.base)
     }
     console.log('✨ Sark build artifacts generated successfully.')
   } else if (command === 'start') {
@@ -52,18 +54,89 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
     const builder = await createBuilder({
       environments: { ssr: {} },
       builder: { sharedConfigBuild: true },
+      build: { manifest: true },
     })
     const project = await projectFromConfig(builder.config)
     if (project.options.target === 'cloudflare') {
       await builder.buildApp()
     } else {
+      // Clean output directory once before environment builds if configured to empty
+      const rootDir = builder.config.root
+      const absOutDir = resolve(rootDir, builder.config.build.outDir)
+      const relOutDir = relative(rootDir, absOutDir)
+      const isInsideRoot =
+        relOutDir !== '' &&
+        relOutDir !== '..' &&
+        !relOutDir.startsWith(`..${sep}`) &&
+        !isAbsolute(relOutDir)
+      const shouldEmpty = builder.config.build.emptyOutDir ?? isInsideRoot
+
+      if (shouldEmpty) {
+        rmSync(absOutDir, { recursive: true, force: true })
+      }
+
+      const clientEntry = resolve(project.generatedDir, 'client.tsx')
+      const hasPages = existsSync(clientEntry)
+      const plugin = builder.config.plugins.find((entry) => entry.name === '@olivaw/sark')
+      const pages = plugin
+        ? (plugin.api as SarkPluginApi).pages
+        : project.options.webDir === false
+          ? undefined
+          : discoverPages(resolve(project.root, project.options.webDir), project.options.webPrefix)
+      let manifest: Manifest = {}
+      if (hasPages) {
+        const clientEnvironment = new BuildEnvironment('client', builder.config, {
+          options: {
+            build: {
+              outDir: resolve(absOutDir, 'client'),
+              manifest: true,
+              copyPublicDir: false,
+              emptyOutDir: false,
+              rolldownOptions: {
+                input: clientEntry,
+                output: {
+                  entryFileNames: 'assets/[name]-[hash].js',
+                  chunkFileNames: 'assets/[name]-[hash].js',
+                  assetFileNames: 'assets/[name]-[hash][extname]',
+                },
+              },
+            },
+          },
+        })
+        await clientEnvironment.init()
+        await builder.build(clientEnvironment)
+        const manifestName =
+          typeof clientEnvironment.config.build.manifest === 'string'
+            ? clientEnvironment.config.build.manifest
+            : '.vite/manifest.json'
+        const manifestPath = resolve(clientEnvironment.config.build.outDir, manifestName)
+        manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest
+        copyFileSync(manifestPath, resolve(absOutDir, 'manifest.json'))
+        rmSync(manifestPath)
+      }
+
+      const publicPaths = publicFiles(builder.config.publicDir)
+      if (builder.config.publicDir && existsSync(builder.config.publicDir)) {
+        mkdirSync(absOutDir, { recursive: true })
+        cpSync(builder.config.publicDir, resolve(absOutDir, 'public'), { recursive: true })
+      }
+      writePageAssets(
+        project,
+        productionAssets(manifest, project, pages, builder.config.base, publicPaths),
+      )
+
       // Reuse Vite's resolved configuration and public environment merging; do not load it again.
       const environment = new BuildEnvironment('ssr', builder.config, {
         options: {
           build: {
             ssr: resolve(project.generatedDir, 'start.ts'),
-            outDir: builder.config.build.outDir,
-            rolldownOptions: { output: { entryFileNames: 'server.mjs' } },
+            outDir: absOutDir,
+            emptyOutDir: false,
+            copyPublicDir: false,
+            manifest: false,
+            rolldownOptions: {
+              output: { entryFileNames: 'server.mjs', chunkFileNames: 'server/[name]-[hash].mjs' },
+            },
           },
         },
       })
@@ -91,7 +164,7 @@ async function projectFromConfig(config: ResolvedConfig): Promise<ResolvedProjec
   }
   const project = resolveProjectConfig(config.root, resolveSarkOptions())
   const { generateResolvedProject } = await import('../vite')
-  generateResolvedProject(project)
+  generateResolvedProject(project, config.base)
   return project
 }
 

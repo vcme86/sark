@@ -52,42 +52,50 @@ it('keeps CORS on an authorization rejection', async () => {
   )
 })
 
-it('keeps CORS on body-limit rejection before application middleware', async () => {
-  let ran = false
-  await withApp(
-    {
-      cors: { origin },
-      bodyLimit: 1,
-      csrf: { origins: [origin] },
-      middleware: [
-        async (_ctx, next) => {
-          ran = true
-          await next()
-        },
+it.each([true, false])(
+  'keeps CORS on body-limit rejection (declared length: %s)',
+  async (declared) => {
+    let ran = false
+    await withApp(
+      {
+        cors: { origin },
+        bodyLimit: 1,
+        csrf: { origins: [origin] },
+        middleware: [
+          async (_ctx, next) => {
+            ran = true
+            await next()
+          },
+        ],
+      },
+      [
+        entry(
+          'write.post.ts',
+          route()
+            .validate({ json: z.object({ name: z.string() }) })
+            .handler((_ctx, input) => input.json),
+        ),
       ],
-    },
-    [
-      entry(
-        'write.post.ts',
-        route()
-          .validate({ json: z.object({ name: z.string() }) })
-          .handler((_ctx, input) => input.json),
-      ),
-    ],
-    async (app) => {
-      const response = await app.fetch(
-        new Request('https://api.example/api/write', {
-          method: 'POST',
-          headers: { Origin: origin, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'Alice' }),
-        }),
-      )
-      expect(response.status).toBe(413)
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin)
-      expect(ran).toBe(false)
-    },
-  )
-})
+      async (app) => {
+        const body = JSON.stringify({ name: 'Alice' })
+        const response = await app.fetch(
+          new Request('https://api.example/api/write', {
+            method: 'POST',
+            headers: {
+              Origin: origin,
+              'Content-Type': 'application/json',
+              ...(declared ? { 'Content-Length': String(body.length) } : {}),
+            },
+            body,
+          }),
+        )
+        expect(response.status).toBe(413)
+        expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin)
+        expect(ran).toBe(!declared)
+      },
+    )
+  },
+)
 
 it('keeps CORS on an independent CSRF rejection', async () => {
   await withApp(

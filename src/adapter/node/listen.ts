@@ -12,10 +12,14 @@ import type { RequiresEnv } from '../../core/declaration'
 import { applicationLifecycles } from '../../core/lifecycle'
 import { getLogger } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
+import type { StaticAssets } from '../../web/http/assets'
 import type { ResolvedCompressionOptions } from '../../web/http/compression'
 import { requestCompressionPolicies } from '../../web/http/middleware/compress'
+import { cors } from '../../web/http/middleware/cors'
+import { applyResponseHeaders } from '../../web/http/server/request-context'
 import { mountNodeProbes } from './probes'
 import { type NodeRuntimeDeclaration, resolveNodeRuntime } from './runtime'
+import { createNodeStaticHandler } from './static'
 
 /** Controller handle exposing the running Node.js HTTP server and shutdown trigger. */
 export interface NodeServerControl {
@@ -35,9 +39,19 @@ export interface NodeServerControl {
   close(): Promise<void>
 }
 
-/** Inferred environment argument tuple based on runtime configuration declaration. */
+/** Environment requirements and optional build assets accepted by the Node host. */
 export type RuntimeEnvRequirement<R> =
-  R extends RequiresEnv<infer E> ? [env: E] : [env?: NodeJS.ProcessEnv]
+  R extends RequiresEnv<infer E>
+    ? [env: E, build?: NodeBuildAssets]
+    : [env?: NodeJS.ProcessEnv, build?: NodeBuildAssets]
+
+/** Location of the deployed build and its generated public resource mapping. */
+export interface NodeBuildAssets {
+  /** Directory containing the deployed server entry and its public build files. */
+  readonly rootDir: string
+  /** Public URL mapping with file paths relative to rootDir. */
+  readonly assets: StaticAssets
+}
 
 /**
  * Starts the Node HTTP host with probes, compression, and graceful shutdown.
@@ -45,8 +59,9 @@ export type RuntimeEnvRequirement<R> =
  * Startup order:
  * 1. Resolve runtime settings and validate listening/shutdown options.
  * 2. Mount probes before compression and business request forwarding.
- * 3. Bind the listener and wait for successful startup.
- * 4. Register SIGTERM/SIGINT handlers and return the server control handle.
+ * 3. Register response compression, optional build assets, and business forwarding.
+ * 4. Bind the listener and wait for successful startup.
+ * 5. Register SIGTERM/SIGINT handlers and return the server control handle.
  *
  * Shutdown order:
  * 1. Stop external admission and close the listener.
@@ -61,7 +76,8 @@ export type RuntimeEnvRequirement<R> =
  *
  * @param instance - Initialized Sark application instance.
  * @param runtimeDecl - Optional Node runtime declaration created with `defineNodeRuntime`.
- * @param args - Environment supplied to the runtime factory and PORT resolution; defaults to process.env.
+ * @param args - Environment for the runtime factory and PORT resolution (defaults to process.env),
+ *   followed by optional deployed build assets.
  * @returns Server control handle with port and `close()` method.
  * @throws {Error} If runtime configuration or listener startup fails.
  * @throws {AggregateError} If startup fails and subsequent cleanup of application resources also throws.
@@ -95,6 +111,26 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
       }
       return compressor(ctx, async () => {})
     })
+
+    const build = args[1]
+    if (build) {
+      const staticHandler = createNodeStaticHandler({
+        rootDir: build.rootDir,
+        assets: build.assets,
+      })
+      const staticCors = instance.config.cors === false ? undefined : cors(instance.config.cors)
+      deliveryApp.use('*', async (ctx, next) => {
+        if (ctx.req.method === 'GET' || ctx.req.method === 'HEAD') {
+          const staticRes = await staticHandler(ctx.req.raw)
+          if (staticRes) {
+            ctx.res = ctx.newResponse(staticRes.body, staticRes)
+            if (staticCors) await staticCors(ctx, async () => {})
+            return applyResponseHeaders(ctx.res, instance.config, crypto.randomUUID())
+          }
+        }
+        return next()
+      })
+    }
 
     deliveryApp.all('*', (ctx) => instance.fetch(ctx.req.raw, ctx.env))
 

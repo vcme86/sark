@@ -79,7 +79,7 @@ interface AppConfig {
 ```
 
 - headers 默认提供下列基础安全头。单项字符串覆盖、false 移除，整体 false 关闭；头名按大小写不敏感匹配
-- bodyLimit 默认 1048576 字节，false 关闭；以最终有效策略判断流实际大小
+- bodyLimit 默认 1048576 字节，false 关闭；以最终有效策略检查声明长度，未知长度随消费计数，详见 [http.md](http.md)
 - trustedProxies 默认 loopback 和 private；显式空数组关闭 Node 转发头采信
 - cookie 默认 SameSite=Lax，生产 Secure；通用签名密钥须显式赋值，不从认证密钥或全局环境暗取
 - cors 默认关闭，启用必须给 origin，选项沿 Hono CORS

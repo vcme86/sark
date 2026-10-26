@@ -17,13 +17,15 @@ describe('engineering configuration', () => {
       appEntry: 'config/app.ts',
       apiDir: 'handlers',
       apiPrefix: '/service//v2/',
-      pageDir: false,
+      webDir: false,
+      webPrefix: '/site//articles/',
       generatedDir: 'generated/server',
       target: undefined,
     })
     expect(options.apiPrefix).toBe('/service/v2')
     expect(options.target).toBe('node')
-    expect(options.pageDir).toBe(false)
+    expect(options.webDir).toBe(false)
+    expect(options.webPrefix).toBe('/site/articles')
     const project = resolveProjectConfig('/example', options)
     expect(project.appEntryPath).toBe(resolve('/example/config/app.ts'))
     expect(project.apiDir).toBe(resolve('/example/handlers'))

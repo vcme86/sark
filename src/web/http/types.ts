@@ -3,6 +3,7 @@ import type { JSONParsed } from 'hono/utils/types'
 import type { ZodType } from 'zod'
 
 import type { CorsOptions } from './config'
+import type { InputSchema, InputValidator } from './schema'
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -33,17 +34,17 @@ export type HttpMethod =
  */
 export interface RouteInputSchema {
   /** Schema validating path parameters supplied by the router. */
-  params?: any
+  params?: InputSchema
   /** Schema validating URL search query parameters (duplicate keys collected as arrays). */
-  query?: any
+  query?: InputSchema
   /** Schema validating HTTP request headers (keys normalized to lowercase). */
-  headers?: any
+  headers?: InputSchema
   /** Schema validating JSON request body (`application/json` or `*+json`). */
-  json?: any
+  json?: InputSchema
   /** Schema validating URL-encoded or multipart form body. */
-  form?: any
+  form?: InputSchema
   /** Schema validating raw text request body. */
-  text?: any
+  text?: InputSchema
 }
 
 /**
@@ -111,15 +112,15 @@ export interface RouteOptions {
 
   /** Route-specific CSRF configuration (`boolean` or `{ origins?: string[] }`). */
   csrf?: boolean | { origins?: string[] }
-
-  [key: string]: unknown
 }
 
 /** Declared route overrides with the route's own middleware list normalized. */
 export interface ResolvedRouteOptions extends Pick<RouteOptions, 'bodyLimit' | 'cors' | 'csrf'> {
   readonly middleware: readonly MiddlewareHandler[]
-  readonly [key: string]: unknown
 }
+
+/** Declared fields with their validation interfaces resolved before request execution. */
+export type InputValidators = Readonly<Partial<Record<keyof RouteInputSchema, InputValidator>>>
 
 /** Route options, validation schemas, and handler used by the HTTP pipeline. */
 export interface RouteDeclaration<
@@ -129,6 +130,7 @@ export interface RouteDeclaration<
 > {
   readonly options: ResolvedRouteOptions
   readonly schemas?: TSchemas
+  readonly validators: InputValidators
   readonly handler: RouteHandler<TInput, TOutput>
   readonly isRoute: true
 }
@@ -200,7 +202,10 @@ type DefaultPathInput<Path extends string> = [PathParameterNames<Path>] extends 
   ? {}
   : { params: Record<PathParameterNames<Path>, string | number> }
 
-/** Infers schema inputs and decoded output; generated paths supply parameters when no params schema exists. */
+/**
+ * Infers schema inputs and decoded output.
+ * Generated paths supply parameters when the route declares no params schema.
+ */
 export type EndpointFromRoute<R, Path extends string = never> =
   R extends RouteDeclaration<never, infer Output, infer Schemas>
     ? {

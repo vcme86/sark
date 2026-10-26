@@ -16,6 +16,8 @@
 
 各能力只使用传入的 Env。DATABASE_URL、JWT/游客/因素密钥由应用工厂明确赋值；不自动把 COOKIE_SECRET/HOSTS 等变量变成另一套核心配置来源。
 
+Node 开发入口将 Vite 加载结果作为该实例的 Env，不把文件值写入 process.env。Vite 重启后重新取得环境，已有进程变量仍最高优先，不让上次文件值污染本次解析。
+
 浏览器沿 Vite 的 envPrefix 公开变量，值在构建时确定；服务端秘密不进入浏览器。替换运行秘密不要求重建浏览器，修改运行时变量也不会改变已打包的公开常量。
 
 ## SQLite 与本地文件
@@ -118,7 +120,7 @@ SIGTERM/SIGINT 进入 draining，readiness 立即 503，停止新业务和触发
   "name": "example",
   "main": "./.build/worker.ts",
   "compatibility_date": "2026-10-01",
-  "assets": { "binding": "ASSETS", "run_worker_first": true },
+  "assets": { "binding": "ASSETS", "run_worker_first": true, "html_handling": "none" },
   "d1_databases": [{ "binding": "DB", "database_name": "example", "database_id": "<database-id>" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "example-files" }],
   "triggers": { "crons": ["0 3 * * *"] },
@@ -128,6 +130,8 @@ SIGTERM/SIGINT 进入 draining，readiness 立即 503，停止新业务和触发
 这是同时使用页面/DB/文件/任务的示例，未选能力删除相应 binding。日期由应用锁定并在目标验证；AsyncLocalStorage 按对应日期的支持和必要标记处理，不机械添加整个 Node 兼容层。
 
 静态构建文件由生成的实际清单分流到 ASSETS，业务路由走 Worker；不把任意 API 404 重写成 SPA index.html。Vite 插件负责输出资源目录和生成部署配置，应用不手写 Node dist 路径来模拟平台文件系统。
+
+`html_handling: "none"` 保留 publicDir 中 HTML 文件的原始 URL，避免平台去除 `.html` 后跳转到未注册的页面路径。
 
 bindings 来自当前 env，secrets 经平台配置，本地沿官方 .dev.vars/.env 规则。Cron 实际周期只有 Wrangler 来源；onCron 只是处理映射。Node 文件日志、监听、固定延迟调度和进程探针不装入 CF。
 

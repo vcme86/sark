@@ -29,16 +29,16 @@ export interface SarkOptions {
   apiPrefix?: string
 
   /**
-   * Reserved page route directory, or `false`. Page discovery is not yet implemented.
+   * Website route directory, or `false` to disable page discovery.
    * @default 'app'
    */
-  pageDir?: string | false
+  webDir?: string | false
 
   /**
-   * Reserved page URL prefix; not yet consumed by generation.
+   * Website URL prefix shared by server and browser page routes.
    * @default '/'
    */
-  pagePrefix?: string
+  webPrefix?: string
 
   /**
    * Directory where generated code, definitions, and type declarations are written.
@@ -46,7 +46,7 @@ export interface SarkOptions {
    */
   generatedDir?: string
 
-  /** Reserved external Api type source; not yet consumed by generation. */
+  /** Module exporting Api for separated page/API deployments; excludes local API routes. */
   apiTypes?: string
 }
 
@@ -56,8 +56,8 @@ export interface ResolvedSarkOptions {
   readonly appEntry: string
   readonly apiDir: string | false
   readonly apiPrefix: string
-  readonly pageDir: string | false
-  readonly pagePrefix: string
+  readonly webDir: string | false
+  readonly webPrefix: string
   readonly generatedDir: string
   readonly apiTypes?: string
 }
@@ -76,8 +76,8 @@ const DEFAULT_SARK_OPTIONS: ResolvedSarkOptions = {
   appEntry: 'app.ts',
   apiDir: 'api',
   apiPrefix: DEFAULT_API_PREFIX,
-  pageDir: 'app',
-  pagePrefix: '/',
+  webDir: 'app',
+  webPrefix: '/',
   generatedDir: '.build',
 }
 
@@ -110,8 +110,8 @@ export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions
     appEntry: input.appEntry ?? DEFAULT_SARK_OPTIONS.appEntry,
     apiDir: input.apiDir ?? DEFAULT_SARK_OPTIONS.apiDir,
     apiPrefix: normalizePrefix(input.apiPrefix ?? DEFAULT_SARK_OPTIONS.apiPrefix, 'apiPrefix'),
-    pageDir: input.pageDir ?? DEFAULT_SARK_OPTIONS.pageDir,
-    pagePrefix: normalizePrefix(input.pagePrefix ?? DEFAULT_SARK_OPTIONS.pagePrefix, 'pagePrefix'),
+    webDir: input.webDir ?? DEFAULT_SARK_OPTIONS.webDir,
+    webPrefix: normalizePrefix(input.webPrefix ?? DEFAULT_SARK_OPTIONS.webPrefix, 'webPrefix'),
     generatedDir: input.generatedDir ?? DEFAULT_SARK_OPTIONS.generatedDir,
     apiTypes: input.apiTypes,
   }
@@ -120,8 +120,8 @@ export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions
   }
   for (const [field, value] of Object.entries(result)) {
     if (
-      ['appEntry', 'apiDir', 'pageDir', 'generatedDir', 'apiTypes'].includes(field) &&
-      !(value === false && (field === 'apiDir' || field === 'pageDir')) &&
+      ['appEntry', 'apiDir', 'webDir', 'generatedDir', 'apiTypes'].includes(field) &&
+      !(value === false && (field === 'apiDir' || field === 'webDir')) &&
       value !== undefined &&
       (typeof value !== 'string' || !value.trim())
     ) {

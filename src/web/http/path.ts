@@ -6,6 +6,8 @@
 
 import { TrieRouter } from 'hono/router/trie-router'
 
+import { canonicalPathname, normalizeUrlPath } from './url'
+
 export interface ParsedRoutePath {
   /** Hono route path including the API prefix (e.g. `/api/users/:id`). */
   readonly urlPath: string
@@ -34,6 +36,17 @@ export interface RouteSegment {
   readonly raw: string
   /** Extracted parameter name if `kind` is `'param'` or `'wildcard'`. */
   readonly name?: string
+}
+
+/** Compares API and page paths independently of parameter names and metadata formats. */
+export function routeShape(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => {
+      if (segment === '*' || (segment.startsWith(':') && segment.includes('{.+}'))) return '*'
+      return segment.startsWith(':') ? ':' : segment.toLowerCase()
+    })
+    .join('/')
 }
 
 const KNOWN_METHODS = new Set([
@@ -185,16 +198,21 @@ export function parseApiFilePath(relativePath: string, apiPrefix: string): Parse
  * @param b - Second candidate route.
  * @returns A negative value when a precedes b, positive when b precedes a, or zero for equal priority.
  */
-export function compareRoutes(a: ParsedRoutePath, b: ParsedRoutePath): number {
-  const maxLen = Math.max(a.segments.length, b.segments.length)
+export function compareRoutes(
+  a: Pick<ParsedRoutePath, 'urlPath' | 'method'>,
+  b: Pick<ParsedRoutePath, 'urlPath' | 'method'>,
+): number {
+  const segmentsA = a.urlPath.split('/').filter(Boolean)
+  const segmentsB = b.urlPath.split('/').filter(Boolean)
+  const maxLen = Math.max(segmentsA.length, segmentsB.length)
   for (let i = 0; i < maxLen; i++) {
-    const segA = a.segments[i]
-    const segB = b.segments[i]
+    const segA = segmentsA[i]
+    const segB = segmentsB[i]
     if (!segA) return -1
     if (!segB) return 1
 
-    const rankA = segA.kind === 'static' ? 0 : segA.kind === 'param' ? 1 : 2
-    const rankB = segB.kind === 'static' ? 0 : segB.kind === 'param' ? 1 : 2
+    const rankA = segmentRank(segA)
+    const rankB = segmentRank(segB)
 
     if (rankA !== rankB) {
       return rankA - rankB
@@ -205,6 +223,10 @@ export function compareRoutes(a: ParsedRoutePath, b: ParsedRoutePath): number {
   if (a.method === 'ALL' && b.method !== 'ALL') return 1
 
   return 0
+}
+
+function segmentRank(segment: string): number {
+  return segment === '*' || segment.includes('{.+}') ? 2 : segment.startsWith(':') ? 1 : 0
 }
 
 export interface RouteCanonicalizer {
@@ -244,13 +266,7 @@ export function createRouteCanonicalizer(
       const candidates = matches.length ? matches : router.match(pathIndex, lower)[0]
       const segments = candidates[0]?.[0]
       if (!segments) return null
-      const canonical = pathname
-        .split('/')
-        .map((part, index) => {
-          const segment = segments[index]
-          return segment === undefined || segment.startsWith(':') ? part : segment
-        })
-        .join('/')
+      const canonical = canonicalPathname(pathname, segments.join('/'))
       return canonical === pathname ? null : canonical
     },
   }
@@ -275,20 +291,6 @@ export function checkUrlNormalization(
     return null
   }
 
-  let pathname = matchedPath
-  if (trailingSlash === 'ignore' && url.pathname.endsWith('/') && !pathname.endsWith('/'))
-    pathname += '/'
-  if (trailingSlash === 'never' && pathname.length > 1 && pathname.endsWith('/')) {
-    pathname = pathname.slice(0, -1)
-  } else if (trailingSlash === 'always' && !pathname.endsWith('/')) {
-    pathname += '/'
-  }
-
-  if (pathname !== url.pathname) {
-    const redirectUrl = new URL(url.toString())
-    redirectUrl.pathname = pathname
-    return redirectUrl.toString()
-  }
-
-  return null
+  const normalized = normalizeUrlPath(url, matchedPath, trailingSlash)
+  return normalized.pathname === url.pathname ? null : normalized.href
 }

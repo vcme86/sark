@@ -10,6 +10,8 @@ apiDir 默认 api，apiPrefix 默认 /api。目录和平铺点号等价；index 
 
 对当前方法有效的候选，按静态段、单段参数、通配段的顺序从左到右优先匹配；同形状内具体方法优先于 all。更具体路径的 all 优先于较泛参数路径的具体方法。其他方法的路由不阻挡当前请求。生成器按此排序交给 Hono，不再实现另一套 HTTP 路由器。
 
+排序以包含挂载前缀的完整路径为准。请求路径提取沿 Hono 的编码规则；页面与浏览器匹配同样保留参数内编码斜线的含义，不对整个路径使用 decodeURIComponent。
+
 同形状、同具体方法重复时报冲突，参数名字不同不构成两个独立形状。GET 与 SSE 都占用 GET，不能按 Accept 偷换处理器。
 
 API 树只发现带上述方法、ws 或 sse 后缀的 `.ts/.js/.tsx/.jsx` 模块，无后缀辅助文件不生成路由。保留的 _middleware.ts/.js 先按作用域处理；其余下划线开头的文件/目录、声明文件、`.test.*`、`.spec.*` 忽略。完整分类与祖先链规则见 [build.md](build.md)。
@@ -48,6 +50,8 @@ export default route({ bodyLimit: 512 * 1024 })
 
 route(options?) 接受 middleware、bodyLimit、cors、csrf 及已启用能力的局部策略。validate 可省，省略时 input 为 {}。handler 必需，接收 Hono Context 与校验后的 input。
 
+schema 支持 Standard Schema V1 及 safeParse/safeParseAsync 接口。在路由声明时检查并绑定验证接口，无效 schema 使声明失败；请求执行只解析输入并调用已绑定的验证函数，不静默跳过校验。
+
 输入有六类字段：
 
 - json：application/json 及兼容 +json 正文
@@ -59,7 +63,11 @@ route(options?) 接受 middleware、bodyLimit、cors、csrf 及已启用能力�
 
 json/form/text 三种正文字段互斥，同时声明多个时，在资源创建前报错。GET/HEAD 不声明或发送正文；POST、PUT、PATCH、DELETE、OPTIONS、QUERY 可以声明。all 声明不得让 GET/HEAD 依赖正文，不能绕过方法限制。
 
-正文按 Content-Type 解析，媒体类型不适用返回 415，语法错误或 schema 校验失败返回 400。缺省正文与空值按 schema 分开处理。正文上限同时覆盖流实际读取，不能只信 Content-Length。
+正文按 Content-Type 解析，媒体类型不适用返回 415，语法错误或 schema 校验失败返回 400。缺省正文与空值按 schema 分开处理。正文读取产生的 HttpError（包括超限的 413）原样传播，不转换为解析错误。
+
+正文上限在请求管线统一处理。正常 Node/Workers HTTP 接入中，有 Content-Length 且无 Transfer-Encoding 时按声明长度检查，超限立即返回 413，不进入业务中间件；通过后不读取或包装正文，由宿主保证 HTTP 消息长度。未知长度或使用 Transfer-Encoding 时，通过单条计数流随消费限制原始字节，不预缓冲完整正文，也不在解析器重新编码全文计数。bodyLimit 为 false 时不检查或包装正文。
+
+未知长度请求的中间件可能先于超限检测执行；声明 json/form/text 的路由 handler 只在正文解析与校验成功后执行。直接消费原始流的 handler 可以边上传边处理，部分写入的清理和提交由应用负责。响应头提交后才发生的超限只能终止流，不能再改为完整的 413 响应。
 
 form 同时接收 multipart/form-data 与 application/x-www-form-urlencoded；同名多值收集为数组、单值保留标量、文件保留 File。数字/布尔等文本转换由 schema 明确执行，不发明嵌套表单编码。
 
@@ -104,6 +112,8 @@ interface ErrorBody {
 ```
 
 code 用于程序识别，message 用于展示。未知异常记录实际错误，生产返回 500 的通用信息，不带内部堆栈或敏感 details。401 在适用认证方案下提供 WWW-Authenticate。错误响应体不再进行 Accept 协商。
+
+Hono 原生 HTTPException 是已识别的协议异常，保留其 getResponse() 的状态、正文和响应头，不转换为未知异常或另套错误信封。
 
 客户端收到非 2xx 响应时抛出同一 HttpError，保存实际状态、响应头与已解码 body。响应体不符合框架错误格式时，code 使用 http_error，仍保留网关等外部服务的正文。网络失败和取消保留传输错误。requestRaw 不按状态抛错。
 

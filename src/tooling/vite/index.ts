@@ -4,14 +4,32 @@
  * @module
  */
 
-import { resolve } from 'node:path'
+import { isBuiltin } from 'node:module'
+import { relative, resolve } from 'node:path'
 
 import { getRequestListener } from '@hono/node-server'
-import { normalizePath, type Plugin, type ViteDevServer } from 'vite'
+import {
+  loadEnv,
+  type Manifest,
+  normalizePath,
+  type Plugin,
+  type ResolvedConfig,
+  type ViteDevServer,
+} from 'vite'
 
+import { createNodeStaticHandler } from '../../adapter/node/static'
 import { createApp } from '../../core/create'
+import type { ApplicationDefinition, PageRequestHandler } from '../../core/definition'
 import type { AppInstance } from '../../core/types'
+import {
+  collectDevelopmentAssets,
+  developmentAssets,
+  productionAssets,
+  publicFiles,
+  writePageAssets,
+} from '../build/assets'
 import { discoverAppEntry } from '../build/discover/app'
+import { type DiscoveredPageTree, discoverPages } from '../build/discover/pages'
 import { discoverApiRoutes } from '../build/discover/routes'
 import { generateBuildArtifacts } from '../build/generate'
 import {
@@ -28,10 +46,12 @@ export interface SarkPluginApi {
   readonly options: ResolvedSarkOptions
   /** Final project paths; available after Vite resolves its configuration. */
   readonly project: ResolvedProjectConfig
+  readonly pages: DiscoveredPageTree | undefined
 }
 
 /**
- * Discovers app exports and API routes when Vite resolves configuration.
+ * Integrates API/page discovery, generation, builds, and development serving with Vite.
+ * Generates an early Workers entry, then binds final paths and resource URLs in configResolved.
  *
  * @param options - Project entry paths, discovery settings, generation directory, and target.
  * @returns A Vite plugin managing generation and development request handling.
@@ -39,6 +59,8 @@ export interface SarkPluginApi {
 export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi } {
   const resolved = resolveSarkOptions(options)
   let project: ResolvedProjectConfig | undefined
+  let pages: DiscoveredPageTree | undefined
+  let viteConfig: ResolvedConfig
   function getProject(): ResolvedProjectConfig {
     if (!project)
       throw new Error('Sark project paths are unavailable before Vite configuration resolves.')
@@ -56,16 +78,111 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       get project() {
         return getProject()
       },
+      get pages() {
+        return pages
+      },
     },
 
     config(config) {
       // The official Workers plugin needs the entry before final configuration is available.
-      generateResolvedProject(resolveProjectConfig(resolve(config.root ?? '.'), resolved))
+      const early = resolveProjectConfig(resolve(config.root ?? '.'), resolved)
+      const tree = generateResolvedProject(early)
+      if (resolved.target === 'cloudflare' && tree?.pages.length) {
+        return {
+          environments: {
+            client: {
+              build: {
+                manifest: true,
+                rolldownOptions: { input: resolve(early.generatedDir, 'client.tsx') },
+              },
+            },
+          },
+        }
+      }
     },
 
     configResolved(config) {
+      viteConfig = config
       project = resolveProjectConfig(config.root, resolved)
-      generateResolvedProject(project)
+      pages = generateResolvedProject(project, config.base)
+      if (resolved.target === 'cloudflare' && config.command === 'build' && !pages?.pages.length) {
+        writePageAssets(
+          project,
+          productionAssets({}, project, pages, config.base, publicFiles(config.publicDir)),
+        )
+      }
+    },
+
+    writeBundle(_options, bundle) {
+      if (resolved.target !== 'cloudflare' || this.environment.name !== 'client') return
+      const manifestName =
+        typeof this.environment.config.build.manifest === 'string'
+          ? this.environment.config.build.manifest
+          : '.vite/manifest.json'
+      const manifest = bundle[manifestName]
+      if (!manifest || manifest.type !== 'asset')
+        throw new Error('Client build did not emit its manifest.')
+      const source =
+        typeof manifest.source === 'string'
+          ? manifest.source
+          : new TextDecoder().decode(manifest.source)
+      writePageAssets(
+        getProject(),
+        productionAssets(
+          JSON.parse(source) as Manifest,
+          getProject(),
+          pages,
+          viteConfig.base,
+          publicFiles(viteConfig.publicDir),
+        ),
+      )
+    },
+
+    buildApp: {
+      order: 'pre',
+      async handler(builder) {
+        if (resolved.target !== 'cloudflare' || !pages?.pages.length) return
+        // The Worker embeds the completed browser mapping. The official plugin
+        // still owns Worker builds and moves its emitted assets into client output.
+        const client = builder.environments.client
+        const build = builder.build.bind(builder)
+        const output = await build(client)
+        builder.build = (environment) =>
+          environment === client && client.isBuilt ? Promise.resolve(output) : build(environment)
+      },
+    },
+
+    resolveId(id, importer) {
+      if (
+        this.environment.config.consumer === 'client' &&
+        (isBuiltin(id) ||
+          id === '@olivaw/sark/server' ||
+          id.startsWith('@olivaw/sark/server/') ||
+          (id.startsWith('@olivaw/sark/runtime/') && id !== '@olivaw/sark/runtime/page-browser'))
+      )
+        this.error(`Browser module "${importer}" cannot import server module "${id}".`)
+      if (id === '@vitejs/plugin-react/preamble') {
+        // The official React plugin owns refresh when present. Plain JSX builds
+        // without that plugin do not install a refresh runtime.
+        if (viteConfig.plugins.some((plugin) => plugin.name === 'vite:react-virtual-preamble'))
+          return
+        return '\0virtual:sark:react-preamble'
+      }
+    },
+
+    load(id) {
+      if (id === '\0virtual:sark:react-preamble') {
+        return ''
+      }
+    },
+
+    transform(_code, id) {
+      if (
+        this.environment.config.consumer === 'client' &&
+        normalizePath(id.split('?')[0]) === normalizePath(getProject().appEntryPath)
+      ) {
+        this.error('Browser modules cannot import the application configuration entry.')
+      }
     },
 
     async hotUpdate({ file, modules }) {
@@ -81,21 +198,172 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
     },
 
     configureServer(server: ViteDevServer) {
-      if (resolved.target === 'cloudflare') return
       const projectConfig = getProject()
+      const nodeEnv =
+        resolved.target === 'node'
+          ? loadEnv(server.config.mode, server.config.envDir, '')
+          : undefined
+      let publicPaths = new Set(publicFiles(server.config.publicDir))
+      function publicHandler() {
+        return server.config.publicDir && publicPaths.size
+          ? createNodeStaticHandler({
+              rootDir: server.config.publicDir,
+              assets: {
+                base: server.config.base,
+                files: Object.fromEntries(
+                  [...publicPaths].map((path) => [path, { path, hashed: false }]),
+                ),
+              },
+            })
+          : undefined
+      }
+      let servePublic = publicHandler()
+      // Reuse the file responder for exact public filenames, including encoded # and ?.
+      // Vite's public middleware uses decodeURI and cannot address those filenames.
+      const publicListener = getRequestListener(
+        async (request) => (await servePublic?.(request)) ?? new Response(null, { status: 404 }),
+      )
+      server.middlewares.use((request, response, next) => {
+        const pathname = new URL(request.url ?? '/', 'http://vite.local').pathname
+        if (!pathname.startsWith(server.config.base)) return next()
+        let key: string
+        try {
+          key = decodeURIComponent(pathname.slice(server.config.base.length))
+        } catch {
+          return next()
+        }
+        if (!publicPaths.has(key) || !['GET', 'HEAD'].includes(request.method ?? 'GET'))
+          return next()
+        void publicListener(request, response).catch(next)
+      })
+      const updatePublicFiles = (file: string) => {
+        if (
+          server.config.publicDir &&
+          normalizePath(file).startsWith(normalizePath(server.config.publicDir) + '/')
+        ) {
+          publicPaths = new Set(publicFiles(server.config.publicDir))
+          servePublic = publicHandler()
+          developmentAssetsReady = undefined
+        }
+      }
+      server.watcher.on('add', updatePublicFiles).on('unlink', updatePublicFiles)
+      let developmentFiles: Readonly<Record<string, unknown>> = {}
+      let developmentAssetsReady: Promise<void> | undefined
+      const prepareAssets = () =>
+        (developmentAssetsReady ??= collectDevelopmentAssets(server, pages, projectConfig)
+          .then((assets) => {
+            writePageAssets(projectConfig, assets)
+            developmentFiles = assets.files
+            server.environments.ssr.moduleGraph.onFileChange(
+              normalizePath(resolve(projectConfig.generatedDir, 'page-assets.ts')),
+            )
+          })
+          .catch((error) => {
+            developmentAssetsReady = undefined
+            throw error
+          }))
+      const generatedDir = projectConfig.generatedDir
+      const apiPrefix = resolved.apiPrefix
+      const apiDir = projectConfig.apiDir === false ? false : normalizePath(projectConfig.apiDir)
+      const appEntry = normalizePath(projectConfig.appEntryPath)
+      const webDir =
+        resolved.webDir === false
+          ? false
+          : normalizePath(resolve(projectConfig.root, resolved.webDir))
+
+      const isRoutingFile = (file: string) =>
+        file === appEntry ||
+        Boolean(apiDir && file.startsWith(apiDir + '/')) ||
+        Boolean(webDir && file.startsWith(webDir + '/'))
+      if (resolved.target === 'cloudflare') {
+        server.middlewares.use((request, _response, next) => {
+          if (!request.headers.accept?.includes('text/html')) return next()
+          void prepareAssets().then(() => next(), next)
+        })
+        handleServerUpdate = async (file, isServerModule) => {
+          if (file.startsWith(normalizePath(generatedDir) + '/')) return
+          if (isRoutingFile(file)) {
+            pages = generateResolvedProject(projectConfig, server.config.base)
+            server.environments.ssr.moduleGraph.onFileChange(
+              normalizePath(resolve(generatedDir, 'app.ts')),
+            )
+            server.environments.ssr.hot.send({ type: 'full-reload' })
+          }
+          if (isRoutingFile(file) || isServerModule) developmentAssetsReady = undefined
+        }
+        return
+      }
 
       let currentAppInstance: AppInstance | null = null
       let creatingPromise: Promise<AppInstance> | null = null
       let handoffQueue: Promise<void> = Promise.resolve()
       let fatalDisposalError: Error | null = null
 
-      const generatedDir = projectConfig.generatedDir
-      const apiPrefix = resolved.apiPrefix
-      const apiDir = projectConfig.apiDir === false ? false : normalizePath(projectConfig.apiDir)
-      const appEntry = normalizePath(projectConfig.appEntryPath)
+      let pageHandlers = new Map<string, PageRequestHandler>()
+      let page404: PageRequestHandler | undefined
+      let pageUpdateError: unknown
+
+      function updatePageBindings(definition: ApplicationDefinition): void {
+        pageHandlers = new Map(
+          definition.routes
+            .filter((entry) => entry.kind === 'page')
+            .map((entry) => [entry.routePath.urlPath, entry.pageHandler]),
+        )
+        page404 = definition.page404Handler
+        pageUpdateError = undefined
+      }
+
+      function bindDevelopmentPages(definition: ApplicationDefinition): ApplicationDefinition {
+        updatePageBindings(definition)
+        return {
+          ...definition,
+          routes: definition.routes.map((entry) =>
+            entry.kind === 'page'
+              ? {
+                  ...entry,
+                  pageHandler: (...args: Parameters<PageRequestHandler>) => {
+                    if (pageUpdateError) throw pageUpdateError
+                    return pageHandlers.get(entry.routePath.urlPath)!(...args)
+                  },
+                }
+              : entry,
+          ),
+          page404Handler: definition.page404Handler
+            ? (...args: Parameters<PageRequestHandler>) => {
+                if (pageUpdateError) throw pageUpdateError
+                return page404!(...args)
+              }
+            : undefined,
+        }
+      }
+
+      function affectsOnlyPages(file: string): boolean {
+        let hasPage = Boolean(webDir && file.startsWith(webDir + '/'))
+        const pending = [...(server.environments.ssr.moduleGraph.getModulesByFile(file) ?? [])]
+        const seen = new Set<string>()
+        const middlewareFiles = new Set(
+          [...(pages?.middlewares.values() ?? [])].map((middleware) => middleware.filePath),
+        )
+        const sharedServer = (path: string) =>
+          path === appEntry ||
+          Boolean(apiDir && path.startsWith(apiDir + '/')) ||
+          middlewareFiles.has(path) ||
+          /(?:^|[/.])_middleware\.[jt]s$/.test(path)
+        if (sharedServer(file)) return false
+        while (pending.length) {
+          const module = pending.pop()!
+          if (!module.file || seen.has(module.file)) continue
+          seen.add(module.file)
+          if (module.file.startsWith(normalizePath(generatedDir) + '/')) continue
+          if (sharedServer(module.file)) return false
+          hasPage ||= Boolean(webDir && module.file.startsWith(webDir + '/'))
+          pending.push(...module.importers)
+        }
+        return hasPage
+      }
 
       async function getAppInstance(): Promise<AppInstance> {
-        // Wait for any ongoing instance invalidation / disposal to settle
+        // Creation must wait for the previous instance handoff to finish.
         await handoffQueue.catch(() => {})
 
         if (fatalDisposalError) {
@@ -109,9 +377,12 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         if (creatingPromise) return creatingPromise
 
         creatingPromise = (async () => {
+          await prepareAssets()
           const appFilePath = resolve(generatedDir, 'app.ts')
           const appModule = await server.ssrLoadModule(appFilePath)
-          const instance = await createApp(appModule.definition, { env: process.env })
+          const instance = await createApp(bindDevelopmentPages(appModule.definition), {
+            env: nodeEnv,
+          })
           currentAppInstance = instance
           creatingPromise = null
           return instance
@@ -122,61 +393,67 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         return creatingPromise
       }
 
-      async function invalidateAppInstance(): Promise<void> {
-        const previousHandoff = handoffQueue
-        handoffQueue = (async () => {
-          await previousHandoff.catch(() => {})
-
-          // If an instance is being created concurrently, wait for it to settle so it can be disposed
-          if (creatingPromise) {
-            try {
-              const pending = await creatingPromise
-              await pending.close()
-            } catch {
-              // Creation errors reach waiting requests; disposal errors are recorded below.
-            } finally {
-              creatingPromise = null
-            }
+      async function closeCurrentInstance(): Promise<void> {
+        if (creatingPromise) {
+          try {
+            await creatingPromise
+          } catch {
+            /* The pending request receives creation failures. */
           }
+        }
+        const instance = currentAppInstance
+        currentAppInstance = null
+        if (!instance) return
+        try {
+          await instance.close()
+        } catch (error) {
+          fatalDisposalError = error instanceof Error ? error : new Error(String(error))
+          throw error
+        }
+      }
 
-          if (currentAppInstance) {
-            const inst = currentAppInstance
-            currentAppInstance = null
-            try {
-              await inst.close()
-            } catch (err) {
-              fatalDisposalError = err instanceof Error ? err : new Error(String(err))
-              throw err
-            }
-          }
-        })()
-        await handoffQueue
+      function enqueueUpdate(update: () => Promise<void>): Promise<void> {
+        handoffQueue = handoffQueue.catch(() => {}).then(update)
+        return handoffQueue
+      }
+
+      function invalidateAppInstance(): Promise<void> {
+        return enqueueUpdate(closeCurrentInstance)
       }
 
       activeInvalidate = invalidateAppInstance
 
       // Vite invalidates its module graph before hotUpdate; raw watcher events run too early.
       handleServerUpdate = async (file, isServerModule) => {
-        try {
-          const isRoutingFile =
-            file === appEntry || Boolean(apiDir && file.startsWith(`${apiDir}/`))
-
-          if (isRoutingFile || isServerModule) {
-            if (isRoutingFile) {
-              generateResolvedProject(projectConfig)
-              // New or removed routes change generated imports independently of the source module.
-              server.environments.ssr.moduleGraph.onFileChange(
-                normalizePath(resolve(generatedDir, 'app.ts')),
-              )
-            }
-            await invalidateAppInstance()
+        if (file.startsWith(normalizePath(generatedDir) + '/')) return
+        if (!isRoutingFile(file) && !isServerModule) return
+        const pageOnly = affectsOnlyPages(file)
+        await enqueueUpdate(async () => {
+          try {
+            const previousTopology = pageTopology(pages)
+            if (isRoutingFile(file))
+              pages = generateResolvedProject(projectConfig, server.config.base)
+            developmentAssetsReady = undefined
+            server.environments.ssr.moduleGraph.onFileChange(
+              normalizePath(resolve(generatedDir, 'app.ts')),
+            )
+            if (pageOnly && previousTopology === pageTopology(pages)) {
+              if (creatingPromise) await creatingPromise
+              if (currentAppInstance) {
+                await prepareAssets()
+                const module = await server.ssrLoadModule(resolve(generatedDir, 'app.ts'))
+                updatePageBindings(module.definition)
+              }
+            } else await closeCurrentInstance()
+          } catch (error) {
+            if (pageOnly) pageUpdateError = error
+            else await closeCurrentInstance()
+            console.error('[sark][dev] Module reload failed:', error)
           }
-        } catch (err) {
-          console.error('[sark][dev] Module reload failed:', err)
-        }
+        })
       }
 
-      // Clean shutdown when Vite dev server closes
+      // Reuse the serialized handoff path when the Vite HTTP server closes.
       server.httpServer?.on('close', () => {
         invalidateAppInstance().catch((err) => {
           console.error('[sark][dev] Error closing application on server close:', err)
@@ -206,10 +483,25 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         const url = req.url ?? '/'
         const pathname = url.split('?')[0]
 
-        // Only handle requests matching apiPrefix (case-insensitive for dev dispatch)
-        if (!matchesPrefix(pathname, apiPrefix)) {
+        const base = server.config.base
+        const resourcePath = pathname.startsWith(base)
+          ? '/' + pathname.slice(base.length)
+          : pathname
+        let publicPath: string
+        try {
+          publicPath = decodeURIComponent(resourcePath.slice(1))
+        } catch {
           return next()
         }
+        const isViteResource =
+          resourcePath.startsWith('/@') ||
+          resourcePath.startsWith('/node_modules/') ||
+          Object.hasOwn(developmentFiles, publicPath) ||
+          publicPaths.has(publicPath)
+        if (isViteResource) return next()
+        const isApi = matchesPrefix(pathname, apiPrefix)
+        const isHtml = Boolean(req.headers.accept?.includes('text/html'))
+        if (!isApi && (resolved.webDir === false || !isHtml)) return next()
 
         listener(req, res).catch(next)
       })
@@ -224,6 +516,15 @@ function matchesPrefix(path: string, pre: string): boolean {
   return p === pr || p.startsWith(`${pr}/`)
 }
 
+function pageTopology(tree: DiscoveredPageTree | undefined): string {
+  return JSON.stringify(
+    tree?.pages.map((page) => [
+      page.routePath.urlPath,
+      page.middlewareChain.map((middleware) => middleware.filePath),
+    ]),
+  )
+}
+
 /**
  * Runs discovery and code generation for the Vite plugin and CLI.
  *
@@ -232,25 +533,42 @@ function matchesPrefix(path: string, pre: string): boolean {
  * @throws If discovery detects invalid exports or route conflicts, or generated files cannot be written.
  */
 export function generateProject(projectRoot: string, options: SarkOptions = {}): void {
-  generateResolvedProject(resolveProjectConfig(projectRoot, resolveSarkOptions(options)))
+  generateResolvedProject(resolveProjectConfig(projectRoot, resolveSarkOptions(options)), '/')
 }
 
 /**
  * Generates artifacts using the owning entry's complete project configuration.
  *
  * @param config - Resolved options and absolute discovery paths.
+ * @param base - Final Vite resource base; omitted during early entry generation.
+ * @returns Discovered page metadata, or undefined when page discovery is disabled.
  * @throws If discovery detects conflicts or generation cannot write its artifacts.
  */
-export function generateResolvedProject(config: ResolvedProjectConfig): void {
+export function generateResolvedProject(
+  config: ResolvedProjectConfig,
+  base?: string,
+): DiscoveredPageTree | undefined {
   const appExports = discoverAppEntry(config.appEntryPath)
   const routes =
     config.apiDir === false ? [] : discoverApiRoutes(config.apiDir, config.options.apiPrefix)
+  const pages =
+    config.options.webDir === false
+      ? undefined
+      : discoverPages(resolve(config.root, config.options.webDir), config.options.webPrefix)
   generateBuildArtifacts({
     generatedDir: config.generatedDir,
     appEntryPath: config.appEntryPath,
     appExports,
     routes,
+    pages,
     apiPrefix: config.options.apiPrefix,
+    webPrefix: config.options.webPrefix,
     target: config.options.target,
+    apiTypes: config.options.apiTypes?.startsWith('.')
+      ? './' +
+        normalizePath(relative(config.generatedDir, resolve(config.root, config.options.apiTypes)))
+      : config.options.apiTypes,
+    assets: base === undefined ? undefined : developmentAssets(base, pages, config.generatedDir),
   })
+  return pages
 }

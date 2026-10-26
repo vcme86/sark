@@ -42,6 +42,8 @@ export async function assembleApp<D extends ApplicationDefinition>(
   const lifecycle = new LifecycleManager()
 
   try {
+    const staticPageConfig =
+      options.kind === 'static' ? definition.resolvePageConfig?.(options.env) : undefined
     let instanceRef: AppInstance<D> | undefined
     function currentConfig(): ResolvedHttpConfig {
       if (options.kind === 'static') return options.config
@@ -55,6 +57,9 @@ export async function assembleApp<D extends ApplicationDefinition>(
       options.kind === 'static' ? options.config : currentConfig,
       definition.routes,
       () => instanceRef,
+      definition.apiPrefix,
+      definition.page404Handler,
+      definition.webPrefix,
     )
     lifecycle.setReady()
 
@@ -78,12 +83,18 @@ export async function assembleApp<D extends ApplicationDefinition>(
           : options.kind === 'event'
             ? options.resolve(requestEnv)
             : options.config
+        const pageConfig = isInternal
+          ? parent.pageConfig
+          : options.kind === 'static'
+            ? staticPageConfig
+            : definition.resolvePageConfig?.(requestEnv)
         return await runInScope(
           {
             ...parent,
             requestId,
             app: instanceRef,
             config: effectiveConfig,
+            pageConfig,
             env: options.kind === 'event' ? requestEnv : options.env,
             executionCtx,
           },

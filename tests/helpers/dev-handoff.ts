@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 
 import { type Connect, type Plugin, resolveConfig, type ViteDevServer } from 'vite'
@@ -36,10 +37,11 @@ export async function createDevHandoff(
   // The coordinator uses only these Vite facilities; HTTP transport is not mocked.
   const server = {
     config,
+    watcher: new EventEmitter(),
     middlewares: { use: (handler: Connect.NextHandleFunction) => handlers.push(handler) },
     httpServer,
     ssrLoadModule: load,
-    environments: { ssr: { moduleGraph: { onFileChange() {} } } },
+    environments: { ssr: { moduleGraph: { onFileChange() {}, getModulesByFile() {} } } },
   } as unknown as ViteDevServer
   if (typeof plugin.configureServer !== 'function') throw new Error('Missing configureServer hook')
   await Reflect.apply(plugin.configureServer, {}, [server])

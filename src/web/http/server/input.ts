@@ -7,10 +7,7 @@
 import type { Context } from 'hono'
 
 import { HttpError } from '../error'
-import { validateSchema } from '../schema'
-import type { RouteInputSchema } from '../types'
-
-const textEncoder = new TextEncoder()
+import type { InputValidators } from '../types'
 
 /**
  * Parses and validates the input fields declared by the route.
@@ -23,29 +20,27 @@ const textEncoder = new TextEncoder()
  *
  * Body handling:
  * - JSON and form schemas check Content-Type; text schemas accept the body as text.
- * - The pipeline enforces size limits before parsing; JSON and text also check bytes here.
+ * - The pipeline checks declared lengths early and limits unknown-length bodies as read.
  * - Repeated form keys become arrays, including File values in multipart forms.
  * - Syntax and schema failures produce HTTP 400 with validation details.
  *
  * @param ctx - Hono request context.
- * @param schemas - Route input validation schemas for params, query, headers, and body.
- * @param bodyLimit - Resolved JSON/text byte limit; false disables the extra size check here.
+ * @param validators - Schema adapters prepared by the route declaration.
  * @returns Validated values keyed by the declared schema fields; undeclared fields are omitted.
  * @throws {HttpError} 400 for malformed syntax or schema validation failures.
- * @throws {HttpError} 413 if the payload size exceeds the configured body limit.
+ * @throws {HttpError} 413 if reading an unknown-length body exceeds the effective limit.
  * @throws {HttpError} 415 if Content-Type is incompatible with the JSON or form schema.
  */
 export async function parseAndValidateInput(
   ctx: Context,
-  schemas: RouteInputSchema | undefined,
-  bodyLimit: number | false,
+  validators: InputValidators,
 ): Promise<any> {
   const result: Record<string, any> = {}
 
   // 1. Params
-  if (schemas?.params) {
+  if (validators.params) {
     const rawParams = ctx.req.param()
-    const validated = await validateSchema(schemas.params, rawParams)
+    const validated = await validators.params(rawParams)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid path parameters', { details: validated.error })
     }
@@ -53,10 +48,10 @@ export async function parseAndValidateInput(
   }
 
   // 2. Query
-  if (schemas?.query) {
+  if (validators.query) {
     const url = new URL(ctx.req.url)
     const rawQuery = collectFields(url.searchParams)
-    const validated = await validateSchema(schemas.query, rawQuery)
+    const validated = await validators.query(rawQuery)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid query parameters', { details: validated.error })
     }
@@ -64,12 +59,12 @@ export async function parseAndValidateInput(
   }
 
   // 3. Headers
-  if (schemas?.headers) {
+  if (validators.headers) {
     const rawHeaders: Record<string, string> = {}
     for (const [key, value] of ctx.req.raw.headers.entries()) {
       rawHeaders[key.toLowerCase()] = value
     }
-    const validated = await validateSchema(schemas.headers, rawHeaders)
+    const validated = await validators.headers(rawHeaders)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid request headers', { details: validated.error })
     }
@@ -79,7 +74,7 @@ export async function parseAndValidateInput(
   // 4. Body fields (json | form | text)
   const contentType = (ctx.req.header('content-type') ?? '').split(';', 1)[0].trim().toLowerCase()
 
-  if (schemas?.json) {
+  if (validators.json) {
     if (
       contentType !== 'application/json' &&
       !/^application\/[^/]+\+json$/.test(contentType) &&
@@ -92,15 +87,8 @@ export async function parseAndValidateInput(
     try {
       text = await ctx.req.text()
     } catch (err) {
+      if (err instanceof HttpError) throw err
       throw new HttpError(400, 'Failed to read request body', { details: String(err) })
-    }
-
-    const byteLen = textEncoder.encode(text).length
-    if (bodyLimit !== false && byteLen > bodyLimit) {
-      throw new HttpError(
-        413,
-        `Payload Too Large: body byte length ${byteLen} exceeds limit ${bodyLimit}`,
-      )
     }
 
     let rawBody: unknown
@@ -110,12 +98,12 @@ export async function parseAndValidateInput(
       throw new HttpError(400, 'Malformed JSON body', { details: String(err) })
     }
 
-    const validated = await validateSchema(schemas.json, rawBody)
+    const validated = await validators.json(rawBody)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid JSON body', { details: validated.error })
     }
     result.json = validated.data
-  } else if (schemas?.form) {
+  } else if (validators.form) {
     if (
       contentType !== 'application/x-www-form-urlencoded' &&
       contentType !== 'multipart/form-data'
@@ -128,31 +116,25 @@ export async function parseAndValidateInput(
       const formData = await ctx.req.formData()
       rawForm = collectFields(formData)
     } catch (err) {
+      if (err instanceof HttpError) throw err
       throw new HttpError(400, 'Malformed form body', { details: String(err) })
     }
 
-    const validated = await validateSchema(schemas.form, rawForm)
+    const validated = await validators.form(rawForm)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid form body', { details: validated.error })
     }
     result.form = validated.data
-  } else if (schemas?.text) {
+  } else if (validators.text) {
     let text = ''
     try {
       text = await ctx.req.text()
     } catch (err) {
+      if (err instanceof HttpError) throw err
       throw new HttpError(400, 'Failed to read text body', { details: String(err) })
     }
 
-    const byteLen = textEncoder.encode(text).length
-    if (bodyLimit !== false && byteLen > bodyLimit) {
-      throw new HttpError(
-        413,
-        `Payload Too Large: body byte length ${byteLen} exceeds limit ${bodyLimit}`,
-      )
-    }
-
-    const validated = await validateSchema(schemas.text, text)
+    const validated = await validators.text(text)
     if (!validated.success) {
       throw new HttpError(400, 'Invalid text body', { details: validated.error })
     }

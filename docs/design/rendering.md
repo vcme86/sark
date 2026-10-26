@@ -84,7 +84,9 @@ type ScopeSnapshot =
   | { status: 'idle' }
 ```
 
-build 来自生成的浏览器运行时配置，policy 仅含页面所需策略。没有凭据、DB、绝对路径或服务端模块。成功 undefined 用 success 且不带 data 表达，不改成 null。
+build 来自生成的浏览器运行时配置，policy 包含页面所需的 caseSensitive 与 trailingSlash。二者均为必需装配结果，SSR 不以空对象替代。没有凭据、DB、绝对路径或服务端模块。成功 undefined 用 success 且不带 data 表达，不改成 null。
+
+Loader、meta 和载荷中的页面 URL 使用请求入口已解析的可信公开 origin，并保留本次 path/query。浏览器以实际文档地址初始化导航，包含服务器无法取得的 hash；两端共享静态段与尾斜线规范化规则。
 
 载荷只接受 JSON 可序列化值。Date/Map 等对象不能在 SSR 与浏览器首轮变成不同形态；需要它们时由应用先转换为一致数据。嵌入 HTML 的 JSON 转义 <、U+2028、U+2029，不能用原始 JSON 字符串突破 script 边界。
 

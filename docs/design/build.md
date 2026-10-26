@@ -24,24 +24,26 @@ interface SarkOptions {
   appEntry?: string
   apiDir?: string | false
   apiPrefix?: string
-  pageDir?: string | false
-  pagePrefix?: string
+  webDir?: string | false
+  webPrefix?: string
   generatedDir?: string
   apiTypes?: string
 }
 ```
 
-默认 target=node、appEntry=app.ts、apiDir=api、apiPrefix=/api、pageDir=app、pagePrefix=/、generatedDir=.build。不存在的页面/API 目录没有发现项；false 显式关闭相应扫描。apiTypes 是分离部署时导出 Api 类型的模块名，类型导入不加载远端服务实现；与本地 API 类型来源同时指定时报错。
+默认 target=node、appEntry=app.ts、apiDir=api、apiPrefix=/api、webDir=app、webPrefix=/、generatedDir=.build。不存在的页面/API 目录没有发现项；false 显式关闭相应扫描。apiTypes 是分离部署时导出 Api 类型的模块名，类型导入不加载远端服务实现；与本地 API 类型来源同时指定时报错。
 
 publicDir 直接使用 Vite 的配置解析结果，关闭时不扫描或复制 public。静态目录名称由 Vite 配置决定，不增加另一份 staticDir。
 
 ### 配置解析与传递
 
-共同机制见 [configuration.md](configuration.md)。插件入口集中补齐并校验 Sark 工程选项，产生内部已解析配置，再绑定 Vite 最终解析的根目录、base、publicDir 和目标输出信息；Wrangler 配置使用官方接入所选环境的有效结果。apiDir/pageDir 的 false 保留关闭含义；URL 前缀在入口规范化，根前缀保留 `/`。
+共同机制见 [configuration.md](configuration.md)。插件入口集中补齐并校验 Sark 工程选项，产生内部已解析配置，再绑定 Vite 最终解析的根目录、base、publicDir 和目标输出信息；Wrangler 配置使用官方接入所选环境的有效结果。apiDir/webDir 的 false 保留关闭含义；URL 前缀在入口规范化，根前缀保留 `/`。
 
 发现、生成、开发分发、HMR 和 CLI 直接使用这份结果，不分别补 target、目录或前缀默认值。可独立调用的工程生成入口也经过同一解析流程；框架内部不重复解析原始选项。
 
-API 发现路径、生成的相对 API 类型键及框架绑定客户端基址共同使用 apiPrefix；页面发现、服务端匹配和浏览器路由共同使用 pagePrefix。base 决定构建资源 URL，不隐式替代或再次叠加 API、页面前缀。
+API 发现路径、生成的相对 API 类型键及框架绑定客户端基址共同使用 apiPrefix；页面发现、服务端匹配和浏览器路由共同使用 webPrefix。base 决定构建资源 URL，不隐式替代或再次叠加 API、页面前缀。
+
+webPrefix 限定网站页面路由及其 HTML 404 的路径范围，apiPrefix 与其独立，不相互叠加；静态资源仍使用 Vite base。
 
 上游插件要求早期已有入口时，先生成该阶段所需文件，最终配置确定后完成路径绑定和后续生成；两阶段复用已解析的 Sark 选项及同一生成实现。不能把暂定路径传给最终宿主，也不能删除必要的早期生成导致首次构建失败。
 

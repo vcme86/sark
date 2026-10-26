@@ -5,6 +5,7 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import Negotiator from 'negotiator'
 
 import { getLogger } from '../../../core/logging'
@@ -22,6 +23,7 @@ const textEncoder = new TextEncoder()
  */
 export function formatErrorResponse(error: unknown, production: boolean): Response {
   if (error instanceof HttpError) return error.toResponse()
+  if (error instanceof HTTPException) return error.getResponse()
 
   getLogger().error('Request failed', { error })
   const isDev = !production

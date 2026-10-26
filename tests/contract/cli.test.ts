@@ -72,7 +72,7 @@ export default defineConfig(async ({ command, mode }) => {
     expect(definition).toContain('"urlPath":"/service/v3/books"')
     expect(definition).toContain('"/books": {')
     expect(readFileSync(join(appRoot, 'generated/api/start.ts'), 'utf8')).toContain(
-      'await startNodeServer(instance, runtime, process.env)',
+      'await startNodeServer(instance, runtime, process.env, { rootDir:',
     )
     expect(readFileSync(reads, 'utf8')).toBe('build:production\n')
     expect(existsSync(join(root, '.build'))).toBe(false)
@@ -232,3 +232,90 @@ apiPrefix: '/v3', generatedDir: 'generated' })], build: { outDir: 'output' } }
     project.remove()
   }
 }, 15000)
+
+it('builds fullstack pages retaining dist/manifest.json alongside dist/server.mjs', async () => {
+  const project = createProject()
+  project.write(
+    'app.ts',
+    `import { defineApp } from '@olivaw/sark/server'
+export const app = defineApp({})`,
+  )
+  project.write(
+    'app/index.tsx',
+    `import React from 'react'
+export default function Home() { return <h1>Home</h1> }`,
+  )
+  project.write(
+    'vite.config.mts',
+    `import { sark } from ${JSON.stringify(viteEntry)}
+export default { logLevel: 'silent', plugins: [sark()] }`,
+  )
+  try {
+    const result = runProjectCli(project.root, ['build'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(existsSync(join(project.root, 'dist/server.mjs'))).toBe(true)
+    expect(existsSync(join(project.root, 'dist/manifest.json'))).toBe(true)
+  } finally {
+    project.remove()
+  }
+}, 20000)
+
+it('cleans and builds relative to the final Vite root without touching the invoking directory output', () => {
+  const project = createProject()
+  try {
+    project.write('dist/keep.txt', 'unrelated invoking-directory output')
+    project.write('application/dist/stale.txt', 'previous application output')
+    project.write('application/app.ts', '')
+    project.write(
+      'application/app/index.tsx',
+      'export default function Page() { return <h1>Home</h1> }',
+    )
+    project.write(
+      'vite.config.mts',
+      `import { sark } from ${JSON.stringify(viteEntry)}
+export default { root: './application', logLevel: 'silent', plugins: [sark()] }`,
+    )
+    const result = runProjectCli(project.root, ['build'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(readFileSync(join(project.root, 'dist/keep.txt'), 'utf8')).toBe(
+      'unrelated invoking-directory output',
+    )
+    expect(existsSync(join(project.root, 'application/dist/stale.txt'))).toBe(false)
+    expect(existsSync(join(project.root, 'application/dist/server.mjs'))).toBe(true)
+    expect(existsSync(join(project.root, 'application/dist/manifest.json'))).toBe(true)
+  } finally {
+    project.remove()
+  }
+}, 20000)
+
+it('preserves existing files in outDir when outDir is outside project root and emptyOutDir is unspecified', async () => {
+  const project = createProject()
+  const externalOut = join(project.root, '../isolated-dist-' + Math.random().toString(36).slice(2))
+  mkdirSync(externalOut, { recursive: true })
+  writeFileSync(join(externalOut, 'keep.txt'), 'do-not-delete')
+
+  project.write(
+    'app.ts',
+    `import { defineApp } from '@olivaw/sark/server'
+export const app = defineApp({})`,
+  )
+  project.write(
+    'app/index.tsx',
+    `import React from 'react'
+export default function Home() { return <h1>Home</h1> }`,
+  )
+  project.write(
+    'vite.config.mts',
+    `import { sark } from ${JSON.stringify(viteEntry)}
+export default { logLevel: 'silent', plugins: [sark()], build: { outDir: ${JSON.stringify(externalOut)} } }`,
+  )
+  try {
+    const result = runProjectCli(project.root, ['build'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(existsSync(join(externalOut, 'server.mjs'))).toBe(true)
+    expect(existsSync(join(externalOut, 'keep.txt'))).toBe(true)
+  } finally {
+    rmSync(externalOut, { recursive: true, force: true })
+    project.remove()
+  }
+}, 20000)

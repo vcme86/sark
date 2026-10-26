@@ -316,6 +316,7 @@ it('enforces platform boundary by rejecting Node runtime declarations for Cloudf
         },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'cloudflare',
       }),
     ).toThrowError(/Cloudflare Workers target does not support Node runtime configuration/)
@@ -331,6 +332,7 @@ it('enforces platform boundary by rejecting Node runtime declarations for Cloudf
         },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'cloudflare',
       }),
     ).toThrowError(/Cloudflare Workers target does not support Node health probes/)
@@ -346,6 +348,7 @@ it('enforces platform boundary by rejecting Node runtime declarations for Cloudf
         },
         routes: [],
         apiPrefix: '/api',
+        webPrefix: '/',
         target: 'cloudflare',
       }),
     ).toThrowError(/Cloudflare Workers target does not support Node metrics/)
@@ -365,6 +368,7 @@ it('generates .build/worker.ts for Cloudflare target without Node runtime import
       },
       routes: [],
       apiPrefix: '/api',
+      webPrefix: '/',
       target: 'cloudflare',
     })
 
@@ -393,6 +397,7 @@ it('generates .build/start.ts for Node target without Workers runtime imports', 
       },
       routes: [],
       apiPrefix: '/api',
+      webPrefix: '/',
       target: 'node',
     })
 

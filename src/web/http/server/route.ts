@@ -1,3 +1,4 @@
+import { compileSchema, type InputValidator } from '../schema'
 import type {
   InferRouteInput,
   ResolvedRouteOptions,
@@ -16,6 +17,7 @@ export interface RouteBuilder {
    * @param schemas - Schema declarations; at most one body field may be defined.
    * @returns A builder whose handler receives the validated schema output types.
    * @throws {Error} If more than one body schema is declared.
+   * @throws {TypeError} If a schema does not implement a supported validation interface.
    */
   validate<TSchemas extends RouteInputSchema>(
     schemas: TSchemas,
@@ -80,6 +82,11 @@ export function route(options: RouteOptions = {}): RouteBuilder {
       schemas: TSchemas,
     ): RouteBuilderWithValidation<TSchemas> {
       assertValidSchemas(schemas)
+      const validators: Partial<Record<keyof RouteInputSchema, InputValidator>> = {}
+      for (const field of ['params', 'query', 'headers', 'json', 'form', 'text'] as const) {
+        const schema = schemas[field]
+        if (schema !== undefined) validators[field] = compileSchema(schema)
+      }
       return {
         handler<TOutput>(
           fn: RouteHandler<InferRouteInput<TSchemas>, TOutput>,
@@ -87,6 +94,7 @@ export function route(options: RouteOptions = {}): RouteBuilder {
           return {
             options: resolvedOptions,
             schemas,
+            validators,
             handler: fn,
             isRoute: true,
           }
@@ -97,6 +105,7 @@ export function route(options: RouteOptions = {}): RouteBuilder {
       return {
         options: resolvedOptions,
         schemas: undefined,
+        validators: {},
         handler: fn,
         isRoute: true,
       }

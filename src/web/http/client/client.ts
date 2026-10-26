@@ -1,16 +1,16 @@
-import { DEFAULT_API_PREFIX } from '../defaults'
+import { DEFAULT_API_PREFIX, DEFAULT_CLIENT_CREDENTIALS } from '../defaults'
 import { HttpError } from '../error'
 import { decodeResponse } from './decode'
 import { buildUrl, encodeBody, type RequestData } from './encode'
 
 /**
  * Global declaration merging interface for registering application API types.
- * Extended in `.build/types.d.ts` during build or development.
+ * Extended in the configured generated directory's types.d.ts during build or development.
  */
 export interface Register {}
 
 /** Resolved default API type derived from the global `Register` interface. */
-export type DefaultApi = Register extends { api: infer A } ? A : unknown
+export type DefaultApi = import('@olivaw/sark/http').Register extends { api: infer A } ? A : unknown
 
 /** Options configuring an HTTP client instance. */
 export interface ClientOptions {
@@ -259,7 +259,7 @@ export interface HttpClient<Api = unknown> {
  */
 export function createClient<Api = DefaultApi>(options: ClientOptions = {}): HttpClient<Api> {
   const baseUrl = options.baseUrl ?? DEFAULT_API_PREFIX
-  const defaultCredentials = options.credentials ?? 'same-origin'
+  const defaultCredentials = options.credentials ?? DEFAULT_CLIENT_CREDENTIALS
   const defaultHeaders =
     typeof options.headers === 'function' ? options.headers : new Headers(options.headers)
   const customFetch = options.fetch ?? ((req: Request) => fetch(req))

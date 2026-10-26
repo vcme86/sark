@@ -127,4 +127,25 @@ describe('Contract: Built Package Exports', () => {
     const plugin = vite.sark({ target: 'node' })
     expect(plugin.name).toBe('@olivaw/sark')
   })
+
+  it('imports @olivaw/sark/page with strictly public non-secret exports', async () => {
+    const page = await import('@olivaw/sark/page')
+    expect(Object.keys(page).toSorted()).toEqual([
+      'NotFoundSignal',
+      'RedirectSignal',
+      'definePage',
+      'notFound',
+      'redirect',
+    ])
+    expect((page as any).resolvePageConfig).toBeUndefined()
+  })
+
+  it('imports @olivaw/sark/client from build output', async () => {
+    const client = await import('@olivaw/sark/client')
+    expect(client.Link).toBeDefined()
+    expect(client.Outlet).toBeDefined()
+    expect(client.useNavigate).toBeDefined()
+    expect(client.useAction).toBeDefined()
+    expect(client.useBlocker).toBeDefined()
+  })
 })

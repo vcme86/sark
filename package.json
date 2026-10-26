@@ -24,6 +24,14 @@
       "types": "./dist/entries/http.d.mts",
       "import": "./dist/entries/http.mjs"
     },
+    "./page": {
+      "types": "./dist/entries/page.d.mts",
+      "import": "./dist/entries/page.mjs"
+    },
+    "./client": {
+      "types": "./dist/entries/client.d.mts",
+      "import": "./dist/entries/client.mjs"
+    },
     "./middleware": {
       "types": "./dist/entries/middleware.d.mts",
       "import": "./dist/entries/middleware.mjs"
@@ -47,6 +55,14 @@
     "./runtime/cloudflare": {
       "types": "./dist/entries/runtime/cloudflare.d.mts",
       "import": "./dist/entries/runtime/cloudflare.mjs"
+    },
+    "./runtime/page-server": {
+      "types": "./dist/entries/runtime/page-server.d.mts",
+      "import": "./dist/entries/runtime/page-server.mjs"
+    },
+    "./runtime/page-browser": {
+      "types": "./dist/entries/runtime/page-browser.d.mts",
+      "import": "./dist/entries/runtime/page-browser.mjs"
     }
   },
   "scripts": {
@@ -74,11 +90,28 @@
     "@cloudflare/vite-plugin": "^1.65.0",
     "@types/negotiator": "^0.6.5",
     "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "obuild": "^0.4.45",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5",
     "wrangler": "^4.152.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   }
 }

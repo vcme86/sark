@@ -21,6 +21,8 @@ export interface ExecutionScope {
   readonly isInternal?: boolean
   /** Collects cookies returned by internal requests into the outer response. */
   readonly appendCookies?: (cookies: readonly string[]) => void
+  /** Marks streamed response headers as committed before rendering continues. */
+  readonly commitResponseHeaders?: () => void
   /** Request-scoped cache shared by `dedup` wrappers. */
   readonly dedupStore?: Map<symbol, unknown>
   /** Resolved HTTP configuration in effect for this execution context. */
@@ -33,6 +35,18 @@ export interface ExecutionScope {
   readonly env?: unknown
   /** Platform execution context (e.g. Cloudflare Workers ExecutionContext). */
   readonly executionCtx?: unknown
+  /** Resolved page configuration for fullstack page rendering. */
+  readonly pageConfig?: unknown
+}
+
+/** HTTP state established by request middleware before dispatching business or page handlers. */
+export interface RequestScope extends ExecutionScope {
+  readonly signal: AbortSignal
+  readonly config: ResolvedHttpConfig
+  readonly clientIp: string
+  readonly externalOrigin: string
+  readonly appendCookies: NonNullable<ExecutionScope['appendCookies']>
+  readonly commitResponseHeaders: NonNullable<ExecutionScope['commitResponseHeaders']>
 }
 
 const storage = new AsyncLocalStorage<ExecutionScope>()

@@ -161,9 +161,13 @@ meta({ data, params, url }) 返回 title、description、canonical、robots、op
 
 links/scripts 按用于识别重复项的属性合并：canonical 等单值关系按 rel 覆盖；alternate 保留语言/type/media 差异；stylesheet/preload/modulepreload 保留不同 URL 和用途属性；外链脚本按 src 去重，没有可用去重键的内联脚本按顺序保留。不能只按 rel 删除多个样式表。
 
+显式 key 标识同一项，子级替换父级并保留原位置；没有 key 的外链脚本按 src 采用同样覆盖规则。manifest 与 canonical 均为单值关系，不因 href 不同而保留多个。
+
 Head 自动输出 meta 与框架样式，children 可放应用 head 内容。Outlet 渲染子作用域。Scripts 输出经过安全序列化的启动载荷，入口脚本由渲染器注入一次；应用不传内部快照。
 
 Link 继承除 href 外的 AnchorHTMLAttributes，以 to 指定目标，支持 prefetch: none/module 与 replace。Head 接受 ReactNode，Outlet/Scripts 无必填 props。根文档负责组合这些组件，不要求固定容器 ID。
+
+Link 点击与预载使用锚点已按文档 base URL 解析的地址；编程式 navigate 的相对地址仍按当前已提交视图解析。
 
 ## 页面缓存声明
 

@@ -6,7 +6,7 @@
 
 import type { Context, MiddlewareHandler } from 'hono'
 
-import { type ExecutionScope, getCurrentScope, runInScope } from '../../../core/context'
+import { getCurrentScope, type RequestScope, runInScope } from '../../../core/context'
 import { applicationLifecycles } from '../../../core/lifecycle'
 import type { AppInstance } from '../../../core/types'
 import type { ResolvedHttpConfig } from '../config'
@@ -111,39 +111,45 @@ export function requestContext(
         ? AbortSignal.any([rawReq.signal, shutdownSignal])
         : rawReq.signal
 
-    const scope = {
-      requestId,
-      app: instance,
-      isInternal,
-      clientIp: undefined as string | undefined,
-      externalOrigin: undefined as string | undefined,
-      signal: requestSignal,
-      appendCookies(cookies) {
-        for (const cookie of cookies) ctx.header('Set-Cookie', cookie, { append: true })
-      },
-      dedupStore: isInternal ? parent.dedupStore : new Map(),
-      config: effectiveConfig,
-      env,
-      executionCtx,
-    } satisfies ExecutionScope
-    return runInScope(scope, async () => {
-      ctx.set('requestId', requestId)
-      try {
-        validateHost(ctx.req.header('host') || reqUrl.host, effectiveConfig.hosts)
-        scope.clientIp = isInternal
-          ? parent.clientIp
-          : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1'
-        scope.externalOrigin = isInternal
-          ? parent.externalOrigin
-          : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin
-        await next()
-      } catch (error) {
-        ctx.res = preserveResponseCookies(
-          ctx,
-          formatErrorResponse(error, effectiveConfig.production),
-        )
-      }
-      ctx.res = applyResponseHeaders(ctx.res, effectiveConfig, requestId)
-    })
+    let headersCommitted = false
+    ctx.set('requestId', requestId)
+    try {
+      validateHost(ctx.req.header('host') || reqUrl.host, effectiveConfig.hosts)
+      const inherited = isInternal ? (parent as RequestScope) : undefined
+      const scope = {
+        requestId,
+        app: instance,
+        isInternal,
+        clientIp: inherited
+          ? inherited.clientIp
+          : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1',
+        externalOrigin: inherited
+          ? inherited.externalOrigin
+          : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin,
+        signal: requestSignal,
+        appendCookies(cookies) {
+          if (cookies.length && headersCommitted)
+            throw new Error(
+              'Cannot forward API cookies after response headers have been committed.',
+            )
+          for (const cookie of cookies) ctx.header('Set-Cookie', cookie, { append: true })
+        },
+        commitResponseHeaders() {
+          headersCommitted = true
+        },
+        dedupStore: isInternal ? parent.dedupStore : new Map(),
+        config: effectiveConfig,
+        pageConfig: parent?.pageConfig,
+        env,
+        executionCtx,
+      } satisfies RequestScope
+      await runInScope(scope, next)
+    } catch (error) {
+      ctx.res = runInScope({ ...parent, requestId, app: instance }, () =>
+        preserveResponseCookies(ctx, formatErrorResponse(error, effectiveConfig.production)),
+      )
+    }
+    ctx.res = applyResponseHeaders(ctx.res, effectiveConfig, requestId)
+    headersCommitted = true
   }
 }

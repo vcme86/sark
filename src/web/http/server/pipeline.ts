@@ -5,13 +5,15 @@
  */
 
 import { type Context, Hono, type MiddlewareHandler } from 'hono'
-import { bodyLimit as honoBodyLimit } from 'hono/body-limit'
 import { every } from 'hono/combine'
 import { matchedRoutes } from 'hono/route'
 import { TrieRouter } from 'hono/router/trie-router'
+import { getPath as getRequestPath } from 'hono/utils/url'
 
-import { getCurrentScope } from '../../../core/context'
+import { getCurrentScope, type RequestScope } from '../../../core/context'
+import type { PageRequestHandler } from '../../../core/definition'
 import type { AppInstance } from '../../../core/types'
+import { createClient } from '../client/client'
 import type { ResolvedHttpConfig } from '../config'
 import { HttpError } from '../error'
 import { cors as sarkCors } from '../middleware/cors'
@@ -21,8 +23,10 @@ import {
   compareRoutes,
   createRouteCanonicalizer,
   type ParsedRoutePath,
+  routeShape,
 } from '../path'
 import type { RouteDeclaration, RouteOptions } from '../types'
+import { bodyLimit as requestBodyLimit } from './body-limit'
 import { parseAndValidateInput } from './input'
 import {
   formatErrorResponse,
@@ -32,24 +36,29 @@ import {
 } from './output'
 import { computeEffectivePolicy, type RouteScope } from './policy'
 export type { RouteScope } from './policy'
+import { captureResponsePolicy } from './cache-control'
 import { requestContext } from './request-context'
 
 /** Parsed route entry pairing URL path metadata with its runtime handler declaration. */
-export interface RouteEntry {
+interface RouteEntryBase {
   /** Source module path included in assembly diagnostics when available. */
   readonly source?: string
   /** Parsed URL structure and HTTP method constraints. */
   readonly routePath: ParsedRoutePath
-  /** Route declaration holding validation schemas, middleware, and handler. */
-  readonly declaration: RouteDeclaration
   /** Ordered chain of ancestor directory scopes applying to this route. */
   readonly scopes?: readonly RouteScope[]
 }
 
+/** HTTP API declaration or a page terminal, sharing the same Hono execution chain. */
+export type RouteEntry = RouteEntryBase &
+  (
+    | { readonly kind?: 'api'; readonly declaration: RouteDeclaration }
+    | { readonly kind: 'page'; readonly pageHandler: PageRequestHandler }
+  )
+
 interface RequestPolicy {
   cors?: MiddlewareHandler
   admission?: MiddlewareHandler
-  maxBodySize: number | false
 }
 
 interface RequestPolicies {
@@ -79,29 +88,18 @@ function compilePolicy(
   const effective = computeEffectivePolicy(cfg, options, scopes)
   const csrf = effective.csrf === false ? undefined : sarkCsrf(effective.csrf)
   const bodyLimit =
-    effective.bodyLimit === false
-      ? undefined
-      : honoBodyLimit({
-          maxSize: effective.bodyLimit,
-          onError: () => {
-            throw new HttpError(413, 'Payload Too Large')
-          },
-        })
+    effective.bodyLimit === false ? undefined : requestBodyLimit(effective.bodyLimit)
   let admission = csrf ?? bodyLimit
   if (csrf && bodyLimit) {
     admission = async (ctx, next) => {
-      let response: Response | void = undefined
-      const result = await csrf(ctx, async () => {
-        response = await bodyLimit(ctx, next)
+      await csrf(ctx, async () => {
+        await bodyLimit(ctx, next)
       })
-      // CSRF awaits next(); preserve a response returned by the body limit.
-      return result ?? response
     }
   }
   return {
     cors: effective.cors === false ? undefined : sarkCors(effective.cors),
     admission,
-    maxBodySize: effective.bodyLimit,
   }
 }
 
@@ -114,25 +112,41 @@ function compilePolicy(
  * 2. Apply the selected CORS policy, including target-method preflight handling.
  * 3. Check lifecycle admission and GET/HEAD URL normalization.
  * 4. Apply the selected route's CSRF and body-limit policies.
- * 5. Run application middleware, then route middleware.
+ * 5. Run application, directory-scope, and route middleware in that order.
  * 6. Parse declared inputs, execute the handler, and format its response.
- * 7. Resolve unhandled paths as HTTP 404 or method mismatches as HTTP 405 with Allow.
+ * 7. Resolve unmatched methods as 405, then optionally render the HTML 404 document.
  *
  * CORS precedes admission so rejections retain applicable CORS headers. Request
  * context middleware applies security headers after downstream execution returns.
+ * Unknown-length body limits are enforced during consumption, not before all middleware.
  *
  * @param config - Resolved instance settings or a getter for the already resolved event settings.
  * @param routes - List of registered route entries.
  * @param instanceProvider - Lazy accessor returning the current application instance.
+ * @param apiPrefix - Resolved API base path for the page-bound internal client.
+ * @param page404Handler - Optional HTML terminal for unmatched page requests.
+ * @param webPrefix - Resolved website route prefix, including its HTML 404 scope.
  * @returns Fully compiled Hono application instance.
  */
 export function buildHttpApp(
   config: ResolvedHttpConfig | (() => ResolvedHttpConfig),
   routes: RouteEntry[],
   instanceProvider?: () => AppInstance | undefined,
+  apiPrefix?: string,
+  page404Handler?: PageRequestHandler,
+  webPrefix?: string,
 ): Hono<any> {
   const getConfig = typeof config === 'function' ? config : () => config
   const orderedRoutes = routes.toSorted((a, b) => compareRoutes(a.routePath, b.routePath))
+  const uniqueRoutes = new Map<string, RouteEntry>()
+  for (const entry of orderedRoutes) {
+    const key = `${entry.routePath.method}:${routeShape(entry.routePath.urlPath)}`
+    const previous = uniqueRoutes.get(key)
+    if (previous) {
+      throw new Error(`Route conflict: ${previous.source ?? key} and ${entry.source ?? key}`)
+    }
+    uniqueRoutes.set(key, entry)
+  }
   const handlerToEntry = new Map<object, RouteEntry>()
   const requestPolicies = new WeakMap<Context, RequestPolicies>()
   const methodRouter = new TrieRouter<IndexedRoute>()
@@ -161,7 +175,11 @@ export function buildHttpApp(
     const { routePolicies } = getPoliciesForConfig(cfg)
     let policy = routePolicies.get(entry)
     if (!policy) {
-      policy = compilePolicy(cfg, entry.declaration.options, entry.scopes)
+      policy = compilePolicy(
+        cfg,
+        entry.kind === 'page' ? undefined : entry.declaration.options,
+        entry.scopes,
+      )
       routePolicies.set(entry, policy)
     }
     return policy
@@ -201,9 +219,37 @@ export function buildHttpApp(
 
   const canonicalizer = createRouteCanonicalizer(orderedRoutes)
 
+  function pageClient(ctx: Context) {
+    const instance = instanceProvider?.()
+    if (!instance || apiPrefix === undefined) {
+      throw new Error('Page dispatch requires an application instance and resolved API prefix.')
+    }
+    const origin = new URL(ctx.req.url).origin
+    const prefix = apiPrefix === '/' ? '' : apiPrefix
+    return createClient({
+      baseUrl: `${origin}${prefix}`,
+      async fetch(request) {
+        const target = new URL(request.url)
+        if (
+          target.origin !== origin ||
+          (prefix && target.pathname !== prefix && !target.pathname.startsWith(prefix + '/'))
+        ) {
+          return fetch(request)
+        }
+        const headers = new Headers(request.headers)
+        for (const name of ['cookie', 'authorization', 'origin']) {
+          const value = ctx.req.header(name)
+          if (value !== undefined && !headers.has(name)) headers.set(name, value)
+        }
+        const response = await instance.fetchInternal(new Request(request, { headers }))
+        captureResponsePolicy(ctx, response)
+        return response
+      },
+    })
+  }
+
   const getPath = (request: Request): string => {
-    const url = new URL(request.url)
-    let pathname = url.pathname
+    let pathname = getRequestPath(request)
 
     if (pathname.length > 1 && pathname.endsWith('/')) {
       pathname = pathname.slice(0, -1)
@@ -229,13 +275,18 @@ export function buildHttpApp(
     methodRouter.add(METHOD_INDEX, entry.routePath.urlPath, indexed)
     if (entry.routePath.method === 'GET') methodRouter.add('HEAD', entry.routePath.urlPath, indexed)
     const handler: MiddlewareHandler = async (ctx) => {
-      const currentPolicy = policiesFor(ctx).route
-      const input = await parseAndValidateInput(
-        ctx,
-        entry.declaration.schemas,
-        currentPolicy.maxBodySize,
-      )
-      const output = await entry.declaration.handler(ctx, input)
+      const output =
+        entry.kind === 'page'
+          ? await entry.pageHandler(
+              ctx,
+              pageClient(ctx),
+              getCurrentScope() as RequestScope,
+              getConfig().production,
+            )
+          : await entry.declaration.handler(
+              ctx,
+              await parseAndValidateInput(ctx, entry.declaration.validators),
+            )
       if (output instanceof Response && !ctx.finalized) preserveResponseCookies(ctx, output)
       const response = formatResponse(output, ctx.req.raw, ctx.res.headers)
       const vary = response.headers.get('Vary')
@@ -345,21 +396,23 @@ export function buildHttpApp(
     return combined(ctx, next)
   })
 
-  for (const { routePath, declaration, handler, scopes } of preparedRoutes) {
+  for (const entry of preparedRoutes) {
+    const { routePath, handler, scopes } = entry
     const scopeMiddlewares = (scopes ?? [])
       .map((s) => s.middleware)
       .filter((m): m is MiddlewareHandler => typeof m === 'function')
-    const routeMiddlewares = declaration.options.middleware
+    const routeMiddlewares = entry.kind === 'page' ? [] : entry.declaration.options.middleware
     const allMiddlewares = [...scopeMiddlewares, ...routeMiddlewares].map(preserveMiddlewareCookies)
 
     app.on([routePath.method], [routePath.urlPath], ...allMiddlewares, handler)
   }
 
   // Fallback 405 and 404 handler via Hono TrieRouter
-  app.all('*', (ctx: Context) => {
+  app.all('*', async (ctx: Context) => {
     const reqPath = ctx.req.path
     const reqMethod = ctx.req.method.toUpperCase()
 
+    // A path may have API and page handlers with different methods.
     const [matches] = methodRouter.match(METHOD_INDEX, reqPath)
     if (matches && matches.length > 0) {
       const allowedMethods = new Set<string>()
@@ -390,6 +443,24 @@ export function buildHttpApp(
           },
         )
       }
+    }
+
+    const currentConfig = getConfig()
+    const pagePath = currentConfig.caseSensitive ? reqPath : reqPath.toLowerCase()
+    const webBase = currentConfig.caseSensitive ? webPrefix : webPrefix?.toLowerCase()
+    // Unknown website requests use the root error document, without layout loaders.
+    if (
+      page404Handler &&
+      webBase !== undefined &&
+      (webBase === '/' || pagePath === webBase || pagePath.startsWith(webBase + '/')) &&
+      (reqMethod === 'GET' || reqMethod === 'HEAD') &&
+      ctx.req.header('accept')?.includes('text/html')
+    ) {
+      const scope = getCurrentScope() as RequestScope
+      const isProduction = currentConfig.production
+      const client = pageClient(ctx)
+      const notFoundRes = await page404Handler(ctx, client, scope, isProduction)
+      if (notFoundRes) return notFoundRes
     }
 
     return new Response(

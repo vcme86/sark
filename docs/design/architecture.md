@@ -28,102 +28,105 @@ Sark 围绕 Hono、Vite、Node.js 与 React 19 组织全栈能力及外围基础
 sark/
 ├── src/
 │   ├── core/
-│   │   ├── declaration.ts         声明与环境工厂的基础类型
-│   │   ├── definition.ts          同版本应用定义的内部构造
-│   │   ├── config.ts              defineApp，组合 HTTP 配置
-│   │   ├── create.ts              创建实例、登记资源与失败回滚
-│   │   ├── context.ts             所属应用、取消与执行作用域
-│   │   ├── lifecycle.ts           就绪、排空与逆序释放
-│   │   ├── logging.ts             LogTape 基础诊断与关联
-│   │   └── types.ts               基础实例及生命周期契约
+│   │   ├── declaration.ts              声明与环境工厂的基础类型
+│   │   ├── definition.ts               同版本应用定义的内部构造
+│   │   ├── config.ts                   defineApp，组合 HTTP 配置
+│   │   ├── create.ts                   创建实例、登记资源与失败回滚
+│   │   ├── context.ts                  所属应用、取消与执行作用域
+│   │   ├── dedup.ts                    请求内函数结果复用
+│   │   ├── lifecycle.ts                就绪、排空与逆序释放
+│   │   ├── logging.ts                  LogTape 基础诊断与关联
+│   │   └── types.ts                    基础实例及生命周期契约
 │   ├── web/
 │   │   ├── http/
-│   │   │   ├── config.ts          HTTP 选项、默认值与校验
-│   │   │   ├── types.ts           endpoint 与 API 类型注册
-│   │   │   ├── path.ts            共同路径规则
-│   │   │   ├── error.ts           同构 HttpError
-│   │   │   ├── cookie.ts          配置感知的 Hono Cookie 接入
+│   │   │   ├── config.ts               HTTP 选项、默认值与校验
+│   │   │   ├── types.ts                endpoint 与 API 类型注册
+│   │   │   ├── path.ts                 共同路径规则
+│   │   │   ├── url.ts                  两端 URL 规范化规则
+│   │   │   ├── error.ts                同构 HttpError
+│   │   │   ├── cookie.ts               配置感知的 Hono Cookie 接入
 │   │   │   ├── server/
-│   │   │   │   ├── route.ts       路由声明与类型声明
-│   │   │   │   ├── input.ts       正文、查询和参数解析
-│   │   │   │   ├── output.ts      JSON 协商与错误响应
-│   │   │   │   ├── policy.ts      应用、作用域、路由的策略合并
-│   │   │   │   ├── pipeline.ts    已装配请求链的准入与分发
-│   │   │   │   ├── context.ts     请求作用域、内部调用和 Cookie 传递
-│   │   │   │   ├── dedup.ts       请求内函数结果复用
-│   │   │   │   └── sse.ts         事件流、背压与关闭
+│   │   │   │   ├── route.ts            路由声明与类型声明
+│   │   │   │   ├── body-limit.ts       正文长度检查与流式计数
+│   │   │   │   ├── input.ts            正文、查询和参数解析
+│   │   │   │   ├── output.ts           JSON 协商与错误响应
+│   │   │   │   ├── policy.ts           应用、作用域、路由的策略合并
+│   │   │   │   ├── pipeline.ts         已装配请求链的准入与分发
+│   │   │   │   ├── request-context.ts  请求作用域、来源解析和响应头
+│   │   │   │   └── sse.ts              事件流、背压与关闭
 │   │   │   ├── client/
-│   │   │   │   ├── client.ts      typed client 与传输
-│   │   │   │   ├── encode.ts      路径、查询、头与正文编码
-│   │   │   │   ├── decode.ts      成功与错误解码
-│   │   │   │   └── sse.ts         订阅、解析与重连
+│   │   │   │   ├── client.ts           typed client 与传输
+│   │   │   │   ├── encode.ts           路径、查询、头与正文编码
+│   │   │   │   ├── decode.ts           成功与错误解码
+│   │   │   │   └── sse.ts              订阅、解析与重连
 │   │   │   └── middleware/
 │   │   │       ├── cors.ts
 │   │   │       ├── csrf.ts
 │   │   │       ├── compress.ts
-│   │   │       └── rate-limit/    声明、Node 计数、CF binding 与装配
+│   │   │       └── rate-limit/         声明、Node 计数、CF binding 与装配
 │   │   ├── page/
-│   │   │   ├── config.ts          页面 API 传输与身份快照配置
-│   │   │   ├── components/        Head、Outlet、Scripts、Link、错误边界、根文档
-│   │   │   ├── execution/         匹配、Loader、Action、重新加载与元数据
-│   │   │   ├── server/            流式渲染、载荷、样式与 API 传输
-│   │   │   │   └── cache/         声明、资格、键、LRU、填充、正文缓冲和失效
-│   │   │   ├── browser/           水合、路由视图、导航、历史、守卫和资源准备
+│   │   │   ├── config.ts               页面 API 传输与身份快照配置
+│   │   │   ├── bootstrap.ts            SSR 与浏览器共用的启动载荷契约
+│   │   │   ├── components/             Head、Outlet、Scripts、Link、错误边界、根文档
+│   │   │   ├── execution/              匹配、Loader、Action、重新加载与元数据
+│   │   │   ├── server/                 流式渲染、载荷、样式与 API 传输
+│   │   │   │   └── cache/              声明、资格、键、LRU、填充、正文缓冲和失效
+│   │   │   ├── browser/                水合、路由视图、导航、历史、守卫和资源准备
 │   │   │   ├── context.tsx
 │   │   │   ├── hooks.tsx
 │   │   │   ├── signals.ts
-│   │   │   ├── storage.ts         浏览器 Storage 的 SSR 接入
+│   │   │   ├── storage.ts              浏览器 Storage 的 SSR 接入
 │   │   │   ├── build.ts
 │   │   │   └── types.ts
-│   │   ├── ws/                    连接、事件、类型与按需装配
-│   │   └── assets/                构建静态交付、Node 目录挂载与装配
+│   │   ├── ws/                         连接、事件、类型与按需装配
+│   │   └── assets/                     构建静态交付、Node 目录挂载与装配
 │   ├── services/
 │   │   ├── auth/
-│   │   │   ├── contracts.ts       共享身份、认证结果及资源检查上下文
-│   │   │   ├── mfa.ts             共同登录、再次认证与完成协调
-│   │   │   ├── challenge.ts       用途、期限、并发验证与尝试次数限制
-│   │   │   ├── state/             memory、postgres、d1 短期状态实现
-│   │   │   ├── session/           JWT、凭据选择、签发、验证与续期
-│   │   │   ├── oauth/             openid-client、事务 Cookie 与厂商差异
-│   │   │   ├── totp/              OTP 接入、因素管理、加密与存取
-│   │   │   │   └── db/            SQLite、PostgreSQL、D1 适配及 schema
-│   │   │   ├── webauthn/          注册、认证、凭据、浏览器接入与存取
+│   │   │   ├── contracts.ts            共享身份、认证结果及资源检查上下文
+│   │   │   ├── mfa.ts                  共同登录、再次认证与完成协调
+│   │   │   ├── challenge.ts            用途、期限、并发验证与尝试次数限制
+│   │   │   ├── state/                  memory、postgres、d1 短期状态实现
+│   │   │   ├── session/                JWT、凭据选择、签发、验证与续期
+│   │   │   ├── oauth/                  openid-client、事务 Cookie 与厂商差异
+│   │   │   ├── totp/                   OTP 接入、因素管理、加密与存取
+│   │   │   │   └── db/                 SQLite、PostgreSQL、D1 适配及 schema
+│   │   │   ├── webauthn/               注册、认证、凭据、浏览器接入与存取
 │   │   │   │   └── db/
 │   │   │   └── recovery/
-│   │   │       ├── service.ts     恢复码签发与单次消费
-│   │   │       └── db/            SQLite、PostgreSQL、D1 适配及 schema
-│   │   ├── db/                    SQLite、PostgreSQL、D1 声明与资源
-│   │   ├── storage/               local、r2、s3 后端及独立 presign 接入
-│   │   ├── visitors/              声明、Cookie 身份与初始化端点
-│   │   ├── stats/                 具名计数、主体解析、专用存取与 SQL 适配
-│   │   └── jobs/                  共同执行、Node 调度、CF 事件映射
+│   │   │       ├── service.ts          恢复码签发与单次消费
+│   │   │       └── db/                 SQLite、PostgreSQL、D1 适配及 schema
+│   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
+│   │   ├── storage/                    local、r2、s3 后端及独立 presign 接入
+│   │   ├── visitors/                   声明、Cookie 身份与初始化端点
+│   │   ├── stats/                      具名计数、主体解析、专用存取与 SQL 适配
+│   │   └── jobs/                       共同执行、Node 调度、CF 事件映射
 │   ├── observability/
-│   │   ├── logging/               完整日志配置、输出与访问记录
-│   │   ├── metrics/               Node Registry、运行时采集与导出
-│   │   └── health/                readiness 检查、缓存与独立准入
+│   │   ├── logging/                    完整日志配置、输出与访问记录
+│   │   ├── metrics/                    Node Registry、运行时采集与导出
+│   │   └── health/                     readiness 检查、缓存与独立准入
 │   ├── tooling/
 │   │   ├── build/
-│   │   │   ├── discover/          配置导出、路由、页面和冲突
-│   │   │   ├── generate/          应用、类型、浏览器及宿主入口
-│   │   │   ├── capabilities.ts    官方能力的构建期装配登记
-│   │   │   ├── project.ts         按运行端筛选构建数据
+│   │   │   ├── discover/               配置导出、路由、页面和冲突
+│   │   │   ├── generate/               应用、类型、浏览器及宿主入口
+│   │   │   ├── capabilities.ts         官方能力的构建期装配登记
+│   │   │   ├── project.ts              按运行端筛选构建数据
 │   │   │   ├── bundle.ts
 │   │   │   └── types.ts
-│   │   ├── vite/                  插件、Node 开发、CF 官方插件与 HMR
-│   │   └── cli/                   generate、dev、build、start 命令
+│   │   ├── vite/                       插件、Node 开发、CF 官方插件与 HMR
+│   │   └── cli/                        generate、dev、build、start 命令
 │   ├── adapter/
-│   │   ├── node/                  runtime 配置、监听、来源、升级、env 和基础探针
-│   │   └── cloudflare/            Fetch、Scheduled、bindings、升级和事件执行期限
-│   └── entries/                   按公开子路径组织的薄导出
+│   │   ├── node/                       runtime 配置、监听、来源、升级、env 和基础探针
+│   │   └── cloudflare/                 Fetch、Scheduled、bindings、升级和事件执行期限
+│   └── entries/                        按公开子路径组织的薄导出
 ├── tests/
 │   ├── unit/
-│   ├── contract/                  公开类型、协议、存取契约和生命周期
+│   ├── contract/                       公开类型、协议、存取契约和生命周期
 │   ├── integration/
 │   ├── e2e/
-│   └── fixtures/                  最小应用与独立客户端工程
-├── examples/                      使用示例，不代替测试夹具
-├── docs/                          设计文档
-└── package.json                   包元数据、公开导出与标准命令
+│   └── fixtures/                       最小应用与独立客户端工程
+├── examples/                           使用示例，不代替测试夹具
+├── docs/                               设计文档
+└── package.json                        包元数据、公开导出与标准命令
 ```
 
 文件按一项完整职责组织，可以包含多个协作函数。需要进一步分组时才建目录，不要求相邻模块深度一致。每项能力的配置、类型、运行代码和构建片段相邻维护；构建片段不由运行入口导出。

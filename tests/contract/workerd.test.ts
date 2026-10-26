@@ -65,7 +65,7 @@ export default route().handler(ctx => {
     'vite.config.mts',
     `import { sark } from ${JSON.stringify(viteEntry)}
 ${target === 'cloudflare' ? "import { cloudflare } from '@cloudflare/vite-plugin'" : ''}
-export default { plugins: [sark({ target: '${target}', appEntry: '${appEntry}', apiDir: '${apiDir}', generatedDir: '${generatedDir}', apiPrefix: '${apiPrefix}' })${target === 'cloudflare' ? ", cloudflare({ viteEnvironment: { name: 'ssr' }, inspectorPort: false, persistState: false, remoteBindings: false })" : ''}] }`,
+export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: '${target}', appEntry: '${appEntry}', apiDir: '${apiDir}', generatedDir: '${generatedDir}', apiPrefix: '${apiPrefix}' })${target === 'cloudflare' ? ", cloudflare({ viteEnvironment: { name: 'ssr' }, inspectorPort: false, persistState: false, remoteBindings: false })" : ''}] }`,
   )
   if (target === 'cloudflare')
     project.write(

@@ -4,9 +4,9 @@
  * @module
  */
 
-import { z, ZodType } from 'zod'
+import type { ZodType } from 'zod'
 
-export { z, ZodType }
+export { z, ZodType } from 'zod'
 
 /** Result envelope returned by schema validation. */
 export interface ValidationResult<T> {
@@ -18,48 +18,48 @@ export interface ValidationResult<T> {
   error?: unknown
 }
 
+/** Schema contracts accepted at the route declaration boundary. */
+export type InputSchema =
+  | {
+      readonly '~standard': Pick<ZodType['~standard'], 'version' | 'vendor' | 'validate' | 'types'>
+    }
+  | { safeParseAsync(value: unknown): PromiseLike<ValidationResult<unknown>> }
+  | { safeParse(value: unknown): ValidationResult<unknown> }
+
+/** Adapter prepared once for a schema declared by an application. */
+export type InputValidator = (value: unknown) => Promise<ValidationResult<unknown>>
+
 /**
- * Validates a value through the first applicable schema interface.
+ * Selects a supported validation interface once, while the route is declared.
  *
  * Dispatch order:
- * 1. A missing schema passes the value through unchanged.
- * 2. Zod or safeParseAsync-compatible schemas use asynchronous validation.
- * 3. safeParse-compatible schemas use synchronous validation.
- * 4. Standard Schema V1 uses ~standard.validate.
- * 5. Unrecognized schemas pass the value through unchanged.
+ * 1. safeParseAsync-compatible schemas use asynchronous validation.
+ * 2. safeParse-compatible schemas use synchronous validation.
+ * 3. Standard Schema V1 uses ~standard.validate.
  *
- * @param schema - Validation schema or `undefined`.
- * @param value - Unknown runtime data to validate.
- * @returns Validation status with transformed data or issues; unsupported schemas pass value through.
- * @throws If the schema implementation itself throws or rejects.
+ * @param schema - An application-supplied validation schema.
+ * @returns Bound validation function; schema execution errors propagate to the request boundary.
+ * @throws {TypeError} If the declaration does not implement a supported schema interface.
  */
-export async function validateSchema<T>(schema: any, value: unknown): Promise<ValidationResult<T>> {
-  if (!schema) return { success: true, data: value as T }
-
-  if (schema instanceof ZodType || typeof schema.safeParseAsync === 'function') {
-    const res = await schema.safeParseAsync(value)
-    if (res.success) {
-      return { success: true, data: res.data as T }
+export function compileSchema(schema: InputSchema): InputValidator {
+  if (schema && (typeof schema === 'object' || typeof schema === 'function')) {
+    if ('safeParseAsync' in schema && typeof schema.safeParseAsync === 'function')
+      return async (value) => schema.safeParseAsync(value)
+    if ('safeParse' in schema && typeof schema.safeParse === 'function')
+      return async (value) => schema.safeParse(value)
+    if ('~standard' in schema) {
+      const standard = schema['~standard']
+      if (standard?.version === 1 && typeof standard.validate === 'function')
+        return async (value) => {
+          const result: { readonly value?: unknown; readonly issues?: readonly unknown[] } =
+            await standard.validate(value)
+          return result.issues
+            ? { success: false, error: result.issues }
+            : { success: true, data: result.value }
+        }
     }
-    return { success: false, error: res.error }
   }
-
-  if (typeof schema.safeParse === 'function') {
-    const res = schema.safeParse(value)
-    if (res.success) {
-      return { success: true, data: res.data as T }
-    }
-    return { success: false, error: res.error }
-  }
-
-  // Standard Schema V1 support
-  if (schema['~standard']) {
-    const res = await schema['~standard'].validate(value)
-    if (res.issues && res.issues.length > 0) {
-      return { success: false, error: res.issues }
-    }
-    return { success: true, data: res.value as T }
-  }
-
-  return { success: true, data: value as T }
+  throw new TypeError(
+    'Route schema must implement Standard Schema V1, safeParse, or safeParseAsync.',
+  )
 }
