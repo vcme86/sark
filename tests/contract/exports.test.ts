@@ -148,4 +148,21 @@ describe('Contract: Built Package Exports', () => {
     expect(client.useAction).toBeDefined()
     expect(client.useBlocker).toBeDefined()
   })
+
+  it('imports @olivaw/sark/auth/session from build output', async () => {
+    const session = await import('@olivaw/sark/auth/session')
+    expect(session.defineAuth).toBeDefined()
+    expect(session.requireStepUp).toBeDefined()
+    expect(session.signToken).toBeDefined()
+    expect(session.verifyToken).toBeDefined()
+    // Internal functions must not be leaked into public entry
+    expect((session as any).createAuthService).toBeUndefined()
+    expect((session as any).formatSetCookie).toBeUndefined()
+    expect((session as any).resolveAuthConfig).toBeUndefined()
+  })
+
+  it('imports @olivaw/sark/auth/oauth from build output', async () => {
+    const oauth = await import('@olivaw/sark/auth/oauth')
+    expect(oauth.defineOAuth).toBeDefined()
+  })
 })

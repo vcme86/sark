@@ -52,8 +52,8 @@ export interface ServerRenderOptions {
   readonly policy: BootstrapData['policy']
   /** Reads headers after loader and shell preparation, before response commitment. */
   readonly headers: () => Headers
-  /** Seals the outer request's Cookie collector once shell headers are ready. */
-  readonly onCommitHeaders: () => void
+  /** Awaits domain header-commit hooks and seals the Cookie collector before the header snapshot. */
+  readonly onCommitHeaders: () => Promise<void> | void
   /** Prepares the shell and headers but cancels body rendering for HEAD requests. */
   readonly head?: boolean
 }
@@ -92,7 +92,7 @@ export function renderPageFailure(failure: ReturnType<typeof toPageError>): Resp
  * Preparation order:
  * 1. Run matched loaders concurrently, then resolve redirects and scope errors.
  * 2. Evaluate metadata and serialize the bootstrap data before starting React rendering.
- * 3. Wait for the shell, finalize status/headers, and seal the Cookie collector.
+ * 3. Wait for the shell, await header-commit hooks, seal the Cookie collector, and read final headers.
  * 4. Return the document stream, or cancel it and return headers only for HEAD.
  *
  * @param options - Matched scopes, request-bound client and build-owned browser resources.
@@ -224,11 +224,11 @@ export async function renderPageToResponse(options: ServerRenderOptions): Promis
         headers: { Location: shellRedirect.url },
       })
     }
+    await options.onCommitHeaders()
+    committed = true
     const headers = options.headers()
     headers.set('Content-Type', 'text/html; charset=utf-8')
     if (status >= 400) headers.set('Cache-Control', 'no-store')
-    committed = true
-    options.onCommitHeaders()
     if (options.head) {
       cancelled = true
       await stream.cancel()

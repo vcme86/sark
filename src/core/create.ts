@@ -4,9 +4,11 @@
  * @module
  */
 
+import type { Hono } from 'hono'
+
 import type { ResolvedHttpConfig } from '../web/http/config'
 import { formatErrorResponse } from '../web/http/server/output'
-import { buildHttpApp } from '../web/http/server/pipeline'
+import { buildHttpApp, type RouteEntry } from '../web/http/server/pipeline'
 import { applyResponseHeaders } from '../web/http/server/request-context'
 import { resolveAppConfig } from './config'
 import { getCurrentScope, runInScope, runWithoutScope } from './context'
@@ -14,6 +16,7 @@ import type { EnvironmentArgs } from './declaration'
 import type { ApplicationDefinition } from './definition'
 import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { ensureBasicLogging } from './logging'
+import type { ServiceBindingFactory, ServicePreparation } from './service'
 import type { AppInstance } from './types'
 
 /** Resolved configuration supplied by a fixed-instance or event host. */
@@ -45,6 +48,40 @@ export async function assembleApp<D extends ApplicationDefinition>(
     const staticPageConfig =
       options.kind === 'static' ? definition.resolvePageConfig?.(options.env) : undefined
     let instanceRef: AppInstance<D> | undefined
+
+    const serviceRuntimes = Object.entries(definition.services ?? {}).map(
+      ([name, assembly]) => [name, assembly.createRuntime()] as const,
+    )
+
+    async function prepareServices(env: unknown, config: ResolvedHttpConfig) {
+      const preparations = new Map<string, ServicePreparation<unknown>>()
+      const routes = [...definition.routes]
+      for (const [name, runtime] of serviceRuntimes) {
+        const preparation = await runtime.prepare(env, config)
+        preparations.set(name, preparation)
+        routes.push(...(preparation.routes ?? []))
+      }
+      return { preparations, routes }
+    }
+
+    const staticPlan =
+      options.kind === 'static' ? await prepareServices(options.env, options.config) : undefined
+
+    // Compile the complete route graph before opening resources, using one conflict policy.
+    const staticHonoApp =
+      options.kind === 'static'
+        ? buildHttpApp(
+            options.config,
+            staticPlan!.routes,
+            () => instanceRef,
+            definition.apiPrefix,
+            definition.page404Handler,
+            definition.webPrefix,
+          )
+        : undefined
+    let cachedEventHonoApp: Hono<any> | undefined
+    let cachedEventRoutes: readonly RouteEntry[] | undefined
+
     const staticResources: Record<string, unknown> = {}
     const assembledResources = Object.entries(definition.resources ?? {})
 
@@ -65,6 +102,10 @@ export async function assembleApp<D extends ApplicationDefinition>(
       }
     }
 
+    const staticServices = staticPlan
+      ? createServices(staticPlan.preparations, staticResources)
+      : undefined
+
     function currentConfig(): ResolvedHttpConfig {
       if (options.kind === 'static') return options.config
       const scope = getCurrentScope()
@@ -73,17 +114,9 @@ export async function assembleApp<D extends ApplicationDefinition>(
       }
       return scope.config
     }
-    const honoApp = buildHttpApp(
-      options.kind === 'static' ? options.config : currentConfig,
-      definition.routes,
-      () => instanceRef,
-      definition.apiPrefix,
-      definition.page404Handler,
-      definition.webPrefix,
-    )
+
     lifecycle.setReady()
 
-    // Tracks handler completion; the Node host separately waits for response streams.
     const executeTracked = async (
       request: Request,
       requestEnv?: unknown,
@@ -97,6 +130,7 @@ export async function assembleApp<D extends ApplicationDefinition>(
         (executionCtx ? request.headers.get('cf-ray') : undefined) ||
         crypto.randomUUID()
       let effectiveConfig: ResolvedHttpConfig | undefined
+
       try {
         effectiveConfig = isInternal
           ? currentConfig()
@@ -109,18 +143,55 @@ export async function assembleApp<D extends ApplicationDefinition>(
             ? staticPageConfig
             : definition.resolvePageConfig?.(requestEnv)
 
-        let currentResources: Record<string, unknown>
+        const eventPlan =
+          !isInternal && options.kind === 'event'
+            ? await prepareServices(requestEnv, effectiveConfig)
+            : undefined
+
+        let activeApp = isInternal ? parent.httpApp! : staticHonoApp
+        if (eventPlan) {
+          const routes = eventPlan.routes
+          if (
+            !cachedEventRoutes ||
+            routes.length !== cachedEventRoutes.length ||
+            routes.some((route, index) => route !== cachedEventRoutes![index])
+          ) {
+            cachedEventHonoApp = buildHttpApp(
+              currentConfig,
+              routes,
+              () => instanceRef,
+              definition.apiPrefix,
+              definition.page404Handler,
+              definition.webPrefix,
+            )
+            cachedEventRoutes = routes
+          }
+          activeApp = cachedEventHonoApp!
+        }
+
+        let currentResources: Readonly<Record<string, unknown>>
         if (isInternal) {
-          currentResources = (parent?.resources ?? {}) as Record<string, unknown>
+          currentResources = parent.resources!
         } else if (options.kind === 'event') {
-          currentResources = {}
+          const resources: Record<string, unknown> = {}
           for (const [name, res] of assembledResources) {
             const result = await res.createForEvent!(requestEnv)
-            currentResources[name] = result.value
+            resources[name] = result.value
           }
+          currentResources = resources
         } else {
           currentResources = staticResources
         }
+
+        const eventServices = eventPlan
+          ? createServices(eventPlan.preparations, currentResources)
+          : undefined
+        const currentServices = isInternal
+          ? parent.services
+          : (staticServices ?? eventServices)!.services
+        const currentBindingFactories = isInternal
+          ? parent.serviceBindingFactories
+          : (staticServices ?? eventServices)!.factories
 
         return await runInScope(
           {
@@ -130,13 +201,16 @@ export async function assembleApp<D extends ApplicationDefinition>(
             config: effectiveConfig,
             pageConfig,
             resources: currentResources,
+            services: currentServices,
+            serviceBindingFactories: currentBindingFactories,
+            serviceBindings: isInternal ? parent.serviceBindings : undefined,
+            httpApp: activeApp,
             env: options.kind === 'event' ? requestEnv : options.env,
             executionCtx,
           },
-          () => honoApp.fetch(request, requestEnv, executionCtx as any),
+          () => activeApp!.fetch(request, requestEnv, executionCtx as any),
         )
       } catch (err) {
-        // Failed event configuration never enters business dispatch or replaces another event's settings.
         const errorConfig =
           effectiveConfig ?? (options.kind === 'static' ? options.config : options.errorConfig)
         const response = runInScope({ requestId, app: instanceRef }, () =>
@@ -157,7 +231,9 @@ export async function assembleApp<D extends ApplicationDefinition>(
       get config() {
         return currentConfig()
       },
-      hono: honoApp,
+      get hono() {
+        return staticHonoApp ?? cachedEventHonoApp
+      },
       get state() {
         return lifecycle.state
       },
@@ -195,6 +271,23 @@ export async function assembleApp<D extends ApplicationDefinition>(
       })
     }
 
+    if (definition.services) {
+      for (const [name, assembly] of Object.entries(definition.services)) {
+        if (!assembly.expose) continue
+        Object.defineProperty(instance, name, {
+          get() {
+            if (options.kind === 'static') return staticServices!.services[name]
+            const scope = getCurrentScope()
+            if (scope && scope.app === instanceRef && scope.services) {
+              return scope.services[name]
+            }
+            throw new Error(`Service "${name}" is only accessible within an active event context.`)
+          },
+          enumerable: true,
+        })
+      }
+    }
+
     applicationLifecycles.set(instance, lifecycle)
     instanceRef = instance
     return instance
@@ -211,6 +304,20 @@ export async function assembleApp<D extends ApplicationDefinition>(
     }
     throw err
   }
+}
+
+function createServices(
+  preparations: Map<string, ServicePreparation<unknown>>,
+  resources: Readonly<Record<string, unknown>>,
+) {
+  const services: Record<string, unknown> = {}
+  const factories: Record<string, ServiceBindingFactory> = {}
+  for (const [name, preparation] of preparations) {
+    const result = preparation.create(resources)
+    if (result.instanceService !== undefined) services[name] = result.instanceService
+    if (result.createBinding) factories[name] = result.createBinding
+  }
+  return { services, factories }
 }
 
 /**

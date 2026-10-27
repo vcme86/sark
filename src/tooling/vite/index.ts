@@ -8,6 +8,7 @@ import { isBuiltin } from 'node:module'
 import { relative, resolve } from 'node:path'
 
 import { getRequestListener } from '@hono/node-server'
+import { getPath as getRequestPath } from 'hono/utils/url'
 import {
   BuildEnvironment,
   createIdResolver,
@@ -92,13 +93,19 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       },
     },
 
-    config(config) {
+    config(config, { command }) {
       // The official Workers plugin needs the entry before final configuration is available.
       const early = resolveProjectConfig(resolve(config.root ?? '.'), resolved)
       const tree = generateResolvedProject(early)
       return {
         environments: {
-          ssr: { consumer: 'server' },
+          ssr: {
+            consumer: 'server',
+            // Linked packages must share the Node host's scope and lifecycle registries.
+            ...(resolved.target === 'node' && command === 'serve'
+              ? { resolve: { external: ['@olivaw/sark'] } }
+              : {}),
+          },
           ...(resolved.target === 'cloudflare' && tree?.pages.length
             ? {
                 client: {
@@ -584,25 +591,47 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         if (isViteResource) return next()
         const isApi = matchesPrefix(pathname, apiPrefix)
         const isHtml = Boolean(req.headers.accept?.includes('text/html'))
-        if (!isApi && (resolved.webDir === false || !isHtml)) return next()
-
-        const done = Promise.withResolvers<void>()
-        const delivered = Promise.withResolvers<void>()
-        const complete = () => {
-          res.off('finish', complete)
-          res.off('close', complete)
-          delivered.resolve()
+        if (!isApi && (resolved.webDir === false || !isHtml)) {
+          // Protocol endpoints use their declared paths, independently of API/page prefixes.
+          void getAppInstance()
+            .then((app) => {
+              if (matchesStaticRoute(app, pathname)) forwardToApplication()
+              else next()
+            })
+            .catch(next)
+          return
         }
-        requests.set(res, { done: done.promise })
-        res.once('finish', complete)
-        res.once('close', complete)
-        void Promise.allSettled([listener(req, res).catch(next), delivered.promise]).then(() => {
-          requests.delete(res)
-          done.resolve()
-        })
+        forwardToApplication()
+
+        function forwardToApplication() {
+          const done = Promise.withResolvers<void>()
+          const delivered = Promise.withResolvers<void>()
+          const complete = () => {
+            res.off('finish', complete)
+            res.off('close', complete)
+            delivered.resolve()
+          }
+          requests.set(res, { done: done.promise })
+          res.once('finish', complete)
+          res.once('close', complete)
+          void Promise.allSettled([listener(req, res).catch(next), delivered.promise]).then(() => {
+            requests.delete(res)
+            done.resolve()
+          })
+        }
       })
     },
   }
+}
+
+/** Matches assembled static endpoints, including configuration-derived protocol routes. */
+function matchesStaticRoute(instance: AppInstance, pathname: string): boolean {
+  const normalize = (path: string) => {
+    const value = path.replace(/\/$/, '') || '/'
+    return instance.config.caseSensitive ? value : value.toLowerCase()
+  }
+  const path = normalize(getRequestPath(new Request(`http://vite.local${pathname}`)))
+  return instance.hono.routes.some((route) => normalize(route.path) === path)
 }
 
 function matchesPrefix(path: string, pre: string): boolean {

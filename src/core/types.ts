@@ -84,5 +84,20 @@ export type AppInstanceResources<D> = D extends { resources?: infer R }
       }
   : {}
 
+/** Inferred domain service capabilities derived from application definition services. */
+export type AppInstanceServices<D> = D extends { services?: infer S }
+  ? {
+      readonly [
+        K in keyof NonNullable<S> as [import('./service').InferService<NonNullable<S>[K]>] extends [
+          never,
+        ]
+          ? never
+          : K
+      ]: import('./service').InferService<NonNullable<S>[K]>
+    }
+  : {}
+
 /** Sark application runtime instance returned by `createApp`. */
-export type AppInstance<D = unknown> = BaseAppInstance<D> & AppInstanceResources<D>
+export type AppInstance<D = unknown> = BaseAppInstance<D> &
+  AppInstanceResources<D> &
+  AppInstanceServices<D>

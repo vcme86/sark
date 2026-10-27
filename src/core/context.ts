@@ -6,7 +6,10 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 
+import type { Hono } from 'hono'
+
 import type { ResolvedHttpConfig } from '../web/http/config'
+import type { ServiceBinding, ServiceBindingFactory } from './service'
 import type { AppInstance } from './types'
 
 /** Execution scope metadata associated with an asynchronous call tree. */
@@ -24,7 +27,7 @@ export interface ExecutionScope {
   /** Collects cookies returned by internal requests into the outer response. */
   readonly appendCookies?: (cookies: readonly string[]) => void
   /** Marks streamed response headers as committed before rendering continues. */
-  readonly commitResponseHeaders?: () => void
+  readonly commitResponseHeaders?: () => Promise<void> | void
   /** Request-scoped cache shared by `dedup` wrappers. */
   readonly dedupStore?: Map<symbol, unknown>
   /** Resolved HTTP configuration in effect for this execution context. */
@@ -41,6 +44,16 @@ export interface ExecutionScope {
   readonly pageConfig?: unknown
   /** Assembled resources active for this execution scope. */
   readonly resources?: Readonly<Record<string, unknown>>
+  /** Assembled domain services active for this execution scope. */
+  readonly services?: Readonly<Record<string, unknown>>
+  /** Active request lifecycle service bindings. */
+  readonly serviceBindings?: Readonly<Record<string, ServiceBinding>>
+  /** Factories producing per-request service bindings. */
+  readonly serviceBindingFactories?: Readonly<Record<string, ServiceBindingFactory>>
+  /** Compiled HTTP graph reused by internal calls of this event. */
+  readonly httpApp?: Hono<any>
+  /** Observes the outer response's header commit boundary. */
+  readonly isHeadersCommitted?: () => boolean
 }
 
 /** HTTP state established by request middleware before dispatching business or page handlers. */

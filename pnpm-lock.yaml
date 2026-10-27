@@ -60,6 +60,9 @@ importers:
       obuild:
         specifier: ^0.4.45
         version: 0.4.45(typescript@7.0.2)
+      openid-client:
+        specifier: ^6.8.8
+        version: 6.8.8
       oxfmt:
         specifier: ^0.74.0
         version: 0.74.0
@@ -1300,6 +1303,9 @@ packages:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
+  jose@6.2.13:
+    resolution: {integrity: sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ==}
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
@@ -1401,6 +1407,9 @@ packages:
     resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
     engines: {node: ^18 || ^20 || >= 21}
 
+  oauth4webapi@3.8.8:
+    resolution: {integrity: sha512-8N28E+a/oxfXWBgOMt+ZP/JUf/XR+IFbvkAEPP3gznXOMv9BpAAwiIj0TFNz3tGTPc0ZQ8zmWBNgN1nAys0gng==}
+
   obug@3.0.0:
     resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
     engines: {node: '>=12.20.0'}
@@ -1408,6 +1417,9 @@ packages:
   obuild@0.4.45:
     resolution: {integrity: sha512-3+MjpKvxct9kZbRG5IU2nvYIlEkE+sYhREwz2og8Sq9zbNx1NfuEFH9qxbvRRpL1rEZafVTe6tpAZjB3G4KH0A==}
     hasBin: true
+
+  openid-client@6.8.8:
+    resolution: {integrity: sha512-ZsucJA5Ad04Uv7YN4ql+s4GXNmb9uAYQwyJTsJx7CH/MX3JZioLE2pVKi1SC+YrbSLA4Px3Gi30dMjgOZtb6pA==}
 
   oxfmt@0.74.0:
     resolution: {integrity: sha512-G4OP7FgwGYZR5ttRpCOOfJdyRsSyvtn34vSXnjDq6Oqed5Dufg5mB44mank+51nAdHOKuTJ0lj0mksY7L+N61A==}
@@ -2391,6 +2403,8 @@ snapshots:
 
   hono@4.13.13: {}
 
+  jose@6.2.13: {}
+
   kleur@4.1.5: {}
 
   lightningcss-android-arm64@1.33.0:
@@ -2469,6 +2483,8 @@ snapshots:
 
   node-addon-api@8.9.2: {}
 
+  oauth4webapi@3.8.8: {}
+
   obug@3.0.0: {}
 
   obuild@0.4.45(typescript@7.0.2):
@@ -2494,6 +2510,11 @@ snapshots:
       - oxc-resolver
       - typescript
       - vue-tsc
+
+  openid-client@6.8.8:
+    dependencies:
+      jose: 6.2.13
+      oauth4webapi: 3.8.8
 
   oxfmt@0.74.0:
     dependencies:

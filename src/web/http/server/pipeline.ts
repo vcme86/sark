@@ -108,7 +108,7 @@ function compilePolicy(
  * Route policy overrides replace defaults rather than stacking with them.
  *
  * Request order:
- * 1. Establish the execution scope, request ID, and response cookie collector.
+ * 1. Establish the execution scope, request ID, and Cookie collector; await domain request bindings.
  * 2. Apply the selected CORS policy, including target-method preflight handling.
  * 3. Check lifecycle admission and GET/HEAD URL normalization.
  * 4. Apply the selected route's CSRF and body-limit policies.
@@ -117,7 +117,9 @@ function compilePolicy(
  * 7. Resolve unmatched methods as 405, then optionally render the HTML 404 document.
  *
  * CORS precedes admission so rejections retain applicable CORS headers. Request
- * context middleware applies security headers after downstream execution returns.
+ * context awaits domain header-commit hooks before sealing the Cookie collector,
+ * then applies security headers after downstream execution returns. SSR commits
+ * those hooks before taking its response header snapshot.
  * Unknown-length body limits are enforced during consumption, not before all middleware.
  *
  * @param config - Resolved instance settings or a getter for the already resolved event settings.
@@ -143,7 +145,9 @@ export function buildHttpApp(
     const key = `${entry.routePath.method}:${routeShape(entry.routePath.urlPath)}`
     const previous = uniqueRoutes.get(key)
     if (previous) {
-      throw new Error(`Route conflict: ${previous.source ?? key} and ${entry.source ?? key}`)
+      throw new Error(
+        `Route conflict: ${entry.routePath.method} ${entry.routePath.urlPath} between ${previous.source ?? key} and ${entry.source ?? key}`,
+      )
     }
     uniqueRoutes.set(key, entry)
   }

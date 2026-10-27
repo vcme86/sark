@@ -1,3 +1,4 @@
+import { HTTPException } from 'hono/http-exception'
 import { expect, it } from 'vitest'
 
 import { createDefinition } from '../../src/entries/runtime/core'
@@ -54,3 +55,40 @@ it('uses UTF-8 byte length for JSON and preserves representation headers on HEAD
     expect(await response.text()).toBe(method === 'HEAD' ? '' : expected)
   }
 })
+
+it.each([false, true])(
+  'retains pending headers and cookies on a native HTTP error (response cookies: %s)',
+  async (responseHasCookie) => {
+    const app = await createApp(
+      createDefinition({
+        routes: [
+          {
+            routePath: parseApiFilePath('failure.get.ts', '/api')!,
+            declaration: route().handler((ctx) => {
+              ctx.header('X-Handler', 'pending')
+              setCookie(ctx, 'pending', 'one')
+              throw new HTTPException(403, {
+                res: new Response('forbidden', {
+                  status: 403,
+                  headers: responseHasCookie ? { 'Set-Cookie': 'error=two; Path=/' } : {},
+                }),
+              })
+            }),
+          },
+        ],
+      }),
+    )
+    try {
+      const response = await app.fetch(new Request('http://localhost/api/failure'))
+      expect(response.status).toBe(403)
+      expect(await response.text()).toBe('forbidden')
+      expect(response.headers.get('X-Handler')).toBe('pending')
+      const cookies = response.headers.getSetCookie()
+      expect(cookies).toContainEqual(expect.stringContaining('pending=one'))
+      expect(cookies).toHaveLength(responseHasCookie ? 2 : 1)
+      if (responseHasCookie) expect(cookies).toContainEqual(expect.stringContaining('error=two'))
+    } finally {
+      await app.close()
+    }
+  },
+)

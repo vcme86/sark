@@ -14,6 +14,68 @@ import { parseApiFilePath } from '../../src/web/http/path'
 import { createDevHandoff } from '../helpers/dev-handoff'
 import { createProject, serverUrl, viteEntry } from '../helpers/project'
 
+it.each([false, 'app'] as const)(
+  'serves configured OAuth endpoints outside API/web prefixes with webDir=%s',
+  async (webDir) => {
+    const project = createProject()
+    project.write(
+      'app.ts',
+      `
+import { defineApp } from '@olivaw/sark/server'
+import { defineOAuth } from '@olivaw/sark/auth/oauth'
+export const app = defineApp({ cookie: { secret: 'oauth-cookie-secret-long-enough' } })
+export const oauth = defineOAuth([{
+  id: 'github', kind: 'github', clientId: 'client', clientSecret: 'secret', scopes: [],
+  signInPath: '/account/signin', redirectUri: 'https://public.test/account/callback',
+  onSuccess() {},
+}])`,
+    )
+    project.write(
+      'vite.config.mts',
+      `import { sark } from '@olivaw/sark/vite'
+export default { plugins: [sark({ webDir: ${JSON.stringify(webDir)}, apiPrefix: '/service', webPrefix: '/site' })] }`,
+    )
+    let server: Awaited<ReturnType<typeof createServer>> | undefined
+    try {
+      server = await createServer({
+        root: project.root,
+        logLevel: 'silent',
+        server: { host: '127.0.0.1', port: 0 },
+      })
+      await server.listen()
+      const origin = serverUrl(server.httpServer)
+      for (const accept of ['application/json', 'text/html']) {
+        const response = await fetch(origin + '/ACCOUNT/signin', {
+          redirect: 'manual',
+          headers: { Accept: accept },
+        })
+        expect(response.status).toBe(308)
+        const signin = await fetch(response.headers.get('Location')!, {
+          redirect: 'manual',
+          headers: { Accept: accept },
+        })
+        expect(signin.status, await signin.clone().text()).toBe(302)
+        expect(new URL(signin.headers.get('Location')!).hostname).toBe('github.com')
+        await signin.text()
+      }
+      const method = await fetch(origin + '/account/signin', { method: 'POST' })
+      expect(method.status).toBe(405)
+      expect(method.headers.get('Allow')).toContain('GET')
+      const callback = await fetch(origin + '/account/callback')
+      expect(callback.status).toBe(401)
+      const unrelated = await fetch(origin + '/unrelated-resource.js')
+      expect(unrelated.status).toBe(404)
+      expect(unrelated.headers.get('X-Request-Id')).toBeNull()
+    } finally {
+      try {
+        await server?.close()
+      } finally {
+        project.remove()
+      }
+    }
+  },
+)
+
 it('serves generated routes, respects prefix boundaries and reloads imported helpers through real Vite', async () => {
   const project = createProject()
   project.write(

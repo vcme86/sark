@@ -368,15 +368,21 @@ export const page404Handler = createPage404Handler(
   }
 
   const hasDatabase = appExports.exports.includes('database')
+  const hasAuth = appExports.exports.includes('auth')
+  const hasOAuth = appExports.exports.includes('oauth')
 
   const appTsContent = `import type { Hono } from 'hono'
 import { createDefinition } from '@olivaw/sark/runtime/core'
+${hasAuth ? "import { createAuthAssembly } from '@olivaw/sark/runtime/auth'" : ''}
+${hasOAuth ? "import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'" : ''}
 import type { EndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
 ${appExports.hasApp ? `import { app } from ${appImportPath}` : ''}
 ${appExports.hasRuntime ? `import { runtime } from ${appImportPath}` : ''}
 ${appExports.exports.includes('page') ? `import { page } from ${appImportPath}` : ''}
 ${hasDatabase ? `import { database } from ${appImportPath}` : ''}
+${hasAuth ? `import { auth } from ${appImportPath}` : ''}
+${hasOAuth ? `import { oauth } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
@@ -389,6 +395,7 @@ export const definition = createDefinition({
   ${appExports.hasRuntime ? 'declarations: [runtime] as const,' : ''}
   ${appExports.exports.includes('page') ? 'page,' : ''}
   ${hasDatabase ? 'resources: { db: database },' : ''}
+  ${hasAuth || hasOAuth ? `services: { ${hasAuth ? 'auth: createAuthAssembly(auth),' : ''} ${hasOAuth ? `oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)}),` : ''} },` : ''}
   apiPrefix: ${JSON.stringify(apiPrefix)},
   webPrefix: ${JSON.stringify(webPrefix)},
   routes: [
@@ -435,7 +442,15 @@ export interface Resources {}
   writeFileIfChanged(join(generatedDir, 'resources-types.ts'), resourcesTypesContent)
 
   // 3. Generate services-types.ts
-  const servicesTypesContent = `// Generated services types
+  const servicesTypesContent = hasAuth
+    ? `// Generated services types
+import type { RequestAuth } from '@olivaw/sark/auth/session'
+
+export interface Services {
+  readonly auth: RequestAuth
+}
+`
+    : `// Generated services types
 export interface Services {}
 `
   writeFileIfChanged(join(generatedDir, 'services-types.ts'), servicesTypesContent)
@@ -444,6 +459,7 @@ export interface Services {}
   const typesDtsContent = `// Generated type registrations
 import type { Api } from './app'
 import type { Resources } from './resources-types'
+import type { Services } from './services-types'
 
 declare module '@olivaw/sark/http' {
   interface Register {
@@ -454,11 +470,14 @@ declare module '@olivaw/sark/http' {
 declare module '@olivaw/sark/server' {
   interface Register {
     resources: Resources
+    services: Services
   }
 }
 export type { AppDefinition, Api, App } from './app'
 export type { Resources } from './resources-types'
+export type { Services } from './services-types'
 ${hasDatabase ? "export type { Db } from './resources-types'" : ''}
+${hasAuth ? "export type { RequestAuth as Auth } from '@olivaw/sark/auth/session'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
 

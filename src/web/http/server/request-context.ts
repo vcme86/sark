@@ -8,6 +8,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 
 import { getCurrentScope, type RequestScope, runInScope } from '../../../core/context'
 import { applicationLifecycles } from '../../../core/lifecycle'
+import type { RequestBindingContext, ServiceBinding } from '../../../core/service'
 import type { AppInstance } from '../../../core/types'
 import type { ResolvedHttpConfig } from '../config'
 import {
@@ -48,12 +49,7 @@ export function applyResponseHeaders(
 ): Response {
   const headers = new Headers(response.headers)
   headers.set('X-Request-Id', requestId)
-  if (config.headers !== false) {
-    for (const [key, value] of Object.entries(config.headers)) {
-      if (value === false) headers.delete(key)
-      else if (!headers.has(key)) headers.set(key, value)
-    }
-  }
+  applyConfiguredHeaders(headers, config)
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -61,8 +57,18 @@ export function applyResponseHeaders(
   })
 }
 
+function applyConfiguredHeaders(headers: Headers, config: ResolvedHttpConfig): void {
+  if (config.headers === false) return
+  for (const [key, value] of Object.entries(config.headers)) {
+    if (value === false) headers.delete(key)
+    else if (!headers.has(key)) headers.set(key, value)
+  }
+}
+
 /**
  * Creates request-scoped state, validates hosts, resolves proxy addresses, and applies response headers.
+ * Domain bindings are initialized inside the scope before downstream middleware runs.
+ * Header-commit hooks finish before the Cookie collector is sealed, including SSR's early commit.
  *
  * @param getConfig - Getter returning the owning instance or event configuration.
  * @param instanceProvider - Lazy accessor returning the current application instance.
@@ -112,6 +118,9 @@ export function requestContext(
         : rawReq.signal
 
     let headersCommitted = false
+    const serviceBindings: Record<string, ServiceBinding> = {}
+    const isHeadersCommitted = () =>
+      headersCommitted || Boolean(isInternal && parent.isHeadersCommitted?.())
     ctx.set('requestId', requestId)
     try {
       validateHost(ctx.req.header('host') || reqUrl.host, effectiveConfig.hosts)
@@ -129,19 +138,26 @@ export function requestContext(
           : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin,
         signal: requestSignal,
         appendCookies(cookies) {
-          if (cookies.length && headersCommitted)
+          if (cookies.length && isHeadersCommitted())
             throw new Error(
               'Cannot forward API cookies after response headers have been committed.',
             )
           for (const cookie of cookies) ctx.header('Set-Cookie', cookie, { append: true })
         },
-        commitResponseHeaders() {
+        async commitResponseHeaders() {
+          if (headersCommitted) return
+          for (const binding of Object.values(serviceBindings)) await binding.onCommitHeaders?.()
           headersCommitted = true
         },
+        isHeadersCommitted,
         dedupStore: isInternal ? parent.dedupStore : new Map(),
         config: effectiveConfig,
         pageConfig: parent?.pageConfig,
         resources: parent?.resources,
+        services: parent?.services,
+        serviceBindings,
+        serviceBindingFactories: parent?.serviceBindingFactories,
+        httpApp: parent?.httpApp,
         env,
         executionCtx,
       } satisfies RequestScope
@@ -150,13 +166,30 @@ export function requestContext(
           ctx.set(key, val)
         }
       }
-      await runInScope(scope, next)
+      await runInScope(scope, async () => {
+        for (const [name, factory] of Object.entries(parent?.serviceBindingFactories ?? {})) {
+          const bindingContext: RequestBindingContext = {
+            ctx,
+            request: rawReq,
+            signal: requestSignal,
+            parentBinding: isInternal ? parent.serviceBindings?.[name] : undefined,
+            appendCookie: (cookie) => scope.appendCookies([cookie]),
+            isHeadersCommitted,
+          }
+          serviceBindings[name] = await factory(bindingContext)
+        }
+        await next()
+        await scope.commitResponseHeaders()
+      })
     } catch (error) {
       ctx.res = runInScope({ ...parent, requestId, app: instance }, () =>
         preserveResponseCookies(ctx, formatErrorResponse(error, effectiveConfig.production)),
       )
     }
-    ctx.res = applyResponseHeaders(ctx.res, effectiveConfig, requestId)
+    // Hono's setter merges old headers into a replacement Response, restoring deletions.
+    // header() first makes the final response writable, including native fetch responses.
+    ctx.header('X-Request-Id', requestId)
+    applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
     headersCommitted = true
   }
 }

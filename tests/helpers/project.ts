@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 
 export const projectRoot = resolve('.')
 export const cliEntry = join(projectRoot, 'dist/tooling/cli/index.mjs')
-export const viteEntry = join(projectRoot, 'dist/entries/vite.mjs')
+export const viteEntry = '@olivaw/sark/vite'
 
 /** Creates an isolated application that resolves the repository's built package exports. */
 export function createProject() {

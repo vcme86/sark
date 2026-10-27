@@ -9,7 +9,7 @@ import { expect, it } from 'vitest'
 import { createProject, runProjectCli } from '../helpers/project'
 
 const cli = resolve('dist/tooling/cli/index.mjs')
-const viteEntry = resolve('dist/entries/vite.mjs')
+const viteEntry = '@olivaw/sark/vite'
 
 function withProject(run: (root: string) => void): void {
   mkdirSync('.build', { recursive: true })

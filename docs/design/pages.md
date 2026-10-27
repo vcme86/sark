@@ -147,13 +147,13 @@ setIdentity(snapshot) 只在浏览器更新当前展示快照，SSR 调用无效
 应用在登录、退出或自己的身份查询完成后映射快照，再明确 reload/导航。框架不读取业务响应字段来猜登录结果，也不因 Cookie 改变而自动推断。
 
 ```ts
-await client.post('/auth/login', { json: credentials })
+await client.post('/auth/signin', { json: credentials })
 setIdentity({ user: { sub: user.id, roles: user.roles } })
 const { committed } = await navigate('/dashboard')
 if (committed) closeDialog()
 ```
 
-credentials、user、closeDialog 来自应用。本例表达调用顺序，不代表框架统一定义登录响应。
+credentials、user、closeDialog 及该登录 API 来自应用。本例表达调用顺序，不代表框架统一定义登录路径或响应。
 
 ## 元数据与组件
 

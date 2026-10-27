@@ -4,6 +4,8 @@
 
 第一方会话验证请求凭据，并提供本应用的身份信息。框架负责 JWT、Cookie/Bearer 选择、失效钩子、续期与认证结果；账户、密码、权限、登录 UI 和业务跳转由应用决定。
 
+本模块不自动注册登录、退出或注册端点。应用在 API 路由中实现这些业务接口，在页面目录中实现登录等界面；第三方授权入口与回调的挂载规则见 [oauth.md](oauth.md)。
+
 ```ts
 import { defineAuth } from '@olivaw/sark/auth/session'
 

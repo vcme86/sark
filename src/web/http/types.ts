@@ -19,10 +19,13 @@ export type SarkEnvBindings = Register extends { env: infer E } ? E : Record<str
 /** Resources selected by generated server-side assembly. */
 type RegisteredResources = Register extends { resources: infer R } ? R : {}
 
+/** Services selected by generated server-side assembly. */
+type RegisteredServices = Register extends { services: infer S } ? S : {}
+
 /** Execution environment for Sark request handlers. */
 export interface SarkEnv {
   Bindings: SarkEnvBindings
-  Variables: ContextVariableMap & RegisteredResources
+  Variables: ContextVariableMap & RegisteredResources & RegisteredServices
 }
 
 /** Hono context strongly typed with Sark context variables. */

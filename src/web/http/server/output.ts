@@ -38,18 +38,18 @@ export function formatErrorResponse(error: unknown, production: boolean): Respon
 }
 
 /**
- * Copies response cookies into a context that already has pending cookies.
- * Hono otherwise replaces the incoming Set-Cookie fields with the context's fields.
- * Returns the response unchanged; Hono performs the final assignment.
+ * Retains pending context headers and combines response cookies before Hono assignment.
+ * Reading ctx.res materializes pending headers; otherwise native error Responses can lose them.
+ * Hono replaces incoming cookies when context cookies exist, so combine them in the context first.
  *
  * @param ctx - Active Hono context.
  * @param response - Response object carrying headers to preserve.
  * @returns The original response instance.
  */
 export function preserveResponseCookies(ctx: Context, response: Response): Response {
+  const existing = ctx.res.headers.getSetCookie()
   const incoming = response.headers.getSetCookie()
   if (incoming.length === 0) return response
-  const existing = ctx.res.headers.getSetCookie()
   if (existing.length === 0) return response
 
   const known = new Set(existing)

@@ -37,7 +37,12 @@ export function csrf(options?: CsrfOptions | boolean): MiddlewareHandler {
   })
 
   return async (ctx: Context, next: Next) => {
-    if (getCurrentScope()?.isInternal) return next()
+    const scope = getCurrentScope()
+    if (
+      scope?.isInternal ||
+      Object.values(scope?.serviceBindings ?? {}).some((binding) => binding.csrfExempt)
+    )
+      return next()
     try {
       await upstreamCsrf(ctx, async () => {})
     } catch (err) {

@@ -175,7 +175,7 @@ HTTP 默认值由 web/http/config 唯一维护；core/config 组合它。policy 
 
 恢复码的运行代码和 SQL 实现集中在 services/auth/recovery，对外仍由共同 MFA 的 auth/mfa 子路径交付；应用不额外声明 recovery；这样分组也不会额外产生一个提前加载全部内容的聚合入口。
 
-`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/websocket`、`runtime/jobs-node`、`runtime/jobs-cloudflare` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
+`runtime/core`、`runtime/auth`、`runtime/oauth`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/websocket`、`runtime/jobs-node`、`runtime/jobs-cloudflare` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
 
 ## 上游与框架承担的工作
 
