@@ -96,6 +96,7 @@ it('keeps request metadata and reports configuration failures before routing', a
         if (!env.SECRET) throw failure
         return {}
       }),
+      assets: { base: '/assets/', files: { 'main.js': { path: 'main.js', hashed: true } } },
       routes: [
         {
           routePath: parseApiFilePath('ping.get.ts', '/api')!,
@@ -116,13 +117,19 @@ it('keeps request metadata and reports configuration failures before routing', a
     ],
   })
   try {
-    for (const method of ['GET', 'HEAD']) {
+    const env = { SECRET: undefined, ASSETS: { fetch: async () => new Response('asset') } }
+    for (const [path, method] of [
+      ['/api/ping', 'GET'],
+      ['/api/ping', 'HEAD'],
+      ['/assets/main.js', 'GET'],
+      ['/assets/main.js', 'HEAD'],
+    ]) {
       const rejected = await handler.fetch(
-        new Request('https://worker.example.com/api/ping', {
+        new Request('https://worker.example.com' + path, {
           method,
           headers: { 'CF-Ray': 'configuration-failure' },
         }),
-        {},
+        env,
         ctx,
       )
       expect(rejected.status).toBe(500)
@@ -131,7 +138,7 @@ it('keeps request metadata and reports configuration failures before routing', a
       if (method === 'HEAD') expect(await rejected.text()).toBe('')
       else expect((await rejected.json()).error.code).toBe('internal_server_error')
     }
-    expect(records).toHaveLength(2)
+    expect(records).toHaveLength(4)
     for (const record of records) {
       expect(record.message.join('')).toContain('configuration-failure')
       expect(record.properties.args).toEqual([{ error: failure }])

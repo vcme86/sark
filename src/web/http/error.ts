@@ -39,8 +39,7 @@ export class HttpError extends Error {
     message?: string,
     options?: { code?: string; details?: unknown; headers?: HeadersInit; body?: unknown },
   ) {
-    const msg = message ?? `HTTP error ${status}`
-    super(msg)
+    super(message ?? `HTTP error ${status}`)
     this.name = 'HttpError'
     this.status = status
     this.code = options?.code ?? 'http_error'

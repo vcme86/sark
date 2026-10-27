@@ -97,11 +97,7 @@ export function acceptsJson(acceptHeader: string | null | undefined): boolean {
     return true
   }
 
-  const negotiator = new Negotiator({
-    headers: { accept: acceptHeader },
-  })
-
-  return Boolean(negotiator.mediaType(JSON_MEDIA_TYPES))
+  return Boolean(new Negotiator({ headers: { accept: acceptHeader } }).mediaType(JSON_MEDIA_TYPES))
 }
 
 /**
@@ -143,8 +139,7 @@ export function formatResponse(output: unknown, request: Request, baseHeaders?: 
     })
   }
 
-  const accept = request.headers.get('Accept')
-  if (!acceptsJson(accept)) {
+  if (!acceptsJson(request.headers.get('Accept'))) {
     mergeVaryAccept(headers)
     throw new HttpError(406, 'Not Acceptable: client does not accept application/json', {
       headers,
@@ -155,8 +150,7 @@ export function formatResponse(output: unknown, request: Request, baseHeaders?: 
 
   mergeVaryAccept(headers)
 
-  const jsonStr = JSON.stringify(output)
-  const encoded = textEncoder.encode(jsonStr)
+  const encoded = textEncoder.encode(JSON.stringify(output))
   headers.set('Content-Length', String(encoded.byteLength))
 
   if (request.method === 'HEAD') {

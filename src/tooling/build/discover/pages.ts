@@ -4,17 +4,14 @@
  * @module
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
-
-import { parseSync } from 'vite'
-
 import {
   compareRoutes,
   parseApiFilePath,
   type RouteSegment,
   tokenizePath,
 } from '../../../web/http/path'
+import { scanRouteFiles } from './files'
+import { parseModule } from './module'
 
 /** Parsed page route URL and collision signature. */
 export interface ParsedPageRoutePath {
@@ -111,77 +108,68 @@ export interface DiscoveredPageTree {
 }
 
 function inspectModuleExports(filePath: string): PageExportFlags {
-  const sourceText = readFileSync(filePath, 'utf-8')
-  try {
-    const parseResult = parseSync(filePath, sourceText)
-    if (parseResult.errors.length > 0) {
-      throw new Error(parseResult.errors.map((error) => error.message).join('\n'))
-    }
-    let hasDefault = false
-    let hasLoader = false
-    let hasAction = false
-    let hasMeta = false
-    let hasCache = false
-    let hasShouldRevalidate = false
-    let hasScope = false
+  let hasDefault = false
+  let hasLoader = false
+  let hasAction = false
+  let hasMeta = false
+  let hasCache = false
+  let hasShouldRevalidate = false
+  let hasScope = false
 
-    for (const node of parseResult.program.body) {
-      if (node.type === 'ExportDefaultDeclaration') {
-        hasDefault = true
-      } else if (node.type === 'ExportNamedDeclaration') {
-        if (node.exportKind === 'type') continue
-        if (node.declaration) {
-          if (
-            node.declaration.type === 'FunctionDeclaration' ||
-            node.declaration.type === 'ClassDeclaration'
-          ) {
-            const name = node.declaration.id?.name
-            if (name === 'loader') hasLoader = true
-            if (name === 'action') hasAction = true
-            if (name === 'meta') hasMeta = true
-            if (name === 'cache') hasCache = true
-            if (name === 'shouldRevalidate') hasShouldRevalidate = true
-            if (name === 'scope') hasScope = true
-          } else if (node.declaration.type === 'VariableDeclaration') {
-            for (const decl of node.declaration.declarations) {
-              if (decl.id.type === 'Identifier') {
-                const name = decl.id.name
-                if (name === 'loader') hasLoader = true
-                if (name === 'action') hasAction = true
-                if (name === 'meta') hasMeta = true
-                if (name === 'cache') hasCache = true
-                if (name === 'shouldRevalidate') hasShouldRevalidate = true
-                if (name === 'scope') hasScope = true
-              }
+  for (const node of parseModule(filePath).body) {
+    if (node.type === 'ExportDefaultDeclaration') {
+      hasDefault = true
+    } else if (node.type === 'ExportNamedDeclaration') {
+      if (node.exportKind === 'type') continue
+      if (node.declaration) {
+        if (
+          node.declaration.type === 'FunctionDeclaration' ||
+          node.declaration.type === 'ClassDeclaration'
+        ) {
+          const name = node.declaration.id?.name
+          if (name === 'loader') hasLoader = true
+          if (name === 'action') hasAction = true
+          if (name === 'meta') hasMeta = true
+          if (name === 'cache') hasCache = true
+          if (name === 'shouldRevalidate') hasShouldRevalidate = true
+          if (name === 'scope') hasScope = true
+        } else if (node.declaration.type === 'VariableDeclaration') {
+          for (const decl of node.declaration.declarations) {
+            if (decl.id.type === 'Identifier') {
+              const name = decl.id.name
+              if (name === 'loader') hasLoader = true
+              if (name === 'action') hasAction = true
+              if (name === 'meta') hasMeta = true
+              if (name === 'cache') hasCache = true
+              if (name === 'shouldRevalidate') hasShouldRevalidate = true
+              if (name === 'scope') hasScope = true
             }
           }
-        } else if (node.specifiers) {
-          for (const spec of node.specifiers) {
-            if (spec.exportKind === 'type') continue
-            const name =
-              spec.exported?.type === 'Identifier' ? spec.exported.name : spec.exported?.value
-            if (name === 'default') hasDefault = true
-            if (name === 'loader') hasLoader = true
-            if (name === 'action') hasAction = true
-            if (name === 'meta') hasMeta = true
-            if (name === 'cache') hasCache = true
-            if (name === 'shouldRevalidate') hasShouldRevalidate = true
-            if (name === 'scope') hasScope = true
-          }
+        }
+      } else if (node.specifiers) {
+        for (const spec of node.specifiers) {
+          if (spec.exportKind === 'type') continue
+          const name =
+            spec.exported?.type === 'Identifier' ? spec.exported.name : spec.exported?.value
+          if (name === 'default') hasDefault = true
+          if (name === 'loader') hasLoader = true
+          if (name === 'action') hasAction = true
+          if (name === 'meta') hasMeta = true
+          if (name === 'cache') hasCache = true
+          if (name === 'shouldRevalidate') hasShouldRevalidate = true
+          if (name === 'scope') hasScope = true
         }
       }
     }
-    return {
-      hasDefault,
-      hasLoader,
-      hasAction,
-      hasMeta,
-      hasCache,
-      hasShouldRevalidate,
-      ...(hasScope ? { hasScope } : {}),
-    }
-  } catch (error) {
-    throw new Error(`Failed to parse page module "${filePath}".`, { cause: error })
+  }
+  return {
+    hasDefault,
+    hasLoader,
+    hasAction,
+    hasMeta,
+    hasCache,
+    hasShouldRevalidate,
+    ...(hasScope ? { hasScope } : {}),
   }
 }
 
@@ -282,7 +270,7 @@ export function comparePageRoutes(a: ParsedPageRoutePath, b: ParsedPageRoutePath
  * @throws {Error} If page, layout, error, or middleware collisions or invalid exports are detected.
  */
 export function discoverPages(webDir: string | false, webPrefix: string): DiscoveredPageTree {
-  if (webDir === false || !existsSync(webDir)) {
+  if (webDir === false) {
     return {
       pages: [],
       layouts: new Map(),
@@ -291,27 +279,7 @@ export function discoverPages(webDir: string | false, webPrefix: string): Discov
     }
   }
 
-  const rawFiles: Array<{ fullPath: string; rel: string }> = []
-
-  function walk(currentDir: string) {
-    const entries = readdirSync(currentDir)
-    for (const entry of entries) {
-      if (entry.startsWith('.')) continue
-      const fullPath = join(currentDir, entry)
-      const stat = statSync(fullPath)
-      if (stat.isDirectory()) {
-        if (entry.startsWith('_')) continue
-        walk(fullPath)
-      } else if (stat.isFile()) {
-        if (entry.includes('.test.') || entry.includes('.spec.') || entry.endsWith('.d.ts')) {
-          continue
-        }
-        rawFiles.push({ fullPath, rel: relative(webDir as string, fullPath) })
-      }
-    }
-  }
-
-  walk(webDir)
+  const rawFiles = scanRouteFiles(webDir)
 
   let rootDocument: DiscoveredRootFile | undefined
   const layoutsByScope = new Map<string, DiscoveredLayoutFile>()

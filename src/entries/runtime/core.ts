@@ -10,3 +10,4 @@ export {
   type ApplicationDefinitionInput,
   type PageRequestHandler,
 } from '../../core/definition'
+export type { InferResource } from '../../core/resource'

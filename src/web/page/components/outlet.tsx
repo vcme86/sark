@@ -8,16 +8,22 @@ import { useContext } from 'react'
 
 import { OutletDepthContext, useOptionalPageContext } from '../context'
 
-/** Outlet renders the child route matching the current URL at the active nesting depth. */
+/**
+ * Renders the matched child route at the active nesting depth.
+ *
+ * @returns The child scope, or null outside a page provider or after the last scope.
+ */
 export function Outlet() {
   const context = useOptionalPageContext()
   const depth = useContext(OutletDepthContext)
 
-  if (!context || !context.outletChain || depth >= context.outletChain.length) {
+  if (!context || depth >= context.outletChain.length) {
     return null
   }
 
-  const child = context.outletChain[depth]
-
-  return <OutletDepthContext.Provider value={depth + 1}>{child}</OutletDepthContext.Provider>
+  return (
+    <OutletDepthContext.Provider value={depth + 1}>
+      {context.outletChain[depth]}
+    </OutletDepthContext.Provider>
+  )
 }

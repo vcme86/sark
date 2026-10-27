@@ -25,8 +25,18 @@ export interface BaseDeclaration<K extends string = string, T = unknown> {
   readonly isFactory: boolean
 }
 
-export type EnvironmentRequirement<Declarations extends readonly unknown[]> = [
-  Extract<Declarations[number], RequiresEnv<never>>,
+/** Intersects resource environments before unknown requirements can absorb concrete inputs. */
+type ResourceEnvironment<Resources> = [keyof Resources] extends [never]
+  ? unknown
+  : {
+        [K in keyof Resources]: (env: EnvOf<Resources[K]>) => void
+      }[keyof Resources] extends (env: infer E) => void
+    ? E
+    : unknown
+
+/** Environment requirements contributed by declarations and selected resources. */
+export type EnvironmentRequirement<Declarations extends readonly unknown[], Resources = {}> = [
+  Extract<Declarations[number] | Resources[keyof Resources], RequiresEnv<never>>,
 ] extends [never]
   ? {}
-  : RequiresEnv<MergeEnvironments<Declarations>>
+  : RequiresEnv<MergeEnvironments<Declarations> & ResourceEnvironment<Resources>>

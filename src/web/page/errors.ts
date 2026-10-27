@@ -1,8 +1,16 @@
+import { HTTPException } from 'hono/http-exception'
+
 import { HttpError } from '../http/error'
 import { NotFoundSignal } from './signals'
 import type { PageError } from './types'
 
-/** Converts failures to page errors, hiding 5xx details in production. */
+/**
+ * Converts failures to page errors, hiding 5xx details in production.
+ *
+ * @param error - Loader, action, metadata, or rendering failure.
+ * @param production - Whether unexpected server failures must omit their original details.
+ * @returns A display error with a concrete HTTP status for page response handling.
+ */
 export function toPageError(
   error: unknown,
   production = false,
@@ -33,4 +41,3 @@ export function toPageError(
   }
   return { status: 500, message: production ? 'Internal Server Error' : String(error) }
 }
-import { HTTPException } from 'hono/http-exception'

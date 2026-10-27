@@ -17,6 +17,7 @@ import type { ResolvedCompressionOptions } from '../../web/http/compression'
 import { requestCompressionPolicies } from '../../web/http/middleware/compress'
 import { cors } from '../../web/http/middleware/cors'
 import { applyResponseHeaders } from '../../web/http/server/request-context'
+import { waitUntil } from './deadline'
 import { mountNodeProbes } from './probes'
 import { type NodeRuntimeDeclaration, resolveNodeRuntime } from './runtime'
 import { createNodeStaticHandler } from './static'
@@ -162,7 +163,7 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
       if (closePromise) return closePromise
       const deadline = performance.now() + options.shutdown.deadline
       const transportDrained = Promise.withResolvers<void>()
-      lifecycle.deferDisposalUntil(transportDrained.promise)
+      lifecycle.deferDisposalUntil(transportDrained.promise, deadline)
       const applicationClosed = instance.close().then(
         () => ({ ok: true as const }),
         (error: unknown) => ({ ok: false as const, error }),
@@ -244,20 +245,5 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
       )
     }
     throw error
-  }
-}
-
-/** Waits against one absolute deadline without extending the budget between phases. */
-async function waitUntil(work: Promise<unknown>, deadline: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      work.then(() => true),
-      new Promise<false>((resolve) => {
-        timer = setTimeout(() => resolve(false), Math.max(0, deadline - performance.now()))
-      }),
-    ])
-  } finally {
-    clearTimeout(timer)
   }
 }

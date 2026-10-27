@@ -29,6 +29,8 @@ client.post('/convert', { text: 42 })
 const conflictingBody = { text: '42', json: {} }
 // @ts-expect-error Conflicting body fields are rejected through variables too.
 client.post('/convert', conflictingBody)
+const custom: number = (await client.post('/custom', { text: '42' })).value
+const customAsync: number = (await client.post('/custom-async', { text: '42' })).value
 client.post('/optional')
 client.post('/optional', { headers: { 'X-Example': 'value' } })
 client.post('/form', { form: new FormData() })

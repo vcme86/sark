@@ -36,28 +36,30 @@ export default { plugins: [sark()] }`,
   const releaseWatch = Promise.withResolvers<void>()
   const graphUpdated = Promise.withResolvers<void>()
   let blockHelper = true
-  const server = await createServer({
-    root: project.root,
-    logLevel: 'silent',
-    plugins: [
-      {
-        name: 'test:async-watch-change',
-        async watchChange(id) {
-          if (blockHelper && id === helperFile) {
-            watchEntered.resolve()
-            await releaseWatch.promise
-          }
-        },
-        hotUpdate({ file }) {
-          if (this.environment.name === 'ssr' && file === helperFile) graphUpdated.resolve()
-        },
-      },
-    ],
-    server: { host: '127.0.0.1', port: 0 },
-  })
+  let server: Awaited<ReturnType<typeof createServer>> | undefined
   try {
+    server = await createServer({
+      root: project.root,
+      logLevel: 'silent',
+      plugins: [
+        {
+          name: 'test:async-watch-change',
+          async watchChange(id) {
+            if (blockHelper && id === helperFile) {
+              watchEntered.resolve()
+              await releaseWatch.promise
+            }
+          },
+          hotUpdate({ file }) {
+            if (this.environment.name === 'ssr' && file === helperFile) graphUpdated.resolve()
+          },
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0 },
+    })
     await server.listen()
-    const send = () => fetch(serverUrl(server.httpServer) + '/API/hello', { method: 'POST' })
+    const origin = serverUrl(server.httpServer)
+    const send = () => fetch(origin + '/API/hello', { method: 'POST' })
     const first = await send()
     expect(first.status).toBe(200)
     expect(await first.json()).toEqual({ message: 'before' })
@@ -96,7 +98,7 @@ export default { plugins: [sark()] }`,
       `import { route } from '@olivaw/sark/server'
 export default route().handler(() => ({ added: true }))`,
     )
-    const added = () => fetch(serverUrl(server.httpServer) + '/api/added')
+    const added = () => fetch(origin + '/api/added')
     await expect
       .poll(async () => {
         const response = await added()
@@ -107,8 +109,11 @@ export default route().handler(() => ({ added: true }))`,
     await expect.poll(async () => (await added()).status).toBe(404)
   } finally {
     releaseWatch.resolve()
-    await server.close()
-    project.remove()
+    try {
+      await server?.close()
+    } finally {
+      project.remove()
+    }
   }
 }, 15000)
 

@@ -379,8 +379,7 @@ export function buildHttpApp(
       if (middlewares.length === 0) {
         cached = null
       } else {
-        const adapted = middlewares.map(preserveMiddlewareCookies)
-        cached = every(...adapted)
+        cached = every(...middlewares.map(preserveMiddlewareCookies))
       }
       combinedMiddlewareCache.set(cfg, cached)
     }
@@ -388,8 +387,7 @@ export function buildHttpApp(
   }
 
   app.use('*', async (ctx, next) => {
-    const currentConfig = getConfig()
-    const combined = getCombinedMiddleware(currentConfig)
+    const combined = getCombinedMiddleware(getConfig())
     if (!combined) {
       return next()
     }
@@ -457,9 +455,8 @@ export function buildHttpApp(
       ctx.req.header('accept')?.includes('text/html')
     ) {
       const scope = getCurrentScope() as RequestScope
-      const isProduction = currentConfig.production
       const client = pageClient(ctx)
-      const notFoundRes = await page404Handler(ctx, client, scope, isProduction)
+      const notFoundRes = await page404Handler(ctx, client, scope, currentConfig.production)
       if (notFoundRes) return notFoundRes
     }
 

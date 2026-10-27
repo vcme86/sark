@@ -118,6 +118,7 @@ export function requestContext(
       const inherited = isInternal ? (parent as RequestScope) : undefined
       const scope = {
         requestId,
+        request: rawReq,
         app: instance,
         isInternal,
         clientIp: inherited
@@ -140,9 +141,15 @@ export function requestContext(
         dedupStore: isInternal ? parent.dedupStore : new Map(),
         config: effectiveConfig,
         pageConfig: parent?.pageConfig,
+        resources: parent?.resources,
         env,
         executionCtx,
       } satisfies RequestScope
+      if (scope.resources) {
+        for (const [key, val] of Object.entries(scope.resources)) {
+          ctx.set(key, val)
+        }
+      }
       await runInScope(scope, next)
     } catch (error) {
       ctx.res = runInScope({ ...parent, requestId, app: instance }, () =>

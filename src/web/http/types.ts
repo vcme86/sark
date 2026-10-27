@@ -1,7 +1,8 @@
-import type { Context, MiddlewareHandler, TypedResponse } from 'hono'
+import type { Context, ContextVariableMap, MiddlewareHandler, TypedResponse } from 'hono'
 import type { JSONParsed } from 'hono/utils/types'
 import type { ZodType } from 'zod'
 
+import type { Register } from '../../core/types'
 import type { CorsOptions } from './config'
 import type { InputSchema, InputValidator } from './schema'
 
@@ -11,6 +12,21 @@ declare module 'hono' {
     requestId: string
   }
 }
+
+/** Registered platform bindings, or an untyped binding record when no environment is registered. */
+export type SarkEnvBindings = Register extends { env: infer E } ? E : Record<string, unknown>
+
+/** Resources selected by generated server-side assembly. */
+type RegisteredResources = Register extends { resources: infer R } ? R : {}
+
+/** Execution environment for Sark request handlers. */
+export interface SarkEnv {
+  Bindings: SarkEnvBindings
+  Variables: ContextVariableMap & RegisteredResources
+}
+
+/** Hono context strongly typed with Sark context variables. */
+export type SarkContext = Context<SarkEnv>
 
 /** HTTP methods and the ALL fallback used in endpoint declarations. */
 export type HttpMethod =
@@ -48,7 +64,7 @@ export interface RouteInputSchema {
 }
 
 /**
- * Extracts the output type from Standard Schema V1 or Zod-compatible schema metadata.
+ * Extracts schema output from Standard Schema V1, Zod metadata, or a safeParse result.
  * Used for server-side route handler input arguments after parsing and transformation.
  */
 export type InferSchemaOutput<T> = T extends {
@@ -59,9 +75,13 @@ export type InferSchemaOutput<T> = T extends {
     ? T['_output']
     : T extends { readonly _output: infer O }
       ? O
-      : T extends { safeParse(val: any): { success: true; data: infer O } | any }
-        ? O
-        : unknown
+      : T extends { safeParseAsync(value: any): infer R }
+        ? ParsedSchemaOutput<Awaited<R>>
+        : T extends { safeParse(value: any): infer R }
+          ? ParsedSchemaOutput<R>
+          : unknown
+
+type ParsedSchemaOutput<R> = R extends { data?: infer O } ? O : never
 
 /**
  * Extracts the input type accepted by a schema before validation or transformation.
@@ -79,12 +99,7 @@ export type InferSchemaInput<T> = T extends {
 
 /** Derives the strongly-typed input object for a route handler from its RouteInputSchema. */
 export type InferRouteInput<S extends RouteInputSchema> = {
-  params: S['params'] extends undefined ? undefined : InferSchemaOutput<S['params']>
-  query: S['query'] extends undefined ? undefined : InferSchemaOutput<S['query']>
-  headers: S['headers'] extends undefined ? undefined : InferSchemaOutput<S['headers']>
-  json: S['json'] extends undefined ? undefined : InferSchemaOutput<S['json']>
-  form: S['form'] extends undefined ? undefined : InferSchemaOutput<S['form']>
-  text: S['text'] extends undefined ? undefined : InferSchemaOutput<S['text']>
+  [K in keyof S]: InferSchemaOutput<S[K]>
 }
 
 /**
@@ -95,7 +110,7 @@ export type InferRouteInput<S extends RouteInputSchema> = {
  * @returns A Response, a JSON value, or undefined for HTTP 204, directly or as a promise.
  */
 export type RouteHandler<TInput = any, TOutput = any> = (
-  ctx: Context,
+  ctx: SarkContext,
   input: TInput,
 ) => Promise<TOutput> | TOutput
 

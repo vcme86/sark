@@ -9,6 +9,8 @@ import { relative, resolve } from 'node:path'
 
 import { getRequestListener } from '@hono/node-server'
 import {
+  BuildEnvironment,
+  createIdResolver,
   loadEnv,
   type Manifest,
   normalizePath,
@@ -17,9 +19,12 @@ import {
   type ViteDevServer,
 } from 'vite'
 
+import { waitUntil } from '../../adapter/node/deadline'
+import { type ResolvedNodeRuntimeOptions, resolveNodeRuntime } from '../../adapter/node/runtime'
 import { createNodeStaticHandler } from '../../adapter/node/static'
 import { createApp } from '../../core/create'
 import type { ApplicationDefinition, PageRequestHandler } from '../../core/definition'
+import { applicationLifecycles } from '../../core/lifecycle'
 import type { AppInstance } from '../../core/types'
 import {
   collectDevelopmentAssets,
@@ -28,7 +33,11 @@ import {
   publicFiles,
   writePageAssets,
 } from '../build/assets'
-import { discoverAppEntry } from '../build/discover/app'
+import {
+  discoverAppEntry,
+  discoverDatabaseDriver,
+  type DiscoveredAppExports,
+} from '../build/discover/app'
 import { type DiscoveredPageTree, discoverPages } from '../build/discover/pages'
 import { discoverApiRoutes } from '../build/discover/routes'
 import { generateBuildArtifacts } from '../build/generate'
@@ -87,24 +96,27 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       // The official Workers plugin needs the entry before final configuration is available.
       const early = resolveProjectConfig(resolve(config.root ?? '.'), resolved)
       const tree = generateResolvedProject(early)
-      if (resolved.target === 'cloudflare' && tree?.pages.length) {
-        return {
-          environments: {
-            client: {
-              build: {
-                manifest: true,
-                rolldownOptions: { input: resolve(early.generatedDir, 'client.tsx') },
-              },
-            },
-          },
-        }
+      return {
+        environments: {
+          ssr: { consumer: 'server' },
+          ...(resolved.target === 'cloudflare' && tree?.pages.length
+            ? {
+                client: {
+                  build: {
+                    manifest: true,
+                    rolldownOptions: { input: resolve(early.generatedDir, 'client.tsx') },
+                  },
+                },
+              }
+            : {}),
+        },
       }
     },
 
-    configResolved(config) {
+    async configResolved(config) {
       viteConfig = config
       project = resolveProjectConfig(config.root, resolved)
-      pages = generateResolvedProject(project, config.base)
+      pages = await generateConfiguredProject(config, project)
       if (resolved.target === 'cloudflare' && config.command === 'build' && !pages?.pages.length) {
         writePageAssets(
           project,
@@ -282,8 +294,8 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         })
         handleServerUpdate = async (file, isServerModule) => {
           if (file.startsWith(normalizePath(generatedDir) + '/')) return
-          if (isRoutingFile(file)) {
-            pages = generateResolvedProject(projectConfig, server.config.base)
+          if (isRoutingFile(file) || isServerModule) {
+            pages = await generateConfiguredProject(server.config, projectConfig)
             server.environments.ssr.moduleGraph.onFileChange(
               normalizePath(resolve(generatedDir, 'app.ts')),
             )
@@ -298,6 +310,14 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       let creatingPromise: Promise<AppInstance> | null = null
       let handoffQueue: Promise<void> = Promise.resolve()
       let fatalDisposalError: Error | null = null
+      let shutdown: ResolvedNodeRuntimeOptions['shutdown']
+      let closingInstance:
+        | { instance: AppInstance; complete: Promise<void>; deadline: number }
+        | undefined
+      const requests = new Map<
+        Parameters<ReturnType<typeof getRequestListener>>[1],
+        { instance?: AppInstance; done: Promise<void> }
+      >()
 
       let pageHandlers = new Map<string, PageRequestHandler>()
       let page404: PageRequestHandler | undefined
@@ -372,17 +392,21 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
             { cause: fatalDisposalError },
           )
         }
+        if (closingInstance) {
+          throw new Error('Cannot create application instance: previous instance is still closing.')
+        }
 
         if (currentAppInstance) return currentAppInstance
         if (creatingPromise) return creatingPromise
 
         creatingPromise = (async () => {
           await prepareAssets()
-          const appFilePath = resolve(generatedDir, 'app.ts')
-          const appModule = await server.ssrLoadModule(appFilePath)
+          const appModule = await server.ssrLoadModule(resolve(generatedDir, 'app.ts'))
+          const runtime = resolveNodeRuntime(appModule.runtime, nodeEnv)
           const instance = await createApp(bindDevelopmentPages(appModule.definition), {
             env: nodeEnv,
           })
+          shutdown = runtime.shutdown
           currentAppInstance = instance
           creatingPromise = null
           return instance
@@ -401,14 +425,63 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
             /* The pending request receives creation failures. */
           }
         }
-        const instance = currentAppInstance
-        currentAppInstance = null
-        if (!instance) return
-        try {
-          await instance.close()
-        } catch (error) {
-          fatalDisposalError = error instanceof Error ? error : new Error(String(error))
-          throw error
+        if (!closingInstance) {
+          const instance = currentAppInstance
+          currentAppInstance = null
+          if (!instance) return
+          const lifecycle = applicationLifecycles.get(instance)!
+          const deadline = performance.now() + shutdown.deadline
+          const owned = [...requests].filter(([, request]) => request.instance === instance)
+          const work = Promise.all(owned.map(([, request]) => request.done))
+          const drained = Promise.withResolvers<void>()
+          lifecycle.deferDisposalUntil(drained.promise, deadline)
+          let cancellation: Error | undefined
+          // Attach rejection handling immediately, including while requests are still draining.
+          const closed = instance.close().then(
+            () => ({ error: undefined }),
+            (error: unknown) => ({ error }),
+          )
+
+          const complete = (async () => {
+            if (!(await waitUntil(work, deadline - shutdown.reserve))) {
+              cancellation = new Error('Development instance exceeded the request drain budget')
+              lifecycle.cancel(cancellation)
+              let connections = 0
+              for (const [response] of owned) {
+                if (!response.destroyed && !response.writableFinished) {
+                  connections++
+                  response.destroy()
+                }
+              }
+              console.warn('[sark][dev] Cancelling old requests for instance handoff.', {
+                connections,
+                handlers: lifecycle.pendingRequests,
+              })
+            }
+            // Socket closure alone does not finish a handler awaiting non-cancellable work.
+            // Keep this instance and its resources owned until the actual listener operations settle.
+            await work
+            drained.resolve()
+            const outcome = await closed
+            if (outcome.error !== undefined && outcome.error !== cancellation) throw outcome.error
+          })().then(
+            () => {
+              closingInstance = undefined
+            },
+            (error: unknown) => {
+              fatalDisposalError = error instanceof Error ? error : new Error(String(error))
+              closingInstance = undefined
+              throw fatalDisposalError
+            },
+          )
+          closingInstance = { instance, complete, deadline }
+        }
+
+        const closing = closingInstance
+        if (!(await waitUntil(closing.complete, closing.deadline))) {
+          throw new Error(
+            `Development instance handoff exceeded the shutdown deadline; previous instance is still closing (${applicationLifecycles.get(closing.instance)!.pendingRequests} active handlers).`,
+          )
         }
       }
 
@@ -431,8 +504,8 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         await enqueueUpdate(async () => {
           try {
             const previousTopology = pageTopology(pages)
-            if (isRoutingFile(file))
-              pages = generateResolvedProject(projectConfig, server.config.base)
+            if (isRoutingFile(file) || isServerModule)
+              pages = await generateConfiguredProject(server.config, projectConfig)
             developmentAssetsReady = undefined
             server.environments.ssr.moduleGraph.onFileChange(
               normalizePath(resolve(generatedDir, 'app.ts')),
@@ -447,7 +520,17 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
             } else await closeCurrentInstance()
           } catch (error) {
             if (pageOnly) pageUpdateError = error
-            else await closeCurrentInstance()
+            else if (currentAppInstance) {
+              try {
+                await closeCurrentInstance()
+              } catch (cleanupError) {
+                console.error(
+                  '[sark][dev] Module reload and instance cleanup failed:',
+                  new AggregateError([error, cleanupError]),
+                )
+                return
+              }
+            }
             console.error('[sark][dev] Module reload failed:', error)
           }
         })
@@ -463,6 +546,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       const listener = getRequestListener(
         async (request, env) => {
           const app = await getAppInstance()
+          requests.get(env.outgoing)!.instance = app
           return app.fetch(request, env)
         },
         {
@@ -480,8 +564,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       )
 
       server.middlewares.use((req, res, next) => {
-        const url = req.url ?? '/'
-        const pathname = url.split('?')[0]
+        const pathname = (req.url ?? '/').split('?')[0]
 
         const base = server.config.base
         const resourcePath = pathname.startsWith(base)
@@ -503,7 +586,20 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         const isHtml = Boolean(req.headers.accept?.includes('text/html'))
         if (!isApi && (resolved.webDir === false || !isHtml)) return next()
 
-        listener(req, res).catch(next)
+        const done = Promise.withResolvers<void>()
+        const delivered = Promise.withResolvers<void>()
+        const complete = () => {
+          res.off('finish', complete)
+          res.off('close', complete)
+          delivered.resolve()
+        }
+        requests.set(res, { done: done.promise })
+        res.once('finish', complete)
+        res.once('close', complete)
+        void Promise.allSettled([listener(req, res).catch(next), delivered.promise]).then(() => {
+          requests.delete(res)
+          done.resolve()
+        })
       })
     },
   }
@@ -537,6 +633,28 @@ export function generateProject(projectRoot: string, options: SarkOptions = {}):
 }
 
 /**
+ * Completes discovery using Vite's resolved server environment before generating artifacts.
+ *
+ * @param config - Vite configuration, including the server target's aliases and resolution conditions.
+ * @param project - Parsed Sark engineering options and absolute project paths.
+ * @returns Discovered pages after capability origins and target constraints have been checked.
+ */
+export async function generateConfiguredProject(
+  config: ResolvedConfig,
+  project: ResolvedProjectConfig,
+): Promise<DiscoveredPageTree | undefined> {
+  const appExports: DiscoveredAppExports = discoverAppEntry(project.appEntryPath)
+  if (appExports.exports.includes('database')) {
+    const environment = new BuildEnvironment('ssr', config)
+    const resolveId = createIdResolver(config)
+    appExports.databaseDriver = await discoverDatabaseDriver(project.appEntryPath, (id, importer) =>
+      resolveId(environment, id, importer),
+    )
+  }
+  return generateResolvedProject(project, config.base, appExports)
+}
+
+/**
  * Generates artifacts using the owning entry's complete project configuration.
  *
  * @param config - Resolved options and absolute discovery paths.
@@ -547,8 +665,8 @@ export function generateProject(projectRoot: string, options: SarkOptions = {}):
 export function generateResolvedProject(
   config: ResolvedProjectConfig,
   base?: string,
+  appExports = discoverAppEntry(config.appEntryPath),
 ): DiscoveredPageTree | undefined {
-  const appExports = discoverAppEntry(config.appEntryPath)
   const routes =
     config.apiDir === false ? [] : discoverApiRoutes(config.apiDir, config.options.apiPrefix)
   const pages =

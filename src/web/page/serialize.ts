@@ -21,6 +21,5 @@ const ESCAPE_REGEX = /[<\u2028\u2029]/g
  * @throws {TypeError} If serialization fails, including circular references, bigint, or undefined.
  */
 export function serializeJsonForScript(value: unknown): string {
-  const json = JSON.stringify(value)
-  return json.replace(ESCAPE_REGEX, (char) => ESCAPE_LOOKUP[char])
+  return JSON.stringify(value).replace(ESCAPE_REGEX, (char) => ESCAPE_LOOKUP[char])
 }

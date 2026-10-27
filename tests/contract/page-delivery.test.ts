@@ -89,12 +89,13 @@ for (const target of ['node', 'cloudflare'] as const) {
         `import { defineApp } from '@olivaw/sark/server'
 export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': crypto.randomUUID() }, middleware: [async (ctx, next) => { await next(); ctx.header('X-Business', 'executed') }] }))`,
       )
-    const server = await createServer({
-      root: project.root,
-      logLevel: 'silent',
-      server: { host: '127.0.0.1', port: 0 },
-    })
+    let server: Awaited<ReturnType<typeof createServer>> | undefined
     try {
+      server = await createServer({
+        root: project.root,
+        logLevel: 'silent',
+        server: { host: '127.0.0.1', port: 0 },
+      })
       await server.listen()
       const origin = serverUrl(server.httpServer)
       await assertPage(origin, false)
@@ -116,8 +117,11 @@ export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': cryp
       unlinkSync(join(project.root, 'app/added.tsx'))
       await expect.poll(async () => (await added()).status).toBe(404)
     } finally {
-      await server.close()
-      project.remove()
+      try {
+        await server?.close()
+      } finally {
+        project.remove()
+      }
     }
   }, 45000)
 

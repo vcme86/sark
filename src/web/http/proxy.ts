@@ -153,8 +153,7 @@ export function isTrustedProxy(
   trustedProxies: ReadonlyArray<'loopback' | 'private' | string>,
 ): boolean {
   if (!ip || trustedProxies.length === 0) return false
-  const compiled = compileProxyRules(trustedProxies)
-  return matchesCompiledRules(ip, compiled)
+  return matchesCompiledRules(ip, compileProxyRules(trustedProxies))
 }
 
 /**
@@ -214,8 +213,7 @@ export function resolveExternalOrigin(
   peerIp: string,
   trustedRules: CompiledProxyRules,
 ): URL {
-  const isTrusted = matchesCompiledRules(peerIp, trustedRules)
-  if (!isTrusted) {
+  if (!matchesCompiledRules(peerIp, trustedRules)) {
     return new URL(requestUrl.origin)
   }
 

@@ -4,17 +4,14 @@
  * @module
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
-
-import { parseSync } from 'vite'
-
 import {
   compareRoutes,
   parseApiFilePath,
   type ParsedRoutePath,
   tokenizePath,
 } from '../../../web/http/path'
+import { scanRouteFiles } from './files'
+import { parseModule } from './module'
 
 /** Middleware source file and the directory scope it belongs to. */
 export interface DiscoveredMiddlewareFile {
@@ -45,43 +42,34 @@ export interface DiscoveredRouteFile {
 }
 
 function inspectMiddlewareExports(filePath: string): { hasScope: boolean; hasDefault: boolean } {
-  if (!existsSync(filePath)) {
-    return { hasScope: false, hasDefault: false }
-  }
-  const sourceText = readFileSync(filePath, 'utf-8')
-  try {
-    const parseResult = parseSync(filePath, sourceText)
-    let hasScope = false
-    let hasDefault = false
+  let hasScope = false
+  let hasDefault = false
 
-    for (const node of parseResult.program.body) {
-      if (node.type === 'ExportDefaultDeclaration') {
-        hasDefault = true
-      } else if (node.type === 'ExportNamedDeclaration') {
-        if (node.exportKind === 'type') continue
-        if (node.declaration) {
-          if (node.declaration.type === 'VariableDeclaration') {
-            for (const decl of node.declaration.declarations) {
-              if (decl.id.type === 'Identifier' && decl.id.name === 'scope') {
-                hasScope = true
-              }
+  for (const node of parseModule(filePath).body) {
+    if (node.type === 'ExportDefaultDeclaration') {
+      hasDefault = true
+    } else if (node.type === 'ExportNamedDeclaration') {
+      if (node.exportKind === 'type') continue
+      if (node.declaration) {
+        if (node.declaration.type === 'VariableDeclaration') {
+          for (const decl of node.declaration.declarations) {
+            if (decl.id.type === 'Identifier' && decl.id.name === 'scope') {
+              hasScope = true
             }
           }
-        } else if (node.specifiers) {
-          for (const spec of node.specifiers) {
-            if (spec.type === 'ExportSpecifier' && spec.exportKind === 'type') continue
-            const name =
-              spec.exported?.type === 'Identifier' ? spec.exported.name : spec.exported?.value
-            if (name === 'scope') hasScope = true
-            if (name === 'default') hasDefault = true
-          }
+        }
+      } else if (node.specifiers) {
+        for (const spec of node.specifiers) {
+          if (spec.type === 'ExportSpecifier' && spec.exportKind === 'type') continue
+          const name =
+            spec.exported?.type === 'Identifier' ? spec.exported.name : spec.exported?.value
+          if (name === 'scope') hasScope = true
+          if (name === 'default') hasDefault = true
         }
       }
     }
-    return { hasScope, hasDefault }
-  } catch {
-    return { hasScope: true, hasDefault: true }
   }
+  return { hasScope, hasDefault }
 }
 
 function parseMiddlewareFile(relativePath: string): {
@@ -99,8 +87,7 @@ function parseMiddlewareFile(relativePath: string): {
   if (penultimate !== '_middleware') return null
 
   const scopeSegments = tokens.slice(0, tokens.length - 2)
-  const scopeKey = scopeSegments.join('/')
-  return { scopeKey, scopeSegments }
+  return { scopeKey: scopeSegments.join('/'), scopeSegments }
 }
 
 function getRouteAncestorScopeKeys(relativePath: string): string[] {
@@ -133,31 +120,7 @@ function getRouteAncestorScopeKeys(relativePath: string): string[] {
  * @throws {Error} If route or middleware collisions are detected.
  */
 export function discoverApiRoutes(apiDir: string, apiPrefix: string): DiscoveredRouteFile[] {
-  if (!existsSync(apiDir)) {
-    return []
-  }
-
-  const rawFiles: Array<{ fullPath: string; rel: string }> = []
-
-  function walk(currentDir: string) {
-    const entries = readdirSync(currentDir)
-    for (const entry of entries) {
-      if (entry.startsWith('.')) continue
-      const fullPath = join(currentDir, entry)
-      const stat = statSync(fullPath)
-      if (stat.isDirectory()) {
-        if (entry.startsWith('_')) continue
-        walk(fullPath)
-      } else if (stat.isFile()) {
-        if (entry.includes('.test.') || entry.includes('.spec.') || entry.endsWith('.d.ts')) {
-          continue
-        }
-        rawFiles.push({ fullPath, rel: relative(apiDir, fullPath) })
-      }
-    }
-  }
-
-  walk(apiDir)
+  const rawFiles = scanRouteFiles(apiDir)
 
   // 1. Discover and validate middleware files
   const middlewaresByScope = new Map<string, DiscoveredMiddlewareFile>()
@@ -188,9 +151,8 @@ export function discoverApiRoutes(apiDir: string, apiPrefix: string): Discovered
       continue
     }
 
-    // Ignore other underscore-prefixed helper files (e.g. _helper.ts)
-    const baseName = rel.split('/').pop() ?? rel
-    if (baseName.startsWith('_')) continue
+    // Dotted and directory paths use the same private-segment convention.
+    if (tokenizePath(rel).some((token) => token.startsWith('_'))) continue
 
     const parsed = parseApiFilePath(rel, apiPrefix)
     if (parsed) {
@@ -201,9 +163,8 @@ export function discoverApiRoutes(apiDir: string, apiPrefix: string): Discovered
   // 2. Pair routes with their ancestor middlewares
   const collected: DiscoveredRouteFile[] = []
   for (const { fullPath, rel, parsed } of routeCandidates) {
-    const ancestorKeys = getRouteAncestorScopeKeys(rel)
     const ancestorMiddlewares: DiscoveredMiddlewareFile[] = []
-    for (const key of ancestorKeys) {
+    for (const key of getRouteAncestorScopeKeys(rel)) {
       const mw = middlewaresByScope.get(key)
       if (mw) {
         ancestorMiddlewares.push(mw)

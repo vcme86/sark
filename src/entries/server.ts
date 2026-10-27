@@ -8,7 +8,7 @@ export { defineApp, type AppConfig, type AppDeclaration } from '../core/config'
 export { createApp } from '../core/create'
 export { dedup } from '../core/dedup'
 export { getLogger, type Logger } from '../core/logging'
-export type { AppInstance } from '../core/types'
+export type { AppInstance, Register } from '../core/types'
 export {
   deleteCookie,
   getCookie,

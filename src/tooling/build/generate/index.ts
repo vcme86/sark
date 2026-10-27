@@ -22,6 +22,14 @@ function writeFileIfChanged(filePath: string, content: string): void {
   writeFileSync(filePath, content, 'utf-8')
 }
 
+/** Creates a quoted relative module specifier for static and dynamic generated imports. */
+function moduleSpecifier(generatedDir: string, filePath: string): string {
+  const path = relative(generatedDir, filePath)
+    .replace(/\\/g, '/')
+    .replace(/\.tsx?$/, '')
+  return JSON.stringify(path.startsWith('.') ? path : `./${path}`)
+}
+
 /** Options controlling build artifact generation. */
 export interface GenerateOptions {
   /** Target output directory (typically `.build`). */
@@ -59,11 +67,7 @@ function generateClientTsx(
 
   let rootLoadCode = ''
   if (pages.rootDocument) {
-    const rel = relative(generatedDir, pages.rootDocument.filePath)
-      .replace(/\\/g, '/')
-      .replace(/\.tsx?$/, '')
-    const importPath = rel.startsWith('.') ? rel : `./${rel}`
-    rootLoadCode = `\n    rootLoad: () => import('${importPath}'),`
+    rootLoadCode = `\n    rootLoad: () => import(${moduleSpecifier(generatedDir, pages.rootDocument.filePath)}),`
   }
 
   const clientRouteEntries: string[] = []
@@ -72,43 +76,25 @@ function generateClientTsx(
     const scopesCode: string[] = []
 
     for (const layout of page.layoutChain) {
-      const rel = relative(generatedDir, layout.filePath)
-        .replace(/\\/g, '/')
-        .replace(/\.tsx?$/, '')
-      const importPath = rel.startsWith('.') ? rel : `./${rel}`
-
       let errorLoadCode = ''
       if (layout.closestError) {
-        const errRel = relative(generatedDir, layout.closestError.filePath)
-          .replace(/\\/g, '/')
-          .replace(/\.tsx?$/, '')
-        const errPath = errRel.startsWith('.') ? errRel : `./${errRel}`
-        errorLoadCode = `\n        errorLoad: () => import('${errPath}'),`
+        errorLoadCode = `\n        errorLoad: () => import(${moduleSpecifier(generatedDir, layout.closestError.filePath)}),`
       }
 
       scopesCode.push(`      {
         id: ${JSON.stringify(`layout:${layout.scopeKey}`)},
-        load: () => import('${importPath}'),${errorLoadCode}
+        load: () => import(${moduleSpecifier(generatedDir, layout.filePath)}),${errorLoadCode}
       }`)
     }
 
-    const pageRel = relative(generatedDir, page.filePath)
-      .replace(/\\/g, '/')
-      .replace(/\.tsx?$/, '')
-    const pageImportPath = pageRel.startsWith('.') ? pageRel : `./${pageRel}`
-
     let pageErrorLoadCode = ''
     if (page.closestError) {
-      const errRel = relative(generatedDir, page.closestError.filePath)
-        .replace(/\\/g, '/')
-        .replace(/\.tsx?$/, '')
-      const errPath = errRel.startsWith('.') ? errRel : `./${errRel}`
-      pageErrorLoadCode = `\n        errorLoad: () => import('${errPath}'),`
+      pageErrorLoadCode = `\n        errorLoad: () => import(${moduleSpecifier(generatedDir, page.closestError.filePath)}),`
     }
 
     scopesCode.push(`      {
         id: ${JSON.stringify(`page:${page.scopeId}`)},
-        load: () => import('${pageImportPath}'),${pageErrorLoadCode}
+        load: () => import(${moduleSpecifier(generatedDir, page.filePath)}),${pageErrorLoadCode}
       }`)
 
     clientRouteEntries.push(`  {
@@ -122,11 +108,6 @@ ${scopesCode.join(',\n')}
   }
 
   const rootError = pages.errors.get('')
-  const errorPath =
-    rootError &&
-    relative(generatedDir, rootError.filePath)
-      .replace(/\\/g, '/')
-      .replace(/\.tsx?$/, '')
   clientRouteEntries.push(`  {
     pattern: ${JSON.stringify(webPrefix === '/' ? '/*' : `${webPrefix}/*`)},
     shapeKey: 'not-found',
@@ -134,7 +115,7 @@ ${scopesCode.join(',\n')}
     scopes: [{
       id: 'not-found', component: () => null,
       loader: () => notFound('Page Not Found'),
-      ${errorPath ? `errorLoad: () => import(${JSON.stringify(errorPath.startsWith('.') ? errorPath : './' + errorPath)}),` : ''}
+      ${rootError ? `errorLoad: () => import(${moduleSpecifier(generatedDir, rootError.filePath)}),` : ''}
     }],
   }`)
 
@@ -188,13 +169,21 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
         'Cloudflare Workers target does not support Node metrics ("metrics"). Platform analytics are provided by Cloudflare.',
       )
     }
+    if (appExports.databaseDriver === 'sqlite' || appExports.databaseDriver === 'postgres') {
+      throw new Error(
+        `Cloudflare Workers target does not support Node.js database driver ("${appExports.databaseDriver}"). Use Cloudflare D1 ("@olivaw/sark/db/d1") for Workers.`,
+      )
+    }
+  } else if (target === 'node') {
+    if (appExports.databaseDriver === 'd1') {
+      throw new Error(
+        'Node.js target does not support Cloudflare D1 database driver. Use SQLite ("@olivaw/sark/db/sqlite") or PostgreSQL ("@olivaw/sark/db/postgres") for Node.js.',
+      )
+    }
   }
 
   // 1. Generate app.ts
-  const relAppEntry = relative(generatedDir, appEntryPath)
-    .replace(/\\/g, '/')
-    .replace(/\.tsx?$/, '')
-  const appImportPath = relAppEntry.startsWith('.') ? relAppEntry : `./${relAppEntry}`
+  const appImportPath = moduleSpecifier(generatedDir, appEntryPath)
 
   // Collect unique middleware files across routes
   const middlewareImports: string[] = []
@@ -205,11 +194,9 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
       if (!middlewareVarMap.has(mw.filePath)) {
         const varName = `middleware_${middlewareVarMap.size}`
         middlewareVarMap.set(mw.filePath, varName)
-        const relMw = relative(generatedDir, mw.filePath)
-          .replace(/\\/g, '/')
-          .replace(/\.tsx?$/, '')
-        const mwImportPath = relMw.startsWith('.') ? relMw : `./${relMw}`
-        middlewareImports.push(`import * as ${varName} from '${mwImportPath}'`)
+        middlewareImports.push(
+          `import * as ${varName} from ${moduleSpecifier(generatedDir, mw.filePath)}`,
+        )
       }
     }
   }
@@ -223,11 +210,7 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
 
   routes.forEach((r, idx) => {
     const importName = `route_${idx}`
-    const relRoute = relative(generatedDir, r.filePath)
-      .replace(/\\/g, '/')
-      .replace(/\.tsx?$/, '')
-    const routeImportPath = relRoute.startsWith('.') ? relRoute : `./${relRoute}`
-    routeImports.push(`import ${importName} from '${routeImportPath}'`)
+    routeImports.push(`import ${importName} from ${moduleSpecifier(generatedDir, r.filePath)}`)
 
     let scopesPart = ''
     if (r.ancestorMiddlewares.length > 0) {
@@ -287,19 +270,14 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
       if (!name) {
         name = `${prefix}_${pageModuleMap.size}`
         pageModuleMap.set(filePath, name)
-        const rel = relative(generatedDir, filePath)
-          .replace(/\\/g, '/')
-          .replace(/\.tsx?$/, '')
-        const importPath = rel.startsWith('.') ? rel : `./${rel}`
-        pageImports.push(`import * as ${name} from '${importPath}'`)
+        pageImports.push(`import * as ${name} from ${moduleSpecifier(generatedDir, filePath)}`)
       }
       return name
     }
 
     let rootComponentCode = 'undefined'
     if (pages.rootDocument) {
-      const rootName = getPageImport(pages.rootDocument.filePath, 'root')
-      rootComponentCode = `${rootName}.default`
+      rootComponentCode = `${getPageImport(pages.rootDocument.filePath, 'root')}.default`
     }
 
     const pageRoutesCode: string[] = []
@@ -389,13 +367,16 @@ export const page404Handler = createPage404Handler(
 `
   }
 
+  const hasDatabase = appExports.exports.includes('database')
+
   const appTsContent = `import type { Hono } from 'hono'
 import { createDefinition } from '@olivaw/sark/runtime/core'
 import type { EndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
-${appExports.hasApp ? `import { app } from '${appImportPath}'` : ''}
-${appExports.hasRuntime ? `import { runtime } from '${appImportPath}'` : ''}
-${appExports.exports.includes('page') ? `import { page } from '${appImportPath}'` : ''}
+${appExports.hasApp ? `import { app } from ${appImportPath}` : ''}
+${appExports.hasRuntime ? `import { runtime } from ${appImportPath}` : ''}
+${appExports.exports.includes('page') ? `import { page } from ${appImportPath}` : ''}
+${hasDatabase ? `import { database } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
@@ -407,6 +388,7 @@ export const definition = createDefinition({
   ${appExports.hasApp ? 'app,' : ''}
   ${appExports.hasRuntime ? 'declarations: [runtime] as const,' : ''}
   ${appExports.exports.includes('page') ? 'page,' : ''}
+  ${hasDatabase ? 'resources: { db: database },' : ''}
   apiPrefix: ${JSON.stringify(apiPrefix)},
   webPrefix: ${JSON.stringify(webPrefix)},
   routes: [
@@ -418,7 +400,7 @@ ${pageEntriesCode.join('\n')}
   ${options.assets ? 'assets: pageAssets,' : ''}
 })
 
-${appExports.hasRuntime ? `export { runtime } from '${appImportPath}'` : 'export const runtime = undefined'}
+${appExports.hasRuntime ? `export { runtime } from ${appImportPath}` : 'export const runtime = undefined'}
 
 export type AppDefinition = typeof definition
 export type App = Hono<any>
@@ -436,20 +418,32 @@ ${routeApiEntries.join('\n')}
   }
 
   // 2. Generate resources-types.ts
-  const resourcesTypesContent = `// Generated resource types
-export type Resources = {}
+  const resourcesTypesContent = hasDatabase
+    ? `// Generated resource types
+import type { database } from ${appImportPath}
+import type { InferResource } from '@olivaw/sark/runtime/core'
+
+export type Db = InferResource<typeof database>
+
+export interface Resources {
+  readonly db: Db
+}
+`
+    : `// Generated resource types
+export interface Resources {}
 `
   writeFileIfChanged(join(generatedDir, 'resources-types.ts'), resourcesTypesContent)
 
   // 3. Generate services-types.ts
   const servicesTypesContent = `// Generated services types
-export type Services = {}
+export interface Services {}
 `
   writeFileIfChanged(join(generatedDir, 'services-types.ts'), servicesTypesContent)
 
-  // 4. Generate types.d.ts with Register.api module augmentation
+  // 4. Generate types.d.ts with Register module augmentations
   const typesDtsContent = `// Generated type registrations
 import type { Api } from './app'
+import type { Resources } from './resources-types'
 
 declare module '@olivaw/sark/http' {
   interface Register {
@@ -457,7 +451,14 @@ declare module '@olivaw/sark/http' {
   }
 }
 
+declare module '@olivaw/sark/server' {
+  interface Register {
+    resources: Resources
+  }
+}
 export type { AppDefinition, Api, App } from './app'
+export type { Resources } from './resources-types'
+${hasDatabase ? "export type { Db } from './resources-types'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
 
@@ -495,6 +496,12 @@ import { definition } from './app'
 
 declare global {
   interface Env {}
+}
+
+declare module '@olivaw/sark/server' {
+  interface Register {
+    env: Env
+  }
 }
 
 const handler = createWorkerHandler(definition, import.meta.env.PROD)

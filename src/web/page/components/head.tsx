@@ -16,8 +16,7 @@ export interface HeadProps {
 
 /** Emits document head tags derived from merged layout and page metadata. */
 export function Head({ children }: HeadProps) {
-  const context = useOptionalPageContext()
-  const meta = context?.meta
+  const meta = useOptionalPageContext()?.meta
 
   return (
     <>

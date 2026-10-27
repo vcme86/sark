@@ -44,6 +44,18 @@
       "types": "./dist/entries/vite.d.mts",
       "import": "./dist/entries/vite.mjs"
     },
+    "./db/sqlite": {
+      "types": "./dist/entries/db/sqlite.d.mts",
+      "import": "./dist/entries/db/sqlite.mjs"
+    },
+    "./db/postgres": {
+      "types": "./dist/entries/db/postgres.d.mts",
+      "import": "./dist/entries/db/postgres.mjs"
+    },
+    "./db/d1": {
+      "types": "./dist/entries/db/d1.d.mts",
+      "import": "./dist/entries/db/d1.mjs"
+    },
     "./runtime/core": {
       "types": "./dist/entries/runtime/core.d.mts",
       "import": "./dist/entries/runtime/core.mjs"
@@ -88,14 +100,19 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.65.0",
+    "@cloudflare/workers-types": "^5.20261025.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/negotiator": "^0.6.5",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.4",
     "obuild": "^0.4.45",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
+    "postgres": "^3.4.9",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
@@ -103,10 +120,30 @@
     "wrangler": "^4.152.0"
   },
   "peerDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^13.0.0",
+    "drizzle-orm": "^0.45.0",
+    "postgres": "^3.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "peerDependenciesMeta": {
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@types/better-sqlite3": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },

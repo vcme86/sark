@@ -1,13 +1,58 @@
 import { compress } from '@olivaw/sark/middleware'
 import { createDefinition } from '@olivaw/sark/runtime/core'
 import { startNodeServer } from '@olivaw/sark/runtime/node'
-import { createApp, defineApp, route } from '@olivaw/sark/server'
+import { createApp, defineApp, route, z } from '@olivaw/sark/server'
 import { defineNodeRuntime } from '@olivaw/sark/server/node'
 import { describe, expect, it } from 'vitest'
 
 import { parseApiFilePath } from '../../src/web/http/path'
 
 describe('Compression through built package entries and Node delivery', () => {
+  it.each([false, { threshold: 0 }] as const)(
+    'preserves explicit compression policy %j for streamed request bodies',
+    async (policy) => {
+      const instance = await createApp(
+        createDefinition({
+          app: defineApp({ csrf: false }),
+          routes: [
+            {
+              routePath: parseApiFilePath('upload.post.ts', '/api')!,
+              declaration: route({ middleware: [compress(policy)] })
+                .validate({ text: z.string() })
+                .handler((_ctx, input) => ({ content: input.text, padding: 'a'.repeat(5000) })),
+            },
+          ],
+        }),
+      )
+      const control = await startNodeServer(
+        instance,
+        defineNodeRuntime({ compress: policy === false }),
+        { PORT: '0' },
+      )
+      try {
+        const response = await fetch(`http://127.0.0.1:${control.port}/api/upload`, {
+          method: 'POST',
+          headers: { 'Accept-Encoding': 'gzip', 'Content-Type': 'text/plain' },
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('streamed upload'))
+              controller.close()
+            },
+          }),
+          duplex: 'half',
+        } as RequestInit)
+        expect(response.status).toBe(200)
+        expect(response.headers.get('Content-Encoding')).toBe(policy === false ? null : 'gzip')
+        expect(await response.json()).toEqual({
+          content: 'streamed upload',
+          padding: 'a'.repeat(5000),
+        })
+      } finally {
+        await control.close()
+      }
+    },
+  )
+
   it('preserves contentTypeFilter function and RegExp in-memory without HTTP header serialization', async () => {
     let filterCalls = 0
     const filterFn = (_type: string) => {

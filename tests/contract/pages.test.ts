@@ -209,8 +209,8 @@ export default function Index({ data }: { data: { page: string } }) {
       )
       expect(clientContent).toContain('hydratePageApplication')
       expect(clientContent).toContain('/posts/:id')
-      expect(clientContent).toContain("load: () => import('../app/posts/[id]')")
-      expect(clientContent).toContain("load: () => import('../app/_layout')")
+      expect(clientContent).toContain('load: () => import("../app/posts/[id]")')
+      expect(clientContent).toContain('load: () => import("../app/_layout")')
       expect(clientContent).not.toContain('import * as page_')
       expect(clientContent).not.toContain('import * as layout_')
 

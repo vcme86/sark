@@ -226,7 +226,7 @@ export interface ServerPageScope {
   /** Optional cache configuration. */
   readonly cache?: PageCacheConfig | false
   /** Custom revalidation decider. */
-  readonly shouldRevalidate?: (args: ShouldRevalidateArgs) => boolean
+  readonly shouldRevalidate?: RuntimePageModule['shouldRevalidate']
 }
 
 /** Route specification for server-side page handling and middleware execution. */

@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 
 import { type Connect, type Plugin, resolveConfig, type ViteDevServer } from 'vite'
 
+import type { NodeRuntimeDeclaration } from '../../src/adapter/node/runtime'
 import type { ApplicationDefinition } from '../../src/core/definition'
 import { serverUrl } from './project'
 
@@ -14,7 +15,7 @@ import { serverUrl } from './project'
 export async function createDevHandoff(
   root: string,
   plugin: Plugin,
-  load: () => Promise<{ definition: ApplicationDefinition }>,
+  load: () => Promise<{ definition: ApplicationDefinition; runtime?: NodeRuntimeDeclaration }>,
 ) {
   const config = await resolveConfig(
     { root, configFile: false, logLevel: 'silent', plugins: [plugin] },
@@ -55,6 +56,9 @@ export async function createDevHandoff(
   }
   return {
     httpServer,
+    use(handler: Connect.NextHandleFunction) {
+      handlers.push(handler)
+    },
     request(path: string, options?: RequestInit) {
       return fetch(serverUrl(httpServer) + path, options)
     },

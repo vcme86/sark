@@ -283,7 +283,7 @@ describe('discoverPages', () => {
     try {
       project.write('app/index.tsx', 'export const loader =')
       expect(() => discoverPages(project.root + '/app', '/')).toThrowError(
-        /Failed to parse page module.*index\.tsx/,
+        /Failed to parse .*index\.tsx/,
       )
     } finally {
       project.remove()

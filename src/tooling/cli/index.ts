@@ -29,10 +29,18 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
 
   if (command === 'generate') {
     const { resolveConfig } = await import('vite')
-    const config = await resolveConfig({}, 'build', 'production', 'production')
+    const config = await resolveConfig(
+      { environments: { ssr: {} } },
+      'build',
+      'production',
+      'production',
+    )
     if (!config.plugins.some((plugin) => plugin.name === '@olivaw/sark')) {
-      const { generateResolvedProject } = await import('../vite')
-      generateResolvedProject(resolveProjectConfig(config.root, resolveSarkOptions()), config.base)
+      const { generateConfiguredProject } = await import('../vite')
+      await generateConfiguredProject(
+        config,
+        resolveProjectConfig(config.root, resolveSarkOptions()),
+      )
     }
     console.log('✨ Sark build artifacts generated successfully.')
   } else if (command === 'start') {
@@ -159,12 +167,11 @@ Commands:
 async function projectFromConfig(config: ResolvedConfig): Promise<ResolvedProjectConfig> {
   const plugin = config.plugins.find((entry) => entry.name === '@olivaw/sark')
   if (plugin) {
-    const api: SarkPluginApi = plugin.api
-    return api.project
+    return (plugin.api as SarkPluginApi).project
   }
   const project = resolveProjectConfig(config.root, resolveSarkOptions())
-  const { generateResolvedProject } = await import('../vite')
-  generateResolvedProject(project, config.base)
+  const { generateConfiguredProject } = await import('../vite')
+  await generateConfiguredProject(config, project)
   return project
 }
 

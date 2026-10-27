@@ -45,6 +45,26 @@ export async function assembleApp<D extends ApplicationDefinition>(
     const staticPageConfig =
       options.kind === 'static' ? definition.resolvePageConfig?.(options.env) : undefined
     let instanceRef: AppInstance<D> | undefined
+    const staticResources: Record<string, unknown> = {}
+    const assembledResources = Object.entries(definition.resources ?? {})
+
+    for (const [name, res] of assembledResources) {
+      if (options.kind === 'static') {
+        if (res.target === 'cloudflare' || !res.createStatic) {
+          throw new Error(`Resource "${name}" cannot be used on a Node.js host.`)
+        }
+        const result = await res.createStatic(options.env, { signal: lifecycle.signal })
+        staticResources[name] = result.value
+        if (result.dispose) {
+          lifecycle.register({ name, dispose: result.dispose })
+        }
+      } else if (options.kind === 'event') {
+        if (res.target === 'node' || !res.createForEvent) {
+          throw new Error(`Resource "${name}" cannot be used on a Cloudflare Workers host.`)
+        }
+      }
+    }
+
     function currentConfig(): ResolvedHttpConfig {
       if (options.kind === 'static') return options.config
       const scope = getCurrentScope()
@@ -88,6 +108,20 @@ export async function assembleApp<D extends ApplicationDefinition>(
           : options.kind === 'static'
             ? staticPageConfig
             : definition.resolvePageConfig?.(requestEnv)
+
+        let currentResources: Record<string, unknown>
+        if (isInternal) {
+          currentResources = (parent?.resources ?? {}) as Record<string, unknown>
+        } else if (options.kind === 'event') {
+          currentResources = {}
+          for (const [name, res] of assembledResources) {
+            const result = await res.createForEvent!(requestEnv)
+            currentResources[name] = result.value
+          }
+        } else {
+          currentResources = staticResources
+        }
+
         return await runInScope(
           {
             ...parent,
@@ -95,6 +129,7 @@ export async function assembleApp<D extends ApplicationDefinition>(
             app: instanceRef,
             config: effectiveConfig,
             pageConfig,
+            resources: currentResources,
             env: options.kind === 'event' ? requestEnv : options.env,
             executionCtx,
           },
@@ -117,7 +152,7 @@ export async function assembleApp<D extends ApplicationDefinition>(
       }
     }
 
-    const instance: AppInstance<D> = {
+    const instance = {
       definition,
       get config() {
         return currentConfig()
@@ -126,10 +161,10 @@ export async function assembleApp<D extends ApplicationDefinition>(
       get state() {
         return lifecycle.state
       },
-      fetch(request, requestEnv?: unknown, executionCtx?: unknown) {
+      fetch(request: Request, requestEnv?: unknown, executionCtx?: unknown) {
         return runWithoutScope(() => executeTracked(request, requestEnv, executionCtx))
       },
-      fetchInternal(request) {
+      fetchInternal(request: Request) {
         const parent = getCurrentScope()
         if (parent?.app !== instance) return instance.fetch(request)
         const internalRequest = parent.signal
@@ -144,11 +179,29 @@ export async function assembleApp<D extends ApplicationDefinition>(
       close(): Promise<void> {
         return lifecycle.close()
       },
+    } as AppInstance<D>
+
+    for (const [name] of assembledResources) {
+      Object.defineProperty(instance, name, {
+        get() {
+          if (options.kind === 'static') return staticResources[name]
+          const scope = getCurrentScope()
+          if (scope && scope.app === instanceRef && scope.resources) {
+            return scope.resources[name]
+          }
+          throw new Error(`Resource "${name}" is only accessible within an active event context.`)
+        },
+        enumerable: true,
+      })
     }
+
     applicationLifecycles.set(instance, lifecycle)
     instanceRef = instance
     return instance
   } catch (err) {
+    lifecycle.cancel(
+      err instanceof Error ? err : new Error('Application initialization failed', { cause: err }),
+    )
     try {
       await lifecycle.disposeAll()
     } catch (cleanupError) {
@@ -162,8 +215,8 @@ export async function assembleApp<D extends ApplicationDefinition>(
 
 /**
  * Resolves application configuration and creates an instance ready for requests.
- * Factory declarations require an environment. Initialization failure disposes
- * registered resources before propagating the error.
+ * Factory declarations require an environment. Initialization failure cancels
+ * creation work and disposes registered resources before propagating the error.
  *
  * @param definition - Compiled application definition containing configuration and routes.
  * @param options - Creation options containing env; required when the definition requires an environment.

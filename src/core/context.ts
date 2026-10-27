@@ -13,6 +13,8 @@ import type { AppInstance } from './types'
 export interface ExecutionScope {
   /** Request identifier shared by the root request and its internal calls. */
   readonly requestId: string
+  /** Original request identity retained when middleware replaces the body stream. */
+  readonly request?: Request
   /** Reference to the Sark application instance executing this scope. */
   readonly app?: AppInstance<any>
   /** Cancellation signal inherited by internal requests and asynchronous work. */
@@ -37,10 +39,13 @@ export interface ExecutionScope {
   readonly executionCtx?: unknown
   /** Resolved page configuration for fullstack page rendering. */
   readonly pageConfig?: unknown
+  /** Assembled resources active for this execution scope. */
+  readonly resources?: Readonly<Record<string, unknown>>
 }
 
 /** HTTP state established by request middleware before dispatching business or page handlers. */
 export interface RequestScope extends ExecutionScope {
+  readonly request: Request
   readonly signal: AbortSignal
   readonly config: ResolvedHttpConfig
   readonly clientIp: string

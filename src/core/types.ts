@@ -1,6 +1,10 @@
 import type { Hono } from 'hono'
 
 import type { ResolvedHttpConfig } from '../web/http/config'
+import type { DisposalContext, InferResource } from './resource'
+
+/** Server-side global type registry augmented by build-time code generation. */
+export interface Register {}
 
 /**
  * Application lifecycle states:
@@ -19,14 +23,15 @@ export interface DisposableResource {
   /**
    * Releases the resource during reverse-order shutdown or creation rollback.
    *
+   * @param context - Shared cancellation state and optional host shutdown deadline.
    * @returns A promise for asynchronous cleanup, or void when cleanup finishes synchronously.
    * @throws If cleanup fails; the lifecycle collects the error and continues other disposers.
    */
-  dispose(): Promise<void> | void
+  dispose(context: DisposalContext): Promise<void> | void
 }
 
-/** Sark application runtime instance returned by `createApp`. */
-export interface AppInstance<D = unknown> {
+/** Base application instance interface common to all configurations. */
+export interface BaseAppInstance<D = unknown> {
   /** Definition used to create this instance. */
   readonly definition: D
 
@@ -69,3 +74,15 @@ export interface AppInstance<D = unknown> {
    */
   close(): Promise<void>
 }
+
+/** Inferred resource capabilities derived from application definition resources. */
+export type AppInstanceResources<D> = D extends { resources?: infer R }
+  ? [NonNullable<R>] extends [never]
+    ? {}
+    : {
+        readonly [K in keyof NonNullable<R>]: InferResource<NonNullable<R>[K]>
+      }
+  : {}
+
+/** Sark application runtime instance returned by `createApp`. */
+export type AppInstance<D = unknown> = BaseAppInstance<D> & AppInstanceResources<D>

@@ -12,6 +12,7 @@ import type { RouteEntry } from '../web/http/server/pipeline'
 import type { AppDeclaration } from './config'
 import type { RequestScope } from './context'
 import type { EnvironmentRequirement } from './declaration'
+import type { ResourceAssembly } from './resource'
 
 /** Page-owned request handler installed by generated application assembly. */
 export type PageRequestHandler = (
@@ -41,6 +42,8 @@ export interface ApplicationDefinitionInput {
   resolvePageConfig?: (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   assets?: StaticAssets
+  /** Assembled instance and event resources (e.g. database, storage). */
+  resources?: Record<string, ResourceAssembly<any>>
 }
 
 /** Application declarations and routes assembled for runtime creation. */
@@ -48,6 +51,7 @@ export type ApplicationDefinition<
   TApp = AppDeclaration | undefined,
   Declarations extends readonly unknown[] = [],
   TPage = unknown,
+  TResources = Record<string, ResourceAssembly<any>> | undefined,
 > = {
   /** Root application declaration or `undefined` if none provided. */
   readonly appDeclaration?: TApp
@@ -61,13 +65,15 @@ export type ApplicationDefinition<
   readonly webPrefix?: string
   /** Optional page declaration created via `definePage`. */
   readonly page?: TPage
+  /** Assembled instance and event resources. */
+  readonly resources?: TResources
   /** Page-owned resolver called at instance creation or at the current external event. */
   readonly resolvePageConfig?: (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   readonly assets?: StaticAssets
   /** Discriminant flag identifying a compiled application definition. */
   readonly isDefinition: true
-} & EnvironmentRequirement<readonly [TApp, TPage, ...Declarations]>
+} & EnvironmentRequirement<readonly [TApp, TPage, ...Declarations], NonNullable<TResources>>
 
 /**
  * Assembles configuration and routes without evaluating declaration factories.
@@ -82,7 +88,8 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
 ): ApplicationDefinition<
   T extends { app: infer A } ? A : undefined,
   T extends { declarations: infer D extends readonly unknown[] } ? D : [],
-  T extends { page: infer P } ? P : undefined
+  T extends { page: infer P } ? P : undefined,
+  T extends { resources: infer R } ? R : undefined
 > {
   return {
     appDeclaration: input.app,
@@ -91,12 +98,14 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
     apiPrefix: input.apiPrefix,
     webPrefix: input.webPrefix,
     page: input.page,
+    resources: input.resources,
     resolvePageConfig: input.resolvePageConfig,
     assets: input.assets,
     isDefinition: true,
   } as ApplicationDefinition<
     T extends { app: infer A } ? A : undefined,
     T extends { declarations: infer D extends readonly unknown[] } ? D : [],
-    T extends { page: infer P } ? P : undefined
+    T extends { page: infer P } ? P : undefined,
+    T extends { resources: infer R } ? R : undefined
   >
 }

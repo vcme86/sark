@@ -38,17 +38,18 @@ export interface NodeRuntimeOptions {
    */
   compress?: boolean | CompressionOptions
 
-  /** Graceful shutdown timing configuration. */
+  /** Graceful shutdown and Node development instance handoff budgets. */
   shutdown?: {
     /**
-     * Total shutdown budget in milliseconds. Manual close rejects on timeout;
+     * Total shutdown or development handoff budget in milliseconds. Manual close rejects on timeout;
      * signal-triggered shutdown exits the process when close completes or fails.
      * @default 10000 (10 seconds)
      */
     deadline?: number
 
     /**
-     * Time in milliseconds reserved within the deadline for resource disposal after request draining.
+     * Time in milliseconds reserved within the deadline for cancellation and resource disposal
+     * after the graceful request-draining window.
      * Must be strictly greater than 0 and less than `deadline`.
      * @default 2000 (2 seconds)
      */
@@ -106,13 +107,13 @@ export interface ResolvedNodeRuntimeOptions {
  * Accepts a static options object or a factory receiving the environment.
  *
  * @param options - Listening, compression, shutdown, and probe settings.
- * @returns A runtime declaration resolved when the Node server starts.
+ * @returns A declaration resolved at Node startup or when Vite creates a Node application instance.
  */
 export function defineNodeRuntime(options?: NodeRuntimeOptions): NodeRuntimeDeclaration
 /**
  * Declares Node runtime settings resolved from the environment.
  *
- * @param factory - Options factory evaluated when the Node server starts.
+ * @param factory - Options factory evaluated at Node startup or Vite instance creation.
  * @returns A declaration preserving the factory's environment requirement.
  */
 export function defineNodeRuntime<E>(

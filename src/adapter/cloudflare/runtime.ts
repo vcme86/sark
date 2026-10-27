@@ -8,11 +8,14 @@ import { Context } from 'hono'
 import { cors } from 'hono/cors'
 
 import { resolveAppConfig } from '../../core/config'
+import { runInScope } from '../../core/context'
 import { assembleApp } from '../../core/create'
 import type { EnvOf } from '../../core/declaration'
 import type { ApplicationDefinition } from '../../core/definition'
+import { ensureBasicLogging } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
 import { type ResolvedHttpConfig, resolveHttpConfig } from '../../web/http/config'
+import { formatErrorResponse } from '../../web/http/server/output'
 import { applyResponseHeaders } from '../../web/http/server/request-context'
 import { decorateCloudflareAssetResponse } from './assets'
 
@@ -63,6 +66,7 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
 ): CloudflareWorkerHandler<EnvOf<D>> {
   let instancePromise: Promise<AppInstance<D>> | undefined
   let staticConfig: ResolvedHttpConfig | undefined
+  const errorConfig = resolveHttpConfig({}, production)
 
   async function getInstance(): Promise<AppInstance<D>> {
     if (!instancePromise) {
@@ -77,7 +81,7 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
       instancePromise = assembleApp(definition, {
         kind: 'event',
         resolve: resolveConfig,
-        errorConfig: resolveHttpConfig({}, production),
+        errorConfig,
       }).catch((err) => {
         instancePromise = undefined
         throw err
@@ -109,26 +113,35 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
           }
         }
         if (entry) {
-          const declaration = definition.appDeclaration
-          const config = declaration?.isFactory
-            ? resolveAppConfig(declaration, env, production)
-            : (staticConfig ??= resolveAppConfig(declaration, undefined, production))
           const context = new Context(request, { env })
           const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID()
           context.set('requestId', requestId)
-          const deliver = async () => {
-            const assetUrl = new URL(request.url)
-            // Production ASSETS uses output-root paths. The official development
-            // binding delegates to Vite middleware, which requires its public base.
-            if (production)
-              assetUrl.pathname = '/' + entry!.path.split('/').map(encodeURIComponent).join('/')
-            context.res = decorateCloudflareAssetResponse(
-              await binding.fetch(new Request(assetUrl, request)),
-              entry!.hashed,
+          let config = errorConfig
+          try {
+            const declaration = definition.appDeclaration
+            config = declaration?.isFactory
+              ? resolveAppConfig(declaration, env, production)
+              : (staticConfig ??= resolveAppConfig(declaration, undefined, production))
+            const deliver = async () => {
+              const assetUrl = new URL(request.url)
+              // Production ASSETS uses output-root paths. The official development
+              // binding delegates to Vite middleware, which requires its public base.
+              if (production)
+                assetUrl.pathname = '/' + entry!.path.split('/').map(encodeURIComponent).join('/')
+              context.res = decorateCloudflareAssetResponse(
+                await binding.fetch(new Request(assetUrl, request)),
+                entry!.hashed,
+              )
+            }
+            if (config.cors !== false) await cors(config.cors)(context, deliver)
+            else await deliver()
+          } catch (error) {
+            ensureBasicLogging()
+            const response = runInScope({ requestId }, () =>
+              formatErrorResponse(error, config.production),
             )
+            context.res = request.method === 'HEAD' ? new Response(null, response) : response
           }
-          if (config.cors !== false) await cors(config.cors)(context, deliver)
-          else await deliver()
           return applyResponseHeaders(context.res, config, requestId)
         }
       }

@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from 'hono'
 
+import { getCurrentScope } from '../../../core/context'
 import {
   type CompressionOptions,
   resolveCompression,
@@ -19,7 +20,7 @@ export const requestCompressionPolicies = new WeakMap<Request, ResolvedCompressi
  * Policy rules:
  * - Node applies compression once at the response delivery boundary.
  * - Later explicit middleware overrides earlier compression settings for the request.
- * - Workers skips this middleware and leaves compression to the platform.
+ * - Workers skip this middleware and leave compression to the platform.
  * - Options remain in memory; the middleware does not add control headers.
  *
  * @param options - False disables compression; true or omission selects default gzip settings;
@@ -35,7 +36,7 @@ export function compress(options?: CompressionOptions | boolean): MiddlewareHand
       return next()
     }
 
-    requestCompressionPolicies.set(ctx.req.raw, resolved)
+    requestCompressionPolicies.set(getCurrentScope()?.request ?? ctx.req.raw, resolved)
     return next()
   }
 }

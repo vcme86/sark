@@ -121,14 +121,12 @@ export function useNavigate(): (
   to: string,
   options?: NavigateOptions,
 ) => Promise<{ committed: boolean }> {
-  const context = usePageContext()
-  return context.navigate
+  return usePageContext().navigate
 }
 
 /** Returns current navigation state (`idle`, `loading`, or `submitting`). */
 export function useNavigation(): NavigationState {
-  const context = usePageContext()
-  return context.navigation
+  return usePageContext().navigation
 }
 
 /**

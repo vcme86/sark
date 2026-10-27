@@ -28,10 +28,9 @@ export function definePage<Env, Api = DefaultApi>(
 export function definePage<Env = unknown, Api = DefaultApi>(
   config: PageConfig<Api> | ((env: Env) => PageConfig<Api>),
 ): PageDeclaration<Api> & (unknown extends Env ? {} : RequiresEnv<Env>) {
-  const isFactory = typeof config === 'function'
   return {
     kind: 'page',
-    isFactory,
+    isFactory: typeof config === 'function',
     value: config,
   } as PageDeclaration<Api> & (unknown extends Env ? {} : RequiresEnv<Env>)
 }

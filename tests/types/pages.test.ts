@@ -46,6 +46,56 @@ function compileProject(root: string): { status: number | null; output: string }
 }
 
 describe('Page Type Contracts (P3)', () => {
+  it('compiles generated server, resource and browser imports with quotes in source paths', () => {
+    const project = createProject()
+    const appEntry = `config/app's "entry".ts`
+    const apiDir = `api's "routes"`
+    const webDir = `web's "pages"`
+    try {
+      project.write(
+        appEntry,
+        `import { defineApp } from '@olivaw/sark/server'
+import { defineNodeRuntime } from '@olivaw/sark/server/node'
+import { defineDatabase } from '@olivaw/sark/db/sqlite'
+import { definePage } from '@olivaw/sark/page'
+export const app = defineApp({})
+export const runtime = defineNodeRuntime({})
+export const database = defineDatabase({ filename: ':memory:' })
+export const page = definePage({})`,
+      )
+      project.write(`${apiDir}/_middleware.ts`, 'export const scope = { csrf: false }')
+      project.write(
+        `${apiDir}/answer.get.ts`,
+        `import { route } from '@olivaw/sark/server'
+export default route().handler(ctx => ctx.var.db.$client.prepare('select 42 as answer').get())`,
+      )
+      project.write(
+        `${webDir}/index.tsx`,
+        'export default function Page() { return <h1>Home</h1> }',
+      )
+      project.write(`${webDir}/_root.tsx`, 'export default function Root() { return <html /> }')
+      project.write(`${webDir}/_layout.tsx`, 'export default function Layout() { return <main /> }')
+      project.write(
+        `${webDir}/_error.tsx`,
+        'export default function ErrorPage() { return <p>Error</p> }',
+      )
+      project.write(`${webDir}/_middleware.ts`, 'export const scope = { csrf: false }')
+      generateProject(project.root, { appEntry, apiDir, webDir })
+      project.write(
+        'tsconfig.json',
+        JSON.stringify({
+          extends: resolve(projectRoot, 'tsconfig.json'),
+          include: ['**/*.ts', '**/*.tsx', '.build/**/*.ts', '.build/**/*.tsx'],
+          exclude: [],
+        }),
+      )
+      const result = compileProject(project.root)
+      expect(result.status, result.output).toBe(0)
+    } finally {
+      project.remove()
+    }
+  })
+
   it('compiles generated entries with concrete loader parameters and component props', () => {
     const project = createProject()
     try {
@@ -59,7 +109,10 @@ export default route().validate({ params: z.object({ id: z.string() }) })
       )
       project.write(
         'app/posts/[id].tsx',
-        `import type { LoaderArgs } from '@olivaw/sark/page'
+        `import type { LoaderArgs, ShouldRevalidateArgs } from '@olivaw/sark/page'
+export function shouldRevalidate({ currentParams, nextParams }: ShouldRevalidateArgs<{ id: string }>) {
+  return currentParams.id !== nextParams.id
+}
 export async function loader({ client, params }: LoaderArgs<{ id: string }>) {
   const post = await client.get('/posts/:id', { params })
   const title: string = post.title

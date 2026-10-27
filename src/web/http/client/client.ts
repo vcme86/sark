@@ -271,8 +271,7 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
     if (!headers.has('Accept')) headers.set('Accept', 'application/json')
 
     if (callHeaders) {
-      const override = new Headers(callHeaders)
-      override.forEach((val, key) => headers.set(key, val))
+      new Headers(callHeaders).forEach((val, key) => headers.set(key, val))
     }
 
     return headers
@@ -286,29 +285,26 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
     const url = buildUrl(baseUrl, path, callOptions?.params, callOptions?.query)
     const headers = await resolveHeaders(callOptions?.headers)
     const body = callOptions ? encodeBody(callOptions, headers) : undefined
-
     const credentials = callOptions?.init?.credentials ?? defaultCredentials
 
-    const request = new Request(url, {
-      ...callOptions?.init,
-      method,
-      headers,
-      body,
-      credentials,
-    })
-
-    return customFetch(request)
+    return customFetch(
+      new Request(url, {
+        ...callOptions?.init,
+        method,
+        headers,
+        body,
+        credentials,
+      }),
+    )
   }
 
   return {
     async get(path: string, ...args: any[]): Promise<any> {
-      const res = await send('GET', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('GET', path, args[0]))
     },
 
     async post(path: string, ...args: any[]): Promise<any> {
-      const res = await send('POST', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('POST', path, args[0]))
     },
 
     async query(path: string, ...args: any[]): Promise<any> {
@@ -316,23 +312,19 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
     },
 
     async put(path: string, ...args: any[]): Promise<any> {
-      const res = await send('PUT', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('PUT', path, args[0]))
     },
 
     async patch(path: string, ...args: any[]): Promise<any> {
-      const res = await send('PATCH', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('PATCH', path, args[0]))
     },
 
     async delete(path: string, ...args: any[]): Promise<any> {
-      const res = await send('DELETE', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('DELETE', path, args[0]))
     },
 
     async options(path: string, ...args: any[]): Promise<any> {
-      const res = await send('OPTIONS', path, args[0])
-      return decodeResponse(res)
+      return decodeResponse(await send('OPTIONS', path, args[0]))
     },
 
     async head(path: string, ...args: any[]): Promise<Response> {
@@ -352,14 +344,14 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
 
       const headers = await resolveHeaders(init?.headers)
       const credentials = init?.credentials ?? defaultCredentials
-
-      const request = new Request(url, {
-        ...init,
-        method,
-        headers,
-        credentials,
-      })
-      return customFetch(request)
+      return customFetch(
+        new Request(url, {
+          ...init,
+          method,
+          headers,
+          credentials,
+        }),
+      )
     },
   } as HttpClient<Api>
 }

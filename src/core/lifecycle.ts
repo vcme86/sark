@@ -19,6 +19,7 @@ export class LifecycleManager {
   private disposal?: Promise<void>
   private closing?: Promise<void>
   private disposalBarrier: Promise<void> = Promise.resolve()
+  private disposalDeadline?: number
 
   /** Current lifecycle phase of the managed application. */
   get state(): LifecycleState {
@@ -106,13 +107,16 @@ export class LifecycleManager {
   /**
    * Defers normal shutdown disposal until the transport host releases the barrier.
    *
-   * The Node host releases it when transport draining completes or its budget expires.
-   * This keeps resources available while response streams are still draining.
+   * The production Node host releases it after draining or expiration of its budget.
+   * The development host waits for accepted request operations to settle, including after
+   * cancellation, so unfinished work retains its resources even if the handoff times out.
    *
    * @param barrier - Host-owned promise resolving when disposal may proceed.
+   * @param deadline - Total host shutdown deadline on the performance.now() clock.
    */
-  deferDisposalUntil(barrier: Promise<void>): void {
+  deferDisposalUntil(barrier: Promise<void>, deadline?: number): void {
     this.disposalBarrier = barrier
+    this.disposalDeadline = deadline
   }
 
   /**
@@ -152,7 +156,7 @@ export class LifecycleManager {
     while (this.resources.length > 0) {
       const resource = this.resources.pop()!
       try {
-        await resource.dispose()
+        await resource.dispose({ signal: this.signal, deadline: this.disposalDeadline })
       } catch (error) {
         errors.push(error)
       }

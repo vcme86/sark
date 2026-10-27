@@ -10,6 +10,8 @@ Sark 直接提供绑定实际驱动的 Drizzle 实例，不另建 ORM。
 
 不内建 CF 直连 PostgreSQL、Node 远程 D1、跨机器共享 SQLite 文件、分片或读写路由。选项描述实际驱动，不重复填写可能矛盾的 dialect。
 
+Drizzle 和 Node 数据库驱动作为可选 peer 依赖，应用安装所选路径需要的包；框架开发依赖提供完整验证环境。SQLite 类型使用 @types/better-sqlite3，D1 类型引用 Cloudflare 官方的 @cloudflare/workers-types；这些类型依赖也按所选入口隔离，不向 Node 应用注入 D1 全局声明。
+
 ## 声明
 
 ```ts
@@ -40,6 +42,8 @@ export const database = defineDatabase((env: Env) => {
 ```
 
 url 必填，pool.max 默认 10、idleTimeout 默认 30000 毫秒、connectTimeout 默认 5000 毫秒。适配转换到 postgres.js 的原生单位，不把毫秒直接传给其秒字段。Node 环境变量在工厂中检查，Env 不声明为已保证存在的字符串；完整环境约定见 [application.md](application.md)。
+
+max 必须为正整数；idleTimeout、connectTimeout 为非负有限毫秒数，0 按上游语义关闭对应计时器。单位转换保留小数，不将应用指定的时长向上取整。
 
 D1 从 db/d1 导入。以下是另一个 Workers 工程的示例，Env 使用其 Wrangler 生成类型，不是上面 Node 示例的 ProcessEnv：
 

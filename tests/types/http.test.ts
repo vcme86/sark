@@ -37,6 +37,24 @@ export default createMiddleware(async (_ctx, next) => next())
         'route().validate({ query: z.object({ term: z.string() }) }).handler((_c, input) => input.query)',
       'convert.post':
         'route().validate({ text: z.string().transform(Number) }).handler((_c, input) => ({ value: input.text }))',
+      'custom.post': `route().validate({ text: {
+        safeParse(value: unknown) { return { success: true, data: Number(value) } }
+      } }).handler((_c, input) => {
+        const value: number = input.text
+        // @ts-expect-error Custom schema output is a number.
+        const invalid: string = input.text
+        // @ts-expect-error Undeclared schema fields are absent from handler input.
+        input.params
+        return { value }
+      })`,
+      'custom-async.post': `route().validate({ text: {
+        async safeParseAsync(value: unknown) { return { success: true, data: Number(value) } }
+      } }).handler((_c, input) => {
+        const value: number = input.text
+        // @ts-expect-error Asynchronous schema output is a number.
+        const invalid: string = input.text
+        return { value }
+      })`,
       'optional.post':
         'route().validate({ json: z.object({ name: z.string() }).optional() }).handler((_c, input) => input.json ?? null)',
       'form.post':
