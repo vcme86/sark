@@ -41,7 +41,7 @@ redact 默认包含 authorization、cookie、set-cookie、password、token、sec
 
 请求、内部调用和返回链上的异步工作继承同一执行作用域。WS 在握手建关联，回调沿连接上下文；任务以 job/name 建作用域，不借用最近请求。
 
-getLogger(category) 从 server 导入，绑定当前应用/工作；日志格式化、类别和 sink 复用 LogTape，不自行实现日志引擎。
+getLogger(category) 从 server 导入，绑定当前应用/工作；日志格式化、类别和 sink 复用 LogTape，不自行实现日志引擎。基础日志与认证诊断均使用结构化 requestId 属性，在写入时取得当前作用域的值，不把 ID 拼进消息。额外参数保留在 args 属性，无参数时省略。
 
 访问记录每个外部 HTTP 请求一条，含方法、路径、状态、请求 ID、客户端 IP、结果和耗时。流式响应按正文结束/取消计时；内部 API 调用不重复计为外部访问。
 

@@ -10,10 +10,6 @@ import { parseModule } from './module'
 
 /** Summary of configuration exports discovered from the application entrypoint file. */
 export interface DiscoveredAppExports {
-  /** Indicates whether an `app` configuration declaration was found. */
-  hasApp: boolean
-  /** Indicates whether a `runtime` platform declaration was found. */
-  hasRuntime: boolean
   /** List of all recognized configuration export names. */
   exports: string[]
   /** Detected database driver if declared using an official driver entrypoint. */
@@ -43,7 +39,7 @@ const ALLOWED_EXPORTS = new Set([
 ])
 
 /** Module resolution supplied by Vite under the server target's conditions. */
-export type ResolveModule = (specifier: string, importer: string) => Promise<string | undefined>
+type ResolveModule = (specifier: string, importer: string) => Promise<string | undefined>
 
 type Program = ReturnType<typeof parseModule>
 type Statement = Program['body'][number]
@@ -224,7 +220,7 @@ export async function discoverDatabaseDriver(
  */
 export function discoverAppEntry(appFilePath: string): DiscoveredAppExports {
   if (!existsSync(appFilePath)) {
-    return { hasApp: false, hasRuntime: false, exports: [] }
+    return { exports: [] }
   }
 
   const foundExports: string[] = []
@@ -272,8 +268,6 @@ export function discoverAppEntry(appFilePath: string): DiscoveredAppExports {
   }
 
   return {
-    hasApp: foundExports.includes('app'),
-    hasRuntime: foundExports.includes('runtime'),
     exports: foundExports,
   }
 }

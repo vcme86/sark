@@ -33,24 +33,20 @@ export const database = defineDatabase({
 
 声明函数只保存配置意图、类型及所属初始化引用；模块导入和 define 调用不连接数据库、不监听端口、不创建任务或文件输出。
 
-各声明接受选项对象或 `(env: Env) => Options` 工厂。工厂在相应宿主环境可用后解析，仍只返回配置；实际资源由框架创建。导出集合保持静态，不随某个环境值动态增删能力。不以工厂返回 false 隐式改变服务类型，能力内部的既定开关仍按其专项处理。
+各声明接受选项对象或 `(env: Env) => Config` 工厂。工厂在相应宿主环境可用后解析，仍只返回配置；实际资源由框架创建。导出集合保持静态，不随某个环境值动态增删能力。不以工厂返回 false 隐式改变服务类型，能力内部的既定开关仍按其专项处理。
 
 驱动种类由导入子路径确定，工厂只提供该驱动的地址、密钥或 binding，不在工厂内切换数据库种类。构建只读导出语法，不执行工厂、不连接生产资源。Node 标准入口负责先加载环境，Workers 从本次事件 env 取得绑定。
 
 ### 应用环境与必填值
 
-普通应用统一使用一个 Env 类型。Node 标准入口传入 `NodeJS.ProcessEnv`，应用可直接使用这个类型或定义同名别名。环境变量仍可能缺失，类型声明不代替值检查：
+普通应用统一使用一个 Env 类型。Node 标准入口传入 `NodeJS.ProcessEnv`，应用可直接使用这个类型或定义同名别名。环境变量仍可能缺失，工厂可直接交付原始值，由所属配置入口校验：
 
 ```ts
 import { defineDatabase } from '@olivaw/sark/db/postgres'
 
 type Env = NodeJS.ProcessEnv
 
-export const database = defineDatabase((env: Env) => {
-  const url = env.DATABASE_URL
-  if (!url) throw new Error('DATABASE_URL is required')
-  return { url }
-})
+export const database = defineDatabase((env: Env) => ({ url: env.DATABASE_URL }))
 ```
 
 Workers 使用 Wrangler 生成的 Env，其中 D1、R2 等 binding 保留实际平台类型；生成入口传当前事件的 env，不用 ProcessEnv 代替 binding。环境类型由应用或平台提供，不由框架创建隐式全局 Env。
@@ -78,14 +74,14 @@ interface AppConfig {
 }
 ```
 
-- headers 默认提供下列基础安全头。单项字符串覆盖、false 移除，整体 false 关闭；头名按大小写不敏感匹配
+- headers 提供默认响应头。单项字符串覆盖默认值，false 在配置解析时移除该默认项，整体 false 关闭默认头；头名按大小写不敏感匹配。应用显式设置的同名响应头优先，不被禁用默认项的配置删除
 - bodyLimit 默认 1048576 字节，false 关闭；以最终有效策略检查声明长度，未知长度随消费计数，详见 [http.md](http.md)
 - trustedProxies 默认 loopback 和 private；显式空数组关闭 Node 转发头采信
 - cookie 默认 SameSite=Lax，生产 Secure；通用签名密钥须显式赋值，不从认证密钥或全局环境暗取
 - cors 默认关闭，启用必须给 origin，选项沿 Hono CORS
 - csrf 默认开启，执行适用 HTTP 来源检查与 WS 握手来源检查
 - trailingSlash 默认 never；caseSensitive 默认 false；hosts 默认不限制
-- middleware 默认空数组，按声明顺序接入 Hono
+- middleware 默认空数组，按声明顺序接入 Hono；Context 与 MiddlewareHandler 从 server 导入，保留本应用实际声明的资源和请求服务类型
 
 数据库、认证、统计、日志增强、缓存和任务的配置由各声明拥有。压缩、排空预算和基础探针归 Node runtime。
 
@@ -174,7 +170,20 @@ type EnvironmentArgs<D> =
 
 基础实例提供 fetch、close。fetch 按外部请求执行完整请求链，但不自动为自定义宿主接 WS 升级；close 释放本实例，不关闭外部 Vite/Node 宿主。createApp 不监听端口、不注册退出信号。fetchInternal 是生成页面接入使用的同版本内部接口，应用不自行构造可信身份标记。
 
-所选能力增加直接属性，例如 instance.db、instance.auth、instance.storage、instance.stats、instance.jobs、instance.metrics、instance.cache；未选时类型和运行均不存在。请求绑定服务位于 ctx.var；后台任务取得同一应用的服务实例。各服务的具体操作由专项设计定义，不由实例类型重新定义。
+所选能力增加直接属性；未选时类型和运行均不存在。ctx.var 沿用 Hono 的请求变量机制，不另套一层服务容器。各入口按实际生命周期区分：
+
+- ctx.var.requestId 属于当前请求，同应用内部调用继承；不作为实例服务
+- db、具名 storage 在 ctx.var、实例和 JobContext 中引用所属生命周期的同一资源；Workers 按当前事件绑定
+- ctx.var.auth 提供当前身份及登录、退出；instance.auth 只验证凭据，JobContext 不隐式继承请求身份
+- ctx.var.visitor 提供当前浏览器标识与 ensure/clear，不提供脱离请求的 visitor 实例；标识本身不授予权限
+- ctx.var.stats 可使用当前请求身份；instance.stats 与 JobContext.stats 的去重写入必须显式提供主体
+- ctx.var.mfa、ctx.var.webauthn 的登录、挑战和管理操作绑定请求；TOTP 管理使用 ctx.var.totp，维护重加密使用 instance.totp，不在任务中虚构当前登录者
+- metrics 在请求、实例及 JobContext 中使用同一所属实例；Node jobs 通过 instance.jobs 管理任务；页面缓存通过 instance.cache 及作用域内失效助手使用
+- 日志通过 getLogger 取得并关联当前请求，不额外挂载 ctx.var.logger
+
+这里只规定入口关系，具体操作、启用依赖与平台支持由各专项定义。未实施阶段不因此提前创建空服务。动态 CORS 回调执行时尚未绑定身份，不承诺读取 auth、visitor 等请求服务；业务中间件、路由与 OAuth 应用回调使用绑定后的 Context。
+
+公开实例不暴露可变 Hono 路由器。路由与策略在创建阶段装配，应用通过文件路由、中间件及自定义宿主接入扩展；宿主所需的路由检查在内部读取同一装配结果，不提供创建后追加路由的接口。
 
 类型推导先生成 resources-types（环境、DB、存储等资源），配置回调仅依赖它与底层契约；随后合成 services-types 和请求上下文。API 类型在 HTTP 注册，服务资源在 server 注册。浏览器类型引用可擦除的 API 类型，不把驱动放进 HTTP 客户端入口。
 
@@ -192,7 +201,7 @@ type EnvironmentArgs<D> =
 
 各能力的 StoreDeclaration 是延迟创建约定，工厂在资源就绪后由框架调用。自定义声明提供 create(context)，返回 { value: Store, dispose? } 或其 Promise；value 实现该领域的操作接口，dispose 只释放自己创建的资源。官方 sqlTotp/sqlStats 等也返回同类声明，不在配置时拿连接。
 
-context 的基础部分只给该声明所需的 Env、已声明资源（如 db）、logger 和创建期 signal，不给整份 AppInstance 或任意服务查找器。所属领域可追加自身初始化所需的有限信息，例如统计 store 的 requirements.unique；这些信息由该领域的类型与创建器拥有，不加入核心的全领域配置联合。借用 db 的适配通常没有 dispose。框架登记创建结果、失败回滚和逆序释放，应用不手工调用 create 或排列顺序。
+context 的基础部分只给该声明所需的 Env、已声明资源（如 db）、logger 和创建期 signal，不给整份 AppInstance 或任意服务查找器。所属领域可追加自身初始化所需的有限信息，例如统计 store 的 requirements.unique；这些信息由该领域的类型与创建器拥有，不加入核心的全领域配置联合。借用 db 的适配通常没有 dispose。框架等待 create 完成，取得结果后立即登记其 dispose；后续创建失败时取消创建期工作并逆序回滚。正常关闭同样逆序释放，应用不手工调用 create 或排列顺序。Workers 根据所属事件或连接的真实生命周期释放，不在 Fetch 返回时提前关闭仍在使用的资源。
 
 各类 Store 共用创建与释放约定，保留各自的操作语义。StatsStore、TotpStore、WebAuthnStore、AuthStateStore 和 RecoveryStore 各自保留专用契约；不引入通用 Storage、插件安装或运行时注册中心。
 
@@ -200,16 +209,16 @@ context 的基础部分只给该声明所需的 Env、已声明资源（如 db�
 
 所有由 Sark 处理的请求先建立执行作用域、请求 ID、基础安全响应头和日志关联；Node 的传输压缩在适用分支包裹响应。随后按目标分支执行：
 
-- 普通 HTTP 和页面：确定客户端地址与外部 origin、注入所选资源、URL 规范化、CORS、身份解析、CSRF、有效限流和正文限额、全局/作用域/路由中间件、处理器
-- WS 握手：确定客户端地址与外部 origin、注入所选资源、CORS、身份解析、来源防护与业务中间件；升级前授权，跳过正文限额、压缩和默认 HTTP 限流，不作 308 重定向
+- 普通 HTTP 和页面：确定客户端地址与外部 origin、注入所选资源、CORS、生命周期准入与 URL 规范化、绑定身份等请求服务、CSRF、有效限流和正文限额、全局/作用域/路由中间件、处理器
+- WS 握手：确定客户端地址与外部 origin、注入所选资源、CORS、生命周期准入、绑定身份等请求服务、来源防护与业务中间件；升级前授权，跳过正文限额、压缩和默认 HTTP 限流，不作 308 重定向
 - 公开构建文件：安全头、适用 CORS 和压缩；跳过业务认证、CSRF、限流和中间件
 - Node 运行目录：独立请求分支，执行应用级策略及全局中间件，文件路由优先；不借用 API 树或页面树的目录作用域，授权由明确的应用中间件或下载 API 承担
 - Node 探针和指标：经过公共前置处理后进入各自处理器，不经过业务认证和限流；使用各自独立准入
 - visitors 初始化、OAuth 入口与回调：按其专项占用真实方法/路径，使用正常请求基础；仅在协议明确需要的边界调整来源规则
 
-公共前置处理覆盖 308、预检、401/403、413/429 等提前返回，仍交付适用安全头和请求 ID。Workers 的升级响应不能事后改头，升级前完成响应准备；不把普通 HTTP 的后置写头应用到不可变响应上。
+基础上下文不执行领域身份检查；预检、排空拒绝和 URL 重定向在请求服务绑定前短路。公共前置处理覆盖 308、预检、401/403、413/429 等提前返回，仍交付适用安全头和请求 ID。Workers 的升级响应不能事后改头，升级前完成响应准备；不把普通 HTTP 的后置写头应用到不可变响应上。
 
-认证解析失败通常得到匿名身份，由业务授权决定是否拒绝。CORS、CSRF 与权限检查各守职责，不因一个检查放行就跳过另一个。
+缺少凭据、无效凭据、版本不符或 validate 明确返回 false 时得到匿名身份，由业务授权决定是否拒绝。认证钩子或依赖执行故障向所属错误边界传播，不转换为匿名，也不重复记录日志。CORS、CSRF 与权限检查各守职责，不因一个检查放行就跳过另一个。
 
 HTTP CSRF 的方法、媒体类型、来源允许规则与检查异常边界由 [http.md](http.md) 定义；WS 的 Origin 规则由 [websocket.md](websocket.md) 定义。两者都使用还原后的外部 origin，不能直接比较代理内部 Request.url。Node 响应只在交付层执行一次压缩；显式 compress 中间件选择策略，不额外执行压缩。
 
@@ -236,7 +245,7 @@ Node 从 socket 对端地址起，沿可信代理链从右向左确定客户端�
 runtime 从 server/node 导入 defineNodeRuntime，接受以下选项或返回这些选项的 Env 工厂：
 
 ```ts
-interface NodeRuntimeOptions {
+interface NodeRuntimeConfig {
   port?: number
   hostname?: string
   compress?: boolean | CompressionOptions

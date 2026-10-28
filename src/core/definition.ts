@@ -4,49 +4,39 @@
  * @module
  */
 
-import type { Context } from 'hono'
-
-import type { StaticAssets } from '../web/http/assets'
-import type { HttpClient } from '../web/http/client/client'
-import type { RouteEntry } from '../web/http/server/pipeline'
+import type { StaticAssets } from '../http/assets'
+import type { PageRequestHandler, RouteEntry } from '../http/server/types'
 import type { AppDeclaration } from './config'
-import type { RequestScope } from './context'
 import type { EnvironmentRequirement } from './declaration'
 import type { ResourceAssembly } from './resource'
-import type { DomainAssembly } from './service'
+import type { ServiceAssembly } from './service'
 
-/** Page-owned request handler installed by generated application assembly. */
-export type PageRequestHandler = (
-  context: Context,
-  client: HttpClient<any>,
-  scope: RequestScope,
-  production: boolean,
-) => Promise<Response>
+export type { PageRequestHandler } from '../http/server/types'
 
 /** Raw input parameters used to construct an application definition. */
 export interface ApplicationDefinitionInput {
   /** Root application declaration created via `defineApp`. */
   app?: AppDeclaration
-  /** Discovered route entries to register on the HTTP pipeline. */
-  routes?: RouteEntry[]
+  /** Optional page declaration created via `definePage`. */
+  page?: unknown
   /** Supplementary declarations contributing static environment requirements. */
   declarations?: readonly unknown[]
-  /** Optional server-side 404 page handler for HTML rendering. */
-  page404Handler?: PageRequestHandler
+  /** Assembled instance and event resources (e.g. database, storage). */
+  resources?: Record<string, ResourceAssembly<any>>
+  /** Assembled domain services conforming to the ServiceAssembly contract. */
+  services?: Record<string, ServiceAssembly<any>>
   /** API prefix for routing and SSR internal client dispatch. */
   apiPrefix?: string
   /** Website URL prefix for page route mounting and HTML 404 scope. */
   webPrefix?: string
-  /** Optional page declaration created via `definePage`. */
-  page?: unknown
-  /** Page-owned resolver called at instance creation or at the current external event. */
-  resolvePageConfig?: (env: unknown) => unknown
+  /** Discovered route entries to register on the HTTP pipeline. */
+  routes?: RouteEntry[]
+  /** Optional server-side 404 page handler for HTML rendering. */
+  page404Handler?: PageRequestHandler
+  /** Creates a page-owned configuration resolver for each application runtime. */
+  createPageConfigResolver?: () => (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   assets?: StaticAssets
-  /** Assembled instance and event resources (e.g. database, storage). */
-  resources?: Record<string, ResourceAssembly<any>>
-  /** Assembled domain services conforming to the DomainAssembly contract. */
-  services?: Record<string, DomainAssembly<any>>
 }
 
 /** Application declarations and routes assembled for runtime creation. */
@@ -55,26 +45,26 @@ export type ApplicationDefinition<
   Declarations extends readonly unknown[] = [],
   TPage = unknown,
   TResources = Record<string, ResourceAssembly<any>> | undefined,
-  TServices = Record<string, DomainAssembly<any>> | undefined,
+  TServices = Record<string, ServiceAssembly<any>> | undefined,
 > = {
   /** Root application declaration or `undefined` if none provided. */
-  readonly appDeclaration?: TApp
-  /** All assembled route entries ready for pipeline registration. */
-  readonly routes: RouteEntry[]
-  /** Optional server-side 404 page handler for HTML rendering. */
-  readonly page404Handler?: PageRequestHandler
-  /** API prefix for routing and SSR internal client dispatch. */
-  readonly apiPrefix?: string
-  /** Website URL prefix for page route mounting and HTML 404 scope. */
-  readonly webPrefix?: string
+  readonly app?: TApp
   /** Optional page declaration created via `definePage`. */
   readonly page?: TPage
   /** Assembled instance and event resources. */
   readonly resources?: TResources
   /** Assembled domain services. */
   readonly services?: TServices
-  /** Page-owned resolver called at instance creation or at the current external event. */
-  readonly resolvePageConfig?: (env: unknown) => unknown
+  /** API prefix for routing and SSR internal client dispatch. */
+  readonly apiPrefix?: string
+  /** Website URL prefix for page route mounting and HTML 404 scope. */
+  readonly webPrefix?: string
+  /** All assembled route entries ready for pipeline registration. */
+  readonly routes: RouteEntry[]
+  /** Optional server-side 404 page handler for HTML rendering. */
+  readonly page404Handler?: PageRequestHandler
+  /** Creates a page-owned configuration resolver for each application runtime. */
+  readonly createPageConfigResolver?: () => (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   readonly assets?: StaticAssets
   /** Discriminant flag identifying a compiled application definition. */
@@ -82,6 +72,14 @@ export type ApplicationDefinition<
 } & EnvironmentRequirement<
   readonly [TApp, TPage, ...Declarations],
   (TResources extends undefined ? {} : TResources) & (TServices extends undefined ? {} : TServices)
+>
+
+type DefinitionFromInput<T extends ApplicationDefinitionInput> = ApplicationDefinition<
+  T extends { app: infer A } ? A : undefined,
+  T extends { declarations: infer D extends readonly unknown[] } ? D : [],
+  T extends { page: infer P } ? P : undefined,
+  T extends { resources: infer Res } ? Res : undefined,
+  T extends { services: infer Services } ? Services : undefined
 >
 
 /**
@@ -94,30 +92,18 @@ export type ApplicationDefinition<
  */
 export function createDefinition<const T extends ApplicationDefinitionInput>(
   input: T = {} as T,
-): ApplicationDefinition<
-  T extends { app: infer A } ? A : undefined,
-  T extends { declarations: infer D extends readonly unknown[] } ? D : [],
-  T extends { page: infer P } ? P : undefined,
-  T extends { resources: infer Res } ? Res : undefined,
-  T extends { services: infer Services } ? Services : undefined
-> {
+): DefinitionFromInput<T> {
   return {
-    appDeclaration: input.app,
-    routes: input.routes ?? [],
-    page404Handler: input.page404Handler,
-    apiPrefix: input.apiPrefix,
-    webPrefix: input.webPrefix,
+    app: input.app,
     page: input.page,
     resources: input.resources,
     services: input.services,
-    resolvePageConfig: input.resolvePageConfig,
+    apiPrefix: input.apiPrefix,
+    webPrefix: input.webPrefix,
+    routes: input.routes ?? [],
+    page404Handler: input.page404Handler,
+    createPageConfigResolver: input.createPageConfigResolver,
     assets: input.assets,
     isDefinition: true,
-  } as ApplicationDefinition<
-    T extends { app: infer A } ? A : undefined,
-    T extends { declarations: infer D extends readonly unknown[] } ? D : [],
-    T extends { page: infer P } ? P : undefined,
-    T extends { resources: infer Res } ? Res : undefined,
-    T extends { services: infer Services } ? Services : undefined
-  >
+  } as DefinitionFromInput<T>
 }

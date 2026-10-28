@@ -1,9 +1,9 @@
 /** Fixed provider information and constraints resolved at configuration entry. */
 import type { OAuthProviderConfig, ResolvedOAuthProvider } from '../types'
 
-export const GOOGLE_ISSUER = 'https://accounts.google.com'
-export const APPLE_ISSUER = 'https://appleid.apple.com'
-export const MICROSOFT_DEFAULT_ISSUER = 'https://login.microsoftonline.com/common/v2.0'
+const GOOGLE_ISSUER = 'https://accounts.google.com'
+const APPLE_ISSUER = 'https://appleid.apple.com'
+const MICROSOFT_DEFAULT_ISSUER = 'https://login.microsoftonline.com/common/v2.0'
 
 /** Resolves vendor defaults without duplicating discovery or protocol processing. */
 export function normalizePresetConfig(

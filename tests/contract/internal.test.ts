@@ -11,8 +11,8 @@ import {
   setCookie,
   z,
 } from '../../src/entries/server'
-import { parseApiFilePath } from '../../src/web/http/path'
-import type { RouteDeclaration } from '../../src/web/http/types'
+import { parseApiFilePath } from '../../src/http/path'
+import type { RouteDeclaration } from '../../src/http/types'
 
 const entry = (file: string, declaration: RouteDeclaration) => ({
   routePath: parseApiFilePath(file, '/api')!,

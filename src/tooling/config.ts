@@ -1,6 +1,6 @@
-import { resolve } from 'node:path'
+import { relative, resolve } from 'node:path'
 
-import { DEFAULT_API_PREFIX } from '../web/http/defaults'
+import { DEFAULT_API_PREFIX } from '../http/defaults'
 
 /** Configuration options for the Sark Vite plugin. */
 export interface SarkOptions {
@@ -40,35 +40,32 @@ export interface SarkOptions {
    */
   webPrefix?: string
 
-  /**
-   * Directory where generated code, definitions, and type declarations are written.
-   * @default '.build'
-   */
-  generatedDir?: string
-
   /** Module exporting Api for separated page/API deployments; excludes local API routes. */
   apiTypes?: string
 }
 
-/** Complete Sark options shared by discovery, generation, and host integration. */
-export interface ResolvedSarkOptions {
+/** Parsed Sark options before their paths are bound to a project root. */
+interface ResolvedSarkOptions {
   readonly target: 'node' | 'cloudflare'
   readonly appEntry: string
   readonly apiDir: string | false
   readonly apiPrefix: string
   readonly webDir: string | false
   readonly webPrefix: string
-  readonly generatedDir: string
   readonly apiTypes?: string
 }
 
-/** Absolute discovery paths bound to a resolved project root. */
+/** Complete engineering settings with paths bound to one resolved project root. */
 export interface ResolvedProjectConfig {
   readonly root: string
+  readonly target: 'node' | 'cloudflare'
   readonly appEntryPath: string
   readonly apiDir: string | false
+  readonly apiPrefix: string
+  readonly webDir: string | false
+  readonly webPrefix: string
   readonly generatedDir: string
-  readonly options: ResolvedSarkOptions
+  readonly apiTypes?: string
 }
 
 const DEFAULT_SARK_OPTIONS: ResolvedSarkOptions = {
@@ -78,7 +75,6 @@ const DEFAULT_SARK_OPTIONS: ResolvedSarkOptions = {
   apiPrefix: DEFAULT_API_PREFIX,
   webDir: 'app',
   webPrefix: '/',
-  generatedDir: '.build',
 }
 
 function normalizePrefix(value: string, field: string): string {
@@ -112,7 +108,6 @@ export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions
     apiPrefix: normalizePrefix(input.apiPrefix ?? DEFAULT_SARK_OPTIONS.apiPrefix, 'apiPrefix'),
     webDir: input.webDir ?? DEFAULT_SARK_OPTIONS.webDir,
     webPrefix: normalizePrefix(input.webPrefix ?? DEFAULT_SARK_OPTIONS.webPrefix, 'webPrefix'),
-    generatedDir: input.generatedDir ?? DEFAULT_SARK_OPTIONS.generatedDir,
     apiTypes: input.apiTypes,
   }
   if (result.target !== 'node' && result.target !== 'cloudflare') {
@@ -120,7 +115,7 @@ export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions
   }
   for (const [field, value] of Object.entries(result)) {
     if (
-      ['appEntry', 'apiDir', 'webDir', 'generatedDir', 'apiTypes'].includes(field) &&
+      ['appEntry', 'apiDir', 'webDir', 'apiTypes'].includes(field) &&
       !(value === false && (field === 'apiDir' || field === 'webDir')) &&
       value !== undefined &&
       (typeof value !== 'string' || !value.trim())
@@ -143,11 +138,18 @@ export function resolveProjectConfig(
   options: ResolvedSarkOptions,
 ): ResolvedProjectConfig {
   const root = resolve(projectRoot)
+  const generatedDir = resolve(root, '.build')
   return {
     root,
+    target: options.target,
     appEntryPath: resolve(root, options.appEntry),
     apiDir: options.apiDir === false ? false : resolve(root, options.apiDir),
-    generatedDir: resolve(root, options.generatedDir),
-    options,
+    apiPrefix: options.apiPrefix,
+    webDir: options.webDir === false ? false : resolve(root, options.webDir),
+    webPrefix: options.webPrefix,
+    generatedDir,
+    apiTypes: options.apiTypes?.startsWith('.')
+      ? './' + relative(generatedDir, resolve(root, options.apiTypes)).replace(/\\/g, '/')
+      : options.apiTypes,
   }
 }

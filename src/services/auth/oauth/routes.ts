@@ -1,7 +1,7 @@
 /** Static OAuth endpoint descriptions reading the current event's resolved binding. */
 import { getCurrentScope } from '../../../core/context'
-import { type ParsedRoutePath, routeShape } from '../../../web/http/path'
-import type { RouteEntry } from '../../../web/http/server/pipeline'
+import { type ParsedRoutePath, routeShape } from '../../../http/path'
+import type { RouteEntry } from '../../../http/server/types'
 import type { DiscoveryCache } from './client'
 import { handleCallback, handleSignIn } from './flow'
 import type { ResolvedOAuthProvider } from './types'

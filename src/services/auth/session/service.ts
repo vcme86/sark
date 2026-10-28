@@ -25,20 +25,41 @@ interface CacheEntry<T> {
   readonly expiresAt: number
 }
 
-function cleanExpired<T>(cache: Map<string, CacheEntry<T>>, now: number): void {
-  if (cache.size > 2000) {
-    for (const [k, v] of cache) {
-      if (now >= v.expiresAt) cache.delete(k)
-    }
+const MAX_CACHE_ENTRIES = 2000
+
+function readCached<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  now: number,
+): CacheEntry<T> | undefined {
+  const entry = cache.get(key)
+  if (entry && now >= entry.expiresAt) {
+    cache.delete(key)
+    return undefined
   }
+  return entry
 }
 
-/** Cache store for hook results and concurrent in-flight promise coalescing. */
+function cacheResult<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  entry: CacheEntry<T>,
+): void {
+  if (cache.size >= MAX_CACHE_ENTRIES && !cache.has(key)) {
+    cache.delete(cache.keys().next().value!)
+  }
+  cache.set(key, entry)
+}
+
+/**
+ * Owns independently bounded hook-result caches and concurrent verification work.
+ * TTL controls reuse; in-flight entries are removed when their work settles.
+ */
 export interface AuthCacheStore {
   readonly validateCache: Map<string, CacheEntry<boolean>>
   readonly validateInFlight: Map<string, Promise<boolean>>
-  readonly versionCache: Map<string, CacheEntry<number | null>>
-  readonly versionInFlight: Map<string, Promise<number | null>>
+  readonly versionCache: Map<string, CacheEntry<number>>
+  readonly versionInFlight: Map<string, Promise<number>>
 }
 
 /** Creates a fresh cache store instance. */
@@ -63,24 +84,24 @@ export interface InternalAuthService extends AuthService {
     options?: { readonly request?: Request; readonly signal?: AbortSignal },
   ): Promise<VerifiedTokenResult | null>
   /** Resolved configuration options for this service. */
-  readonly options: ResolvedAuthConfig
+  readonly config: ResolvedAuthConfig
 }
 
 /**
  * Creates an application-level AuthService instance.
  *
- * @param options - Materialized authentication settings.
+ * @param config - Materialized authentication settings.
  * @param resources - Resources belonging to the current application instance or event.
  * @param cacheStore - Optional shared cache store (reused across Workers events).
  * @returns Ready InternalAuthService.
  */
 export function createAuthService(
-  options: ResolvedAuthConfig,
+  config: ResolvedAuthConfig,
   resources: Readonly<Record<string, unknown>> = {},
   cacheStore: AuthCacheStore = createAuthCacheStore(),
 ): InternalAuthService {
   const logger = getLogger(['app', 'auth']).with({ requestId: lazy(getRequestId) })
-  const cacheTtlMs = options.cacheTtl * 1000
+  const cacheTtlMs = config.cacheTtl * 1000
 
   const { validateCache, validateInFlight, versionCache, versionInFlight } = cacheStore
 
@@ -88,33 +109,25 @@ export function createAuthService(
     identity: Identity,
     token: string,
     context: AuthCheckContext,
-  ): Promise<number | null> {
-    if (!options.tokenVersion) return identity.ver
+  ): Promise<number> {
+    if (!config.tokenVersion) return identity.ver
 
-    const now = Date.now()
     if (cacheTtlMs > 0) {
-      const cached = versionCache.get(token)
-      if (cached && now < cached.expiresAt) {
+      const cached = readCached(versionCache, token, Date.now())
+      if (cached) {
         return cached.value
       }
-      cleanExpired(versionCache, now)
       const existing = versionInFlight.get(token)
       if (existing) return existing
     }
 
     const versionPromise = Promise.resolve().then(async () => {
       try {
-        const expected = await options.tokenVersion!(identity.sub, context)
+        const expected = await config.tokenVersion!(identity.sub, context)
         if (cacheTtlMs > 0) {
-          versionCache.set(token, { value: expected, expiresAt: Date.now() + cacheTtlMs })
+          cacheResult(versionCache, token, { value: expected, expiresAt: Date.now() + cacheTtlMs })
         }
         return expected
-      } catch (err) {
-        logger.error('Error invoking tokenVersion hook for sub {sub}: {error}', {
-          sub: identity.sub,
-          error: err,
-        })
-        return null
       } finally {
         if (cacheTtlMs > 0) {
           versionInFlight.delete(token)
@@ -130,35 +143,24 @@ export function createAuthService(
   }
 
   async function runValidate(identity: Identity, context: AuthCheckContext): Promise<boolean> {
-    if (!options.validate) return true
-    const key = options.cacheKey?.(identity, context)
-    const now = Date.now()
+    if (!config.validate) return true
+    const key = config.cacheKey?.(identity, context)
     if (key !== undefined) {
-      const cached = validateCache.get(key)
-      if (cached && now < cached.expiresAt) return cached.value
-      cleanExpired(validateCache, now)
+      const cached = readCached(validateCache, key, Date.now())
+      if (cached) return cached.value
       const pending = validateInFlight.get(key)
       if (pending) return pending
     }
 
     // Defer the hook so even a synchronous throw settles after in-flight registration.
     const pending = Promise.resolve()
-      .then(() => options.validate!(identity, context))
-      .then(
-        (valid) => {
-          if (key !== undefined && cacheTtlMs > 0) {
-            validateCache.set(key, { value: valid, expiresAt: Date.now() + cacheTtlMs })
-          }
-          return valid
-        },
-        (error) => {
-          logger.error('Error invoking validate hook for sub {sub}: {error}', {
-            sub: identity.sub,
-            error,
-          })
-          return false
-        },
-      )
+      .then(() => config.validate!(identity, context))
+      .then((valid) => {
+        if (key !== undefined && cacheTtlMs > 0) {
+          cacheResult(validateCache, key, { value: valid, expiresAt: Date.now() + cacheTtlMs })
+        }
+        return valid
+      })
       .finally(() => {
         if (key !== undefined) validateInFlight.delete(key)
       })
@@ -167,13 +169,13 @@ export function createAuthService(
   }
 
   const authService: InternalAuthService = {
-    options,
+    config,
 
-    issue: (input) => issueToken(input, options),
+    issue: (input) => issueToken(input, config),
 
     async renew(identity: Identity, originalIat?: number): Promise<IssuedToken> {
       const now = Math.floor(Date.now() / 1000)
-      const exp = now + Math.ceil(options.expiresIn / 1000)
+      const exp = now + Math.ceil(config.expiresIn / 1000)
 
       const payload = buildTokenPayload({
         sub: identity.sub,
@@ -181,8 +183,8 @@ export function createAuthService(
         jti: identity.jti,
         iat: originalIat ?? now,
         exp,
-        issuer: options.issuer,
-        audience: options.audience,
+        issuer: config.issuer,
+        audience: config.audience,
         claims: identity.claims,
         authTime: identity.authTime,
         amr: identity.amr,
@@ -190,7 +192,7 @@ export function createAuthService(
         authentication: identity.authentication,
       })
 
-      const token = await signWithKey(payload, options.activeKey)
+      const token = await signWithKey(payload, config.activeKey)
       return { identity, token, expiresAt: exp }
     },
 
@@ -198,9 +200,9 @@ export function createAuthService(
       token: string,
       execOptions?: { readonly request?: Request; readonly signal?: AbortSignal },
     ): Promise<VerifiedTokenResult | null> {
-      const verified = await verifyTokenWithKeys(token, options.verifyKeys, {
-        issuer: options.issuer,
-        audience: options.audience,
+      const verified = await verifyTokenWithKeys(token, config.verifyKeys, {
+        issuer: config.issuer,
+        audience: config.audience,
       })
       if (!verified) return null
 
@@ -212,7 +214,7 @@ export function createAuthService(
       }
 
       const expectedVer = await getExpectedVersion(verified.identity, token, context)
-      if (expectedVer === null || verified.identity.ver !== expectedVer) {
+      if (verified.identity.ver !== expectedVer) {
         return null
       }
 
@@ -233,7 +235,7 @@ export function createAuthService(
     },
 
     async authenticate(request: Request): Promise<Identity | null> {
-      const creds = extractCredentials(request, options.cookieName)
+      const creds = extractCredentials(request, config.cookieName)
       if (!creds) return null
       return authService.verify(creds.token, { request, signal: request.signal })
     },

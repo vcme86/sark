@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createClient } from '../../src/web/http/client/client'
-import { type NavigationHost, PageController } from '../../src/web/page/browser/controller'
-import type { ClientRoute } from '../../src/web/page/browser/route'
-import { notFound, redirect } from '../../src/web/page/signals'
+import { createClient } from '../../src/http/client/client'
+import { type NavigationHost, PageController } from '../../src/page/browser/controller'
+import type { ClientRoute } from '../../src/page/browser/route'
+import { notFound, redirect } from '../../src/page/signals'
 
 function setup(routes: ClientRoute[], data: unknown = 'old') {
   const host: NavigationHost = {
@@ -193,4 +193,20 @@ describe('page operation ownership', () => {
     expect(host.commit).not.toHaveBeenCalled()
     expect(controller.getSnapshot().navigation.state).toBe('idle')
   })
+})
+
+it('coordinates external reload and setIdentity via registerBrowserNavigation', async () => {
+  const { registerBrowserNavigation, reload, setIdentity } = await import('../../src/page/hooks')
+  const onReload = vi.fn(async () => {})
+  const onIdentity = vi.fn()
+  const unregister = registerBrowserNavigation(onReload, onIdentity)
+  try {
+    await reload()
+    expect(onReload).toHaveBeenCalledOnce()
+    const identity = { user: { sub: 'usr_123', displayName: 'Alice' } }
+    setIdentity(identity)
+    expect(onIdentity).toHaveBeenCalledExactlyOnceWith(identity)
+  } finally {
+    unregister()
+  }
 })

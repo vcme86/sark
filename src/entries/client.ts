@@ -4,13 +4,12 @@
  * @module
  */
 
-export { DefaultError, ScopedErrorBoundary } from '../web/page/components/error'
-export { Head, type HeadProps } from '../web/page/components/head'
-export { Link, type LinkProps } from '../web/page/components/link'
-export { Outlet } from '../web/page/components/outlet'
-export { DefaultRoot } from '../web/page/components/root'
-export { Scripts } from '../web/page/components/scripts'
-export type { BlockerHandler, NavigateOptions, NavigationState } from '../web/page/context'
+export { DefaultError, ScopedErrorBoundary } from '../page/components/error'
+export { Head, type HeadProps } from '../page/components/head'
+export { Link, type LinkProps } from '../page/components/link'
+export { Outlet } from '../page/components/outlet'
+export { DefaultRoot } from '../page/components/root'
+export { Scripts } from '../page/components/scripts'
 export {
   reload,
   setIdentity,
@@ -19,12 +18,15 @@ export {
   useClient,
   useNavigate,
   useNavigation,
-} from '../web/page/hooks'
-export { notFound, NotFoundSignal, redirect, RedirectSignal } from '../web/page/signals'
+} from '../page/hooks'
+export { notFound, NotFoundSignal, redirect, RedirectSignal } from '../page/signals'
 export type {
   ActionArgs,
   ActionResult,
+  BlockerHandler,
   ErrorProps,
   IdentitySnapshot,
+  NavigateOptions,
+  NavigationState,
   PageError,
-} from '../web/page/types'
+} from '../page/types'

@@ -12,8 +12,24 @@ interface DiscoveryDocument {
 /** Successful discovery documents only; no credentials, bindings or request signals. */
 export type DiscoveryCache = Map<string, DiscoveryDocument>
 
+/**
+ * Sends a native provider request with the SDK's default 30-second operation timeout.
+ * The signal remains attached while the response body is read.
+ *
+ * @param url - Provider API endpoint.
+ * @param init - Request headers and the owning request's optional cancellation signal.
+ * @returns The native fetch response; transport, timeout, and cancellation errors propagate.
+ */
+export function fetchProvider(url: string | URL, init: RequestInit): Promise<Response> {
+  const timeout = AbortSignal.timeout(30_000)
+  return fetch(url, {
+    ...init,
+    signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+  })
+}
+
 /** Preserves the exact registered redirect URI and propagates request cancellation. */
-export function createCustomFetch(
+function createCustomFetch(
   tokenEndpoint?: string,
   expectedRedirectUri?: string,
   requestSignal?: AbortSignal,
@@ -102,7 +118,8 @@ export async function getOidcClientConfig(
       )
     } catch (error) {
       cache?.delete(provider.id)
-      throw error
+      requestSignal?.throwIfAborted()
+      throw new Error('OAuth provider discovery failed.', { cause: error })
     }
   }
   config[oidc.customFetch] = createCustomFetch(

@@ -15,12 +15,13 @@ export {
   getSignedCookie,
   setCookie,
   setSignedCookie,
-} from '../web/http/cookie'
-export { HttpError } from '../web/http/error'
-export { z } from '../web/http/schema'
-export { route } from '../web/http/server/route'
+} from '../http/cookie'
+export { HttpError } from '../http/error'
+export { z } from '../http/schema'
+export { route } from '../http/server/route'
 export type {
   ClientInputFromSchemas,
+  Context,
   Endpoint,
   EndpointFromRoute,
   HttpMethod,
@@ -28,8 +29,9 @@ export type {
   InferSchemaInput,
   InferSchemaOutput,
   Jsonify,
+  MiddlewareHandler,
   RouteDeclaration,
   RouteHandler,
   RouteInputSchema,
   RouteOptions,
-} from '../web/http/types'
+} from '../http/types'

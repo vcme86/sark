@@ -4,12 +4,16 @@
  * @module
  */
 
-import type { BaseDeclaration, RequiresEnv } from '../../../core/declaration'
-import type { AuthCheckContext, Identity, SigningCredentials } from '../contracts'
+import {
+  type BaseDeclaration,
+  evaluateDeclaration,
+  type RequiresEnv,
+} from '../../../core/declaration'
+import type { AuthCheckContext, Identity, SigningKey } from '../contracts'
 import { parseSigningCredentials, resolveTokenLifetime } from './token'
 
 /** Cookie configuration for the session token. */
-export interface SessionCookieOptions {
+export interface SessionCookieConfig {
   /** Cookie path; defaults to `'/'`. */
   readonly path?: string
   /** Cookie domain scope. */
@@ -20,12 +24,22 @@ export interface SessionCookieOptions {
   readonly secure?: boolean
 }
 
-/** Configuration options for first-party authentication. */
-export type AuthOptions = SigningCredentials & {
+/** Signing key declaration accepting a possibly missing environment secret for entry validation. */
+export interface SigningKeyConfig extends Omit<SigningKey, 'secret'> {
+  readonly secret: string | undefined
+}
+
+/** Required signing mode; its environment values are validated during configuration resolution. */
+export type SigningConfig =
+  | { readonly secret: string | undefined; readonly keys?: never }
+  | { readonly keys: readonly SigningKeyConfig[] | undefined; readonly secret?: never }
+
+/** First-party authentication configuration. */
+export type AuthConfig = SigningConfig & {
   /** Cookie name used to deliver the session token; defaults to `'auth_token'`. */
   readonly cookieName?: string
   /** Cookie attributes applied to session delivery and renewal. */
-  readonly cookie?: SessionCookieOptions
+  readonly cookie?: SessionCookieConfig
   /** JWT issuer (`iss`) written during signing and checked during verification. */
   readonly issuer?: string
   /** JWT audience (`aud`) written during signing and checked during verification. */
@@ -67,18 +81,18 @@ export interface ResolvedAuthConfig {
 }
 
 /** Configuration input consumed by the authentication resolver. */
-export type AuthInput = AuthOptions | ((env: any) => AuthOptions)
+type AuthInput = AuthConfig | ((env: any) => AuthConfig)
 
-/** Auth declaration retaining its concrete options and environment requirements. */
-export interface AuthDeclaration extends BaseDeclaration<'auth', AuthOptions> {}
+/** Auth declaration retaining its concrete configuration and environment requirements. */
+export interface AuthDeclaration extends BaseDeclaration<'auth', AuthConfig> {}
 
 /**
  * Declares first-party authentication and session management.
  *
- * @param options - Static session and credential settings.
+ * @param config - Static session and credential settings.
  * @returns The auth declaration consumed by generated assembly.
  */
-export function defineAuth(options: AuthOptions): AuthDeclaration
+export function defineAuth(config: AuthConfig): AuthDeclaration
 
 /**
  * Declares first-party authentication resolved once during application creation or per event.
@@ -87,45 +101,32 @@ export function defineAuth(options: AuthOptions): AuthDeclaration
  * @returns A declaration retaining the factory's environment requirements.
  */
 export function defineAuth<E = unknown>(
-  factory: (env: E) => AuthOptions,
+  factory: (env: E) => AuthConfig,
 ): AuthDeclaration & RequiresEnv<E>
 
-export function defineAuth(optionsOrFactory: AuthInput): AuthDeclaration {
+export function defineAuth(input: AuthInput): AuthDeclaration {
   return {
     kind: 'auth',
-    isFactory: typeof optionsOrFactory === 'function',
-    value: optionsOrFactory,
+    value: input,
+    isFactory: typeof input === 'function',
   }
 }
 
 /**
- * Resolves authentication options from a static object or environment factory into a materialized config.
+ * Resolves authentication configuration from a static object or environment factory into a materialized config.
  *
- * @param input - Declared options object or factory function.
+ * @param input - Declared configuration object or factory function.
  * @param env - Current instance or event environment.
  * @param isProduction - Whether production mode is active.
  * @returns Fully resolved and validated ResolvedAuthConfig.
  * @throws If factory environment is missing or credentials are invalid.
  */
 export function resolveAuthConfig(
-  input: AuthInput | AuthDeclaration,
+  input: AuthInput,
   env?: unknown,
   isProduction?: boolean,
 ): ResolvedAuthConfig {
-  const actualInput =
-    input && typeof input === 'object' && 'kind' in input && input.kind === 'auth'
-      ? (input as AuthDeclaration).value
-      : input
-
-  let value: AuthOptions
-  if (typeof actualInput === 'function') {
-    if (env === undefined) {
-      throw new Error('Environment required by auth declaration factory was not provided.')
-    }
-    value = (actualInput as (env: any) => AuthOptions)(env)
-  } else {
-    value = actualInput as AuthOptions
-  }
+  const value = evaluateDeclaration(input, env, 'auth')
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Auth configuration must be an options object.')
@@ -133,33 +134,24 @@ export function resolveAuthConfig(
 
   const credentials = parseSigningCredentials(value)
 
-  const cookieName = value.cookieName ?? 'auth_token'
-  const path = value.cookie?.path ?? '/'
-  const sameSite = value.cookie?.sameSite ?? 'lax'
-  const domain = value.cookie?.domain
-  const secure = value.cookie?.secure ?? isProduction ?? false
-  const httpOnly = true
-
   const expiresIn = resolveTokenLifetime(value.expiresIn)
 
   const cacheTtl = value.cacheTtl ?? 0
-  if (typeof cacheTtl !== 'number' || !Number.isFinite(cacheTtl) || cacheTtl < 0) {
+  if (!Number.isFinite(cacheTtl) || cacheTtl < 0) {
     throw new Error(`cacheTtl must be a non-negative finite number, got ${cacheTtl}.`)
   }
 
-  const rolling = value.rolling !== false
-
   return {
-    cookieName,
+    cookieName: value.cookieName ?? 'auth_token',
     cookie: {
-      path,
-      domain,
-      sameSite,
-      secure,
-      httpOnly,
+      path: value.cookie?.path ?? '/',
+      domain: value.cookie?.domain,
+      sameSite: value.cookie?.sameSite ?? 'lax',
+      secure: value.cookie?.secure ?? isProduction ?? false,
+      httpOnly: true,
     },
     expiresIn,
-    rolling,
+    rolling: value.rolling !== false,
     issuer: value.issuer,
     audience: value.audience,
     cacheTtl,

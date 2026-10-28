@@ -25,7 +25,7 @@ Workers 声明 `defineRateLimit({ binding: 'HTTP_LIMIT', key? })`，从本次 en
 ```ts
 type RateLimitKey = (ctx: Context) => string | Promise<string>
 
-interface NodeRateLimitOptions {
+interface NodeRateLimitConfig {
   window: number
   limit: number
   headers?: boolean
@@ -33,7 +33,7 @@ interface NodeRateLimitOptions {
   binding?: never
 }
 
-interface CloudflareRateLimitOptions {
+interface CloudflareRateLimitConfig {
   binding: string
   key?: RateLimitKey
   window?: never
@@ -41,12 +41,12 @@ interface CloudflareRateLimitOptions {
   headers?: never
 }
 
-type RateLimitOptions = NodeRateLimitOptions | CloudflareRateLimitOptions
+type RateLimitConfig = NodeRateLimitConfig | CloudflareRateLimitConfig
 
-function rateLimit(options: RateLimitOptions): MiddlewareHandler
+function rateLimit(options: RateLimitConfig): MiddlewareHandler
 ```
 
-Context 与 MiddlewareHandler 使用本应用的 Hono 上下文类型，保留已声明资源的类型。defineRateLimit 接受 RateLimitOptions 或沿共同声明约定的 Env 工厂，返回框架使用的不透明 RateLimitDeclaration，不是中间件；工厂的环境类型保留在声明中。rateLimit 接受实际选项，返回可直接安装的中间件。
+Context 与 MiddlewareHandler 使用本应用的 Hono 上下文类型，保留已声明资源的类型。defineRateLimit 接受 RateLimitConfig 或沿共同声明约定的 Env 工厂，返回框架使用的不透明 RateLimitDeclaration，不是中间件；工厂的环境类型保留在声明中。rateLimit 接受实际选项，返回可直接安装的中间件。
 
 app.ts 的固定导出名 rateLimit 是应用声明槽位，与包导出的中间件函数用途不同。同一文件需要两者时，对导入函数使用普通别名，不改变配置导出名。
 

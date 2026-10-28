@@ -7,11 +7,12 @@
 import { decode, sign, verify } from 'hono/jwt'
 import { encodeBase64Url } from 'hono/utils/encode'
 
-import type { AuthenticationFacts, Identity, SigningCredentials, SigningKey } from '../contracts'
+import type { AuthenticationFacts, Identity, SigningCredentials } from '../contracts'
+import type { SigningConfig } from './config'
 import type { IssuedSession, SignInInput } from './types'
 
 /** Claims reserved by Sark authentication tokens that cannot be overridden by custom claims. */
-export const RESERVED_CLAIMS = new Set([
+const RESERVED_CLAIMS = new Set([
   'sub',
   'ver',
   'jti',
@@ -38,7 +39,7 @@ export function resolveTokenLifetime(input?: number): number {
 }
 
 /** Asserts that a secret is at least 32 UTF-8 bytes for HS256 compliance. */
-export function validateSecretLength(secret: string, keyDesc = 'secret'): void {
+function validateSecretLength(secret: unknown, keyDesc = 'secret'): asserts secret is string {
   if (typeof secret !== 'string') {
     throw new Error(`Signing ${keyDesc} must be a string.`)
   }
@@ -49,10 +50,11 @@ export function validateSecretLength(secret: string, keyDesc = 'secret'): void {
 }
 
 /** Validates verification credentials, allowing sets of only retired keys. */
-export function parseVerificationCredentials(
-  credentials: SigningCredentials,
-): ReadonlyMap<string, string> {
-  if ('secret' in credentials && credentials.secret !== undefined) {
+function parseVerificationCredentials(credentials: SigningConfig): ReadonlyMap<string, string> {
+  if (credentials.secret !== undefined && credentials.keys !== undefined) {
+    throw new Error('Configure either a signing secret or signing keys, not both.')
+  }
+  if (credentials.keys === undefined) {
     validateSecretLength(credentials.secret, 'secret')
     return new Map([['', credentials.secret]])
   }
@@ -78,21 +80,20 @@ export function parseVerificationCredentials(
 }
 
 /** Validates and parses signing credentials, returning resolved active signing key and lookup map. */
-export function parseSigningCredentials(credentials: SigningCredentials): {
+export function parseSigningCredentials(credentials: SigningConfig): {
   readonly activeKey: { readonly secret: string; readonly kid?: string }
   readonly allKeys: ReadonlyMap<string, string>
 } {
   const allKeys = parseVerificationCredentials(credentials)
 
-  if ('secret' in credentials && credentials.secret !== undefined) {
+  if (credentials.keys === undefined) {
     return {
       activeKey: { secret: allKeys.get('')! },
       allKeys,
     }
   }
 
-  const keys = credentials.keys!
-  const activeKeys: SigningKey[] = keys.filter((k) => !k.retired)
+  const activeKeys = credentials.keys.filter((key) => !key.retired)
 
   if (activeKeys.length === 0) {
     throw new Error('At least one non-retired signing key is required for token issuance.')
@@ -104,13 +105,13 @@ export function parseSigningCredentials(credentials: SigningCredentials): {
   }
 
   return {
-    activeKey: { secret: activeKeys[0].secret, kid: activeKeys[0].kid },
+    activeKey: { secret: allKeys.get(activeKeys[0].kid)!, kid: activeKeys[0].kid },
     allKeys,
   }
 }
 
 /** Options for assembling a token payload. */
-export interface TokenPayloadOptions {
+interface TokenPayloadOptions {
   /** Unique subject identifier. */
   readonly sub: string
   /** Version number of credentials. */
@@ -169,7 +170,7 @@ export function buildTokenPayload(options: TokenPayloadOptions): Record<string, 
  * @param payload - Verified raw JWT claims dictionary.
  * @returns Parsed Identity, or null if the payload lacks a valid subject.
  */
-export function buildIdentityFromPayload(payload: Record<string, unknown>): Identity | null {
+function buildIdentityFromPayload(payload: Record<string, unknown>): Identity | null {
   if (typeof payload.sub !== 'string' || !payload.sub) return null
   const ver = typeof payload.ver === 'number' ? payload.ver : 0
   const jti = typeof payload.jti === 'string' ? payload.jti : ''
@@ -237,7 +238,7 @@ export interface IssuedToken extends IssuedSession {
 }
 
 /** Complete signing settings supplied by the owning configuration entry. */
-interface TokenSigningOptions {
+interface TokenSigningConfig {
   readonly activeKey: { readonly secret: string; readonly kid?: string }
   readonly expiresIn: number
   readonly issuer?: string
@@ -247,7 +248,7 @@ interface TokenSigningOptions {
 /** Issues one new identity and token; rolling renewal retains its own original identity. */
 export async function issueToken(
   input: SignInInput,
-  options: TokenSigningOptions,
+  config: TokenSigningConfig,
 ): Promise<IssuedToken> {
   if (!input.sub || typeof input.sub !== 'string') {
     throw new Error('Session sub is required and must be a non-empty string.')
@@ -269,15 +270,15 @@ export async function issueToken(
     claims: input.claims ?? {},
   }
   const now = Math.floor(Date.now() / 1000)
-  const expiresAt = now + Math.ceil(options.expiresIn / 1000)
+  const expiresAt = now + Math.ceil(config.expiresIn / 1000)
   const payload = buildTokenPayload({
     ...identity,
     iat: now,
     exp: expiresAt,
-    issuer: options.issuer,
-    audience: options.audience,
+    issuer: config.issuer,
+    audience: config.audience,
   })
-  return { identity, token: await signWithKey(payload, options.activeKey), expiresAt }
+  return { identity, token: await signWithKey(payload, config.activeKey), expiresAt }
 }
 
 /** Internal token verification result retaining identity and expiration metadata. */

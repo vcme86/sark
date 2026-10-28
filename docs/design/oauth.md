@@ -13,26 +13,21 @@ import { defineOAuth } from '@olivaw/sark/auth/oauth'
 
 type Env = NodeJS.ProcessEnv
 
-export const oauth = defineOAuth((env: Env) => {
-  const clientId = env.GOOGLE_ID
-  const clientSecret = env.GOOGLE_SECRET
-  if (!clientId || !clientSecret) throw new Error('Google OAuth credentials are required')
-  return [
-    {
-      id: 'google',
-      kind: 'google',
-      clientId,
-      clientSecret,
-      scopes: ['openid', 'email', 'profile'],
-      redirectUri: 'https://app.example.com/api/auth/google/callback',
-      onSuccess: async (profile, tokens, ctx) => {
-        const identity = await mapExternalAccount(profile, ctx.var.db)
-        await ctx.var.auth.signIn(identity)
-        return ctx.redirect('/dashboard')
-      },
+export const oauth = defineOAuth((env: Env) => [
+  {
+    id: 'google',
+    kind: 'google',
+    clientId: env.GOOGLE_ID,
+    clientSecret: env.GOOGLE_SECRET,
+    scopes: ['openid', 'email', 'profile'],
+    redirectUri: 'https://app.example.com/api/auth/google/callback',
+    onSuccess: async (profile, tokens, ctx) => {
+      const identity = await mapExternalAccount(profile, ctx.var.db)
+      await ctx.var.auth.signIn(identity)
+      return ctx.redirect('/dashboard')
     },
-  ]
-})
+  },
+])
 ```
 
 这是 Node 工厂示例，Workers 沿 [application.md](application.md) 使用 Wrangler Env；类型声明不保证环境值存在。mapExternalAccount 是应用逻辑；例中使用 db/auth 才声明相应能力。提供方列表固定在声明中，凭据在工厂解析。缺少必需配置在协议处理前拒绝，不启动配置不完整的提供方。
@@ -42,12 +37,12 @@ interface OAuthProviderConfig {
   id: string
   kind: 'oidc' | 'apple' | 'google' | 'github' | 'microsoft' | 'wechat'
   issuer?: string
-  clientId: string
+  clientId: string | undefined
   clientSecret?: string
   scopes: string[]
   signInPath?: string
   callbackPath?: string
-  redirectUri: string
+  redirectUri: string | undefined
   onSuccess: (
     profile: UserProfile,
     tokens: OAuthTokens,
@@ -61,7 +56,9 @@ id 唯一，使用字母、数字、下划线或连字符，用于默认入口�
 
 google 预设内置 issuer `https://accounts.google.com`，通过标准发现取得端点，scopes 必须含 openid；应用无须填写 issuer，预设也不接受覆盖。自定义标准提供方使用 oidc，并显式提供 issuer。id 仍由应用选择，用于区分同一厂商的多个客户端配置。
 
-onSuccess 返回 Response 时直接使用该响应，void 返回 204，不替应用选择页面。授权、换码或提供方资料处理失败进入 onError，默认 401；应用可明确返回自己的响应，void 同样为空响应。onSuccess/onError 抛出的应用异常沿公共 HTTP 错误边界处理，不转换为 OAuth 认证失败。回调拿实际 Hono Context 与已声明资源，不能用全量 AppInstance 反推配置类型。
+onSuccess 返回 Response 时直接使用该响应，void 返回 204，不替应用选择页面。授权、换码或提供方资料处理失败进入应用配置的 onError；应用可明确返回自己的响应，void 同样为空响应。未配置 onError 时，事务失效、授权拒绝、无效授权码或令牌等预期认证拒绝返回 401 和共同错误信封，错误码 oauth_failed；发现、网络、超时、提供方故障或客户端配置故障向公共错误边界传播，保留原始异常或 cause，不转换为未登录。取消不触发自动重试。分类使用 SDK 错误类型、协议代码和厂商适配的已知拒绝码，不匹配异常消息。onSuccess/onError 抛出的应用异常沿公共 HTTP 错误边界处理，不转换为 OAuth 认证失败。回调拿实际 Hono Context 与已声明资源，不能用全量 AppInstance 反推配置类型。
+
+clientId、redirectUri 等原始环境值由配置入口校验；条件必需的 issuer/clientSecret 同样按所选提供方验证。解析结果不向下游交付缺失凭据，不要求应用逐项检查框架配置。
 
 ## 协议区别
 
@@ -133,7 +130,7 @@ expiresAt 为 Unix 秒；缺 refreshToken 就保持缺失，不伪造。tokens �
 
 ## Node、Workers 与 MFA 的衔接
 
-Node 和 Workers 使用相同协议与 Cookie 行为，资源和秘密来自所属环境，外部请求传递取消信号。多实例只需正确共享配置/密钥与应用所用数据，不依赖某个实例内的 OAuth 事务 Map。
+Node 和 Workers 使用相同协议与 Cookie 行为，资源和秘密来自所属环境，外部请求传递取消信号。openid-client 沿用其默认 30 秒 HTTP 操作时限；GitHub/WeChat 原生适配使用相同的单次操作时限，覆盖响应正文读取。该时限不是整个登录事务的期限，不限制用户在提供方页面的停留时间。可选 GitHub 邮箱补充超时只放弃该补充，当前请求取消仍中止整个流程，不自动重试。多实例只需正确共享配置/密钥与应用所用数据，不依赖某个实例内的 OAuth 事务 Map。
 
 应用可在映射账户后调用 ctx.var.mfa.beginLogin，而不是先签发完整 session 再要求第二步。OAuth 成功不自动证明完成本地 TOTP；是否采信第三方提供的认证方式和验证结果，由应用按其信任策略决定。
 

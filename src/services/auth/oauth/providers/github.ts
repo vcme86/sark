@@ -5,6 +5,8 @@
  */
 
 import type { UserProfile } from '../../contracts'
+import { fetchProvider } from '../client'
+import { OAuthAuthorizationError } from '../error'
 import type { ResolvedOAuthProvider } from '../types'
 
 interface GitHubUser {
@@ -34,7 +36,7 @@ export async function fetchGitHubProfile(
   accessToken: string,
   signal?: AbortSignal,
 ): Promise<UserProfile> {
-  const userRes = await fetch('https://api.github.com/user', {
+  const userRes = await fetchProvider('https://api.github.com/user', {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'User-Agent': 'sark',
@@ -43,6 +45,8 @@ export async function fetchGitHubProfile(
   })
 
   if (!userRes.ok) {
+    if (userRes.status === 401)
+      throw new OAuthAuthorizationError('GitHub rejected the access token.')
     throw new Error(`GitHub user API returned HTTP ${userRes.status}`)
   }
 
@@ -64,13 +68,13 @@ export async function fetchGitHubProfile(
   }
 }
 
-/** Retrieves optional email details; transport cancellation still stops the login flow. */
+/** Ignores optional email failures while preserving cancellation of the owning request. */
 async function fetchGitHubEmail(
   accessToken: string,
   signal?: AbortSignal,
 ): Promise<GitHubEmail | undefined> {
   try {
-    const response = await fetch('https://api.github.com/user/emails', {
+    const response = await fetchProvider('https://api.github.com/user/emails', {
       headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'sark' },
       signal,
     })

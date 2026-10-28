@@ -1,7 +1,3 @@
-/**
- * Contract tests for OAuth 2.0 and OIDC third-party authentication.
- */
-
 import { Context } from 'hono'
 import { parseSigned } from 'hono/utils/cookie'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,10 +13,14 @@ import {
 } from '../../src/entries/auth/oauth'
 import { type AuthDeclaration, defineAuth } from '../../src/entries/auth/session'
 import { type AppDeclaration, defineApp } from '../../src/entries/server'
+import { parseApiFilePath } from '../../src/http/path'
 import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
 import { resolveOAuthProviders } from '../../src/services/auth/oauth/config'
 import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import { parseApiFilePath } from '../../src/web/http/path'
+
+/**
+ * Contract tests for OAuth 2.0 and OIDC third-party authentication.
+ */
 
 const COOKIE_SECRET = 'super-secret-cookie-signing-key-123456!'
 
@@ -29,7 +29,7 @@ function createAuthTestDefinition(input: {
   auth?: AuthDeclaration
   oauth?: OAuthDeclaration
   routes?: any[]
-  resolvePageConfig?: any
+  createPageConfigResolver?: () => (env: unknown) => unknown
   apiPrefix?: string
 }) {
   const apiPrefix = input.apiPrefix ?? '/api'
@@ -40,7 +40,7 @@ function createAuthTestDefinition(input: {
       ...(input.oauth ? { oauth: createOAuthAssembly(input.oauth, apiPrefix) } : {}),
     },
     routes: input.routes,
-    resolvePageConfig: input.resolvePageConfig,
+    createPageConfigResolver: input.createPageConfigResolver,
     apiPrefix,
   })
 }
@@ -77,7 +77,10 @@ beforeEach(() => {
     }),
   )
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 describe('OAuth 2.0 & OIDC Contract Tests', () => {
   it.each(['/api', '/service/v2', '/'])(
@@ -1087,7 +1090,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
     // 1. Google preset rejects issuer override
     expect(() =>
       resolveOAuthProviders(
-        defineOAuth([
+        [
           {
             id: 'google',
             kind: 'google',
@@ -1097,7 +1100,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
             redirectUri: 'http://localhost/api/auth/google/callback',
             onSuccess: () => {},
           },
-        ]),
+        ],
         undefined,
         '/api',
       ),
@@ -1106,7 +1109,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
     // 2. Google preset requires 'openid'
     expect(() =>
       resolveOAuthProviders(
-        defineOAuth([
+        [
           {
             id: 'google',
             kind: 'google',
@@ -1115,7 +1118,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
             redirectUri: 'http://localhost/api/auth/google/callback',
             onSuccess: () => {},
           },
-        ]),
+        ],
         undefined,
         '/api',
       ),
@@ -1166,3 +1169,202 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
     await instance.close()
   })
 })
+
+it('returns the common error envelope and clears the transaction on callback failure', async () => {
+  const onSuccess = vi.fn()
+  const instance = await createApp(
+    createAuthTestDefinition({
+      app: defineApp({ cookie: { secret: COOKIE_SECRET } }),
+      oauth: defineOAuth([
+        {
+          id: 'github',
+          kind: 'github',
+          clientId: 'client',
+          clientSecret: 'secret',
+          scopes: [],
+          redirectUri: 'http://localhost/api/auth/github/callback',
+          onSuccess,
+        },
+      ]),
+    }),
+  )
+  try {
+    const response = await instance.fetch(
+      new Request('http://localhost/api/auth/github/callback?error=access_denied'),
+    )
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({
+      error: { code: 'oauth_failed', message: 'OAuth authorization failed' },
+    })
+    expect(response.headers.getSetCookie().join(';')).toContain('__sark_oauth_github=')
+    expect(response.headers.getSetCookie().join(';')).toContain('Max-Age=0')
+    expect(onSuccess).not.toHaveBeenCalled()
+  } finally {
+    await instance.close()
+  }
+})
+
+it.each([
+  {
+    name: 'an invalid grant',
+    response: () => Response.json({ error: 'invalid_grant' }, { status: 400 }),
+    status: 401,
+  },
+  {
+    name: 'a rejected client secret',
+    response: () => Response.json({ error: 'invalid_client' }, { status: 401 }),
+    status: 500,
+  },
+  {
+    name: 'an unavailable provider',
+    response: () => new Response(null, { status: 503 }),
+    status: 500,
+  },
+  {
+    name: 'an incomplete token response',
+    response: () => Response.json({ token_type: 'Bearer' }),
+    status: 500,
+  },
+  {
+    name: 'a rejected profile token',
+    response: () => Response.json({ access_token: 'token', token_type: 'Bearer' }),
+    profileStatus: 401,
+    status: 401,
+  },
+  {
+    name: 'a failed profile endpoint',
+    response: () => Response.json({ access_token: 'token', token_type: 'Bearer' }),
+    profileStatus: 503,
+    status: 500,
+  },
+])('distinguishes $name from other OAuth failures', async ({ response, profileStatus, status }) => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === 'https://github.com/login/oauth/access_token') return response()
+      if (String(input) === 'https://api.github.com/user')
+        return new Response(null, { status: profileStatus })
+      throw new Error(`Unexpected request: ${String(input)}`)
+    }),
+  )
+  const onSuccess = vi.fn()
+  const instance = await createApp(
+    createAuthTestDefinition({
+      app: defineApp({ cookie: { secret: COOKIE_SECRET } }),
+      oauth: defineOAuth([
+        {
+          id: 'github',
+          kind: 'github',
+          clientId: 'client',
+          clientSecret: 'secret',
+          scopes: [],
+          redirectUri: 'http://localhost/api/auth/github/callback',
+          onSuccess,
+        },
+      ]),
+    }),
+  )
+  try {
+    const signin = await instance.fetch(new Request('http://localhost/api/auth/github/signin'))
+    const state = new URL(signin.headers.get('Location')!).searchParams.get('state')!
+    const callback = await instance.fetch(
+      new Request(`http://localhost/api/auth/github/callback?code=code&state=${state}`, {
+        headers: { Cookie: signin.headers.getSetCookie()[0].split(';')[0] },
+      }),
+    )
+    expect(callback.status).toBe(status)
+    expect((await callback.json()).error.code).toBe(
+      status === 401 ? 'oauth_failed' : 'internal_server_error',
+    )
+    expect(callback.headers.getSetCookie().join(';')).toContain('Max-Age=0')
+    expect(log).toHaveBeenCalledTimes(status === 500 ? 1 : 0)
+    expect(onSuccess).not.toHaveBeenCalled()
+  } finally {
+    await instance.close()
+  }
+})
+
+it.each([false, true])(
+  'preserves discovery failures with custom handling set to %s',
+  async (custom) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failure = new Error('network unavailable')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw failure
+      }),
+    )
+    const onError = vi.fn((error: unknown, ctx: Context) => ctx.text('Provider unavailable', 503))
+    const instance = await createApp(
+      createAuthTestDefinition({
+        app: defineApp({ cookie: { secret: COOKIE_SECRET } }),
+        oauth: defineOAuth([
+          {
+            id: 'google',
+            kind: 'google',
+            clientId: 'client',
+            clientSecret: 'secret',
+            scopes: ['openid'],
+            redirectUri: 'http://localhost/api/auth/google/callback',
+            onSuccess() {},
+            ...(custom ? { onError } : {}),
+          },
+        ]),
+      }),
+    )
+    try {
+      const response = await instance.fetch(new Request('http://localhost/api/auth/google/signin'))
+      expect(response.status).toBe(custom ? 503 : 500)
+      if (custom) expect(onError.mock.calls[0][0]).toMatchObject({ cause: { cause: failure } })
+      else expect((await response.json()).error.code).toBe('internal_server_error')
+    } finally {
+      await instance.close()
+    }
+  },
+)
+
+it.each(['mismatched state', 'access_denied', 'server_error'])(
+  'handles an authorization callback with %s before token exchange',
+  async (failure) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetch = vi.mocked(globalThis.fetch)
+    const instance = await createApp(
+      createAuthTestDefinition({
+        app: defineApp({ cookie: { secret: COOKIE_SECRET } }),
+        oauth: defineOAuth([
+          {
+            id: 'github',
+            kind: 'github',
+            clientId: 'client',
+            clientSecret: 'secret',
+            scopes: [],
+            redirectUri: 'http://localhost/api/auth/github/callback',
+            onSuccess() {},
+          },
+        ]),
+      }),
+    )
+    try {
+      const signin = await instance.fetch(new Request('http://localhost/api/auth/github/signin'))
+      const callback = new URL('http://localhost/api/auth/github/callback')
+      const state = new URL(signin.headers.get('Location')!).searchParams.get('state')!
+      callback.searchParams.set('state', failure === 'mismatched state' ? 'different' : state)
+      if (failure === 'mismatched state') callback.searchParams.set('code', 'code')
+      else callback.searchParams.set('error', failure)
+      const response = await instance.fetch(
+        new Request(callback, {
+          headers: { Cookie: signin.headers.getSetCookie()[0].split(';')[0] },
+        }),
+      )
+      expect(response.status).toBe(failure === 'server_error' ? 500 : 401)
+      expect((await response.json()).error.code).toBe(
+        failure === 'server_error' ? 'internal_server_error' : 'oauth_failed',
+      )
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      await instance.close()
+    }
+  },
+)

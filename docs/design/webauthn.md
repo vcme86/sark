@@ -21,6 +21,10 @@ export const webauthn = defineWebAuthn({
 })
 ```
 
+WebAuthn 请求操作统一挂载在 ctx.var.webauthn，沿当前请求的身份、取消及响应 Cookie 生命周期执行，不提供无请求身份的注册或登录服务。
+
+rpId、rpName 及 origins 的必需环境值可以为 undefined，由所属配置入口验证；解析结果仍保证有效 RP 与非空来源列表。
+
 loadAccountLabel 由应用返回 { userName, displayName }。两者来自服务端账户资料，不从浏览器提交名称决定主体。store、rpId、rpName、非空 origins 和 user 映射必需；需要第一方 session 与共同 MFA。
 
 无密码登录可另外配置 identity；它与用于注册展示资料的 user 回调用途不同：

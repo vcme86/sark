@@ -1,8 +1,8 @@
 /** Internal contracts for generated domain assembly and request bindings. */
 import type { Context } from 'hono'
 
-import type { ResolvedHttpConfig } from '../web/http/config'
-import type { RouteEntry } from '../web/http/server/pipeline'
+import type { ResolvedHttpConfig } from '../http/config'
+import type { RouteEntry } from '../http/server/types'
 
 /** Request facilities shared with an optional domain. */
 export interface RequestBindingContext {
@@ -29,7 +29,7 @@ export type ServiceBindingFactory = (
 
 /** Domain facilities created after the application's resources are ready. */
 export interface ServiceInstanceResult<TService = unknown> {
-  readonly instanceService?: TService
+  readonly service?: TService
   readonly createBinding?: ServiceBindingFactory
 }
 
@@ -40,7 +40,7 @@ export interface ServicePreparation<TService = unknown> {
 }
 
 /** Instance-owned domain runtime, resolving configuration before creating resource-bound services. */
-export interface DomainRuntime<TService = unknown> {
+export interface ServiceRuntime<TService = unknown> {
   readonly prepare: (
     env: unknown,
     config: ResolvedHttpConfig,
@@ -48,13 +48,13 @@ export interface DomainRuntime<TService = unknown> {
 }
 
 /** Internal assembly selected by generated application code. */
-export interface DomainAssembly<TService = never> {
+export interface ServiceAssembly<TService = never> {
   /** Whether this domain exposes a public instance service. */
   readonly expose?: boolean
   /** Creates instance-owned caches without evaluating configuration factories. */
-  readonly createRuntime: () => DomainRuntime<TService>
+  readonly createRuntime: () => ServiceRuntime<TService>
   readonly $infer?: TService
 }
 
 /** Extracts a domain's public instance service. */
-export type InferService<S> = S extends DomainAssembly<infer T> ? T : never
+export type InferService<S> = S extends ServiceAssembly<infer T> ? T : never

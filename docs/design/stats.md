@@ -6,6 +6,8 @@ stats 是可选的基础工具：显式增加一次、按稳定主体去重、�
 
 主要价值是共同的类型化计数、原子写入、精确主体去重和读取。应用已有 articles.viewCount 且只需加一时，直接使用 Drizzle 往往更简单；没有既有表、希望统一管理若干计数时也可选择本能力。
 
+网站流量、访问来源和页面性能分析由应用接入现成统计产品，例如 [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/about/)。stats 面向应用显式触发、需要直接读写的业务计数，不包装这些产品或要求 Node 应用额外部署 Workers。第三方统计、visitors 和 stats 均可独立选用。
+
 visitors、登录身份、业务提交和 stats 各自独立。阅读进度等业务仍使用应用 API 和业务模型，不因使用 visitor 就自动进入统计。
 
 ## 声明
@@ -27,6 +29,8 @@ export const stats = defineStats({
 counter 名称保留字面量，increment/read 的 name 是这些名称的联合。store 必填，可选官方 SQL 或专用自定义实现，不自动发现数据表。
 
 uniqueBy 必须明确选择 false、visitor、user、client 或 subject。false 只计次数；visitor/user/client 自动解析当前请求身份；subject 由服务端调用者显式提供。
+
+visitor 按浏览器访客标识去重，覆盖会员访客和游客访客；user 按已验证的账户 sub 去重，不因 visitor 相同就合并不同账户。两者不自动回落、切换或合并；登录、退出和业务数据迁移不改写已有计数或主体标记。应用选择统计对象，浏览器唯一数与账户唯一数不能混称为同一口径的 UV。
 
 client 身份在所属声明中提供映射：
 
@@ -60,7 +64,7 @@ key 是应用资源键，period 是应用选择的非空周期标识；省略 pe
 
 显式主体结构为 `{ kind: string; id: string }`，visitor/user/client 是保留的对应身份类别，其他类别由应用命名。subject 模式的 increment 必须提供 subject；普通计数不接收 subject；自动模式的请求调用不允许覆盖绑定身份。
 
-服务级 increment 对所有去重项要求显式主体，自动来源模式还检查 kind 与声明一致。它不能借用最近一次 HTTP 请求，也不为后台工作创建游客。仅使用自有后台主体时选择 subject，无须配置 visitors/auth。
+instance.stats 和 JobContext.stats 没有当前浏览器身份；写入去重项时必须显式传 subject。例如 articleViews 声明 uniqueBy: 'visitor'，后台写入须传 `{ kind: 'visitor', id: 已知访客ID }`；传 user 类别则拒绝。后台不会读取某次请求的 Cookie 或创建访客 ID。只按应用自己的导入批次、外部读者等主体去重时，声明 uniqueBy: 'subject' 即可，无须启用 visitors/auth。普通次数计数仍不需要主体。
 
 read 返回 count；声明去重的项还返回 uniqueCount。没有记录返回对应零值，不把空记录当存储故障。name、key、period 共同决定读取范围，不按单个 subject 过滤累计结果。
 

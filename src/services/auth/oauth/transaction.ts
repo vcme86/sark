@@ -7,13 +7,14 @@
 import { parseSigned, serialize, serializeSigned } from 'hono/utils/cookie'
 import * as oidc from 'openid-client'
 
+import { OAuthAuthorizationError } from './error'
 import type { ResolvedOAuthProvider } from './types'
 
 /** Prefix applied to transaction state cookies. */
-export const STATE_COOKIE_PREFIX = '__sark_oauth_'
+const STATE_COOKIE_PREFIX = '__sark_oauth_'
 
 /** Lifetime of transaction state cookie in seconds (10 minutes). */
-export const STATE_MAX_AGE_SECONDS = 600
+const STATE_MAX_AGE_SECONDS = 600
 
 /** Payload stored inside signed OAuth transaction state cookie. */
 export interface OAuthTransactionState {
@@ -122,27 +123,22 @@ export async function verifyTransactionState(
   secret: string,
 ): Promise<OAuthTransactionState> {
   if (!cookieHeader) {
-    throw new Error('Missing OAuth state cookie.')
+    throw new OAuthAuthorizationError('Missing OAuth state cookie.')
   }
 
   const cookieName = `${STATE_COOKIE_PREFIX}${provider.id}`
-  let parsedCookie: Record<string, string | false>
-  try {
-    parsedCookie = await parseSigned(cookieHeader, secret, cookieName)
-  } catch {
-    throw new Error('Invalid signature on OAuth state cookie.')
-  }
+  const parsedCookie = await parseSigned(cookieHeader, secret, cookieName)
 
   const rawCookieVal = parsedCookie[cookieName]
   if (typeof rawCookieVal !== 'string') {
-    throw new Error('Invalid or expired OAuth state cookie.')
+    throw new OAuthAuthorizationError('Invalid or expired OAuth state cookie.')
   }
 
   let txData: OAuthTransactionState
   try {
     txData = JSON.parse(rawCookieVal)
   } catch {
-    throw new Error('Corrupted OAuth state cookie.')
+    throw new OAuthAuthorizationError('Corrupted OAuth state cookie.')
   }
 
   if (
@@ -150,7 +146,7 @@ export async function verifyTransactionState(
     txData.id !== provider.id ||
     txData.redirectUri !== provider.redirectUri
   ) {
-    throw new Error('State cookie provider mismatch.')
+    throw new OAuthAuthorizationError('State cookie provider mismatch.')
   }
 
   if (
@@ -158,7 +154,7 @@ export async function verifyTransactionState(
     Date.now() >= txData.expiresAt ||
     txData.createdAt > Date.now()
   ) {
-    throw new Error('OAuth transaction state expired.')
+    throw new OAuthAuthorizationError('OAuth transaction state expired.')
   }
 
   return txData

@@ -27,7 +27,7 @@
 - [database.md · 数据库与持久化](design/database.md)：SQLite、PostgreSQL、D1、Drizzle 类型与资源生命周期
 - [storage.md · 应用文件与对象存储](design/storage.md)：本地文件、R2、S3、预签名访问与上传助手
 - [jobs.md · 后台任务与调度](design/jobs.md)：Node 调度、Workers Scheduled、执行、取消与排空
-- [visitors.md · 游客身份](design/visitors.md)：Cookie 标识、按需创建与浏览器初始化
+- [visitors.md · 访客标识](design/visitors.md)：Cookie 标识、按需创建与清除、浏览器初始化及登录协作
 - [stats.md · 具名计数与主体去重](design/stats.md)：计数、主体识别、去重与存取契约
 
 ### 认证与会话

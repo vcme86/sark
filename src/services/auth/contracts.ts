@@ -9,7 +9,7 @@ import type { Logger } from '@logtape/logtape'
 import type { Register } from '../../core/types'
 
 /** Registered resources extracted from module augmentation. */
-export type RegisteredResources = Register extends { resources: infer R } ? R : {}
+type RegisteredResources = Register extends { resources: infer R } ? R : {}
 
 /** Specific multi-factor authentication facts recorded during sign-in. */
 export type AuthenticationFacts =

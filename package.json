@@ -10,7 +10,7 @@
   "license": "MIT",
   "author": "vcme86",
   "type": "module",
-  "bin": "./dist/tooling/cli/index.mjs",
+  "bin": "./dist/tooling/cli.mjs",
   "exports": {
     "./server": {
       "types": "./dist/entries/server.d.mts",
@@ -101,10 +101,10 @@
     "lint:fix": "oxlint --fix",
     "typecheck": "tsc",
     "check": "pnpm typecheck && pnpm lint && pnpm fmt:check",
-    "test": "pnpm build && vitest run",
-    "test:unit": "vitest run tests/unit",
-    "test:types": "pnpm build && vitest run tests/types",
-    "test:contract": "pnpm build && vitest run tests/contract"
+    "test": "pnpm build && pnpm typecheck --project tests && vitest run --dir tests",
+    "test:unit": "vitest run --dir tests/unit",
+    "test:contract": "pnpm build && vitest run --dir tests/contract",
+    "test:integration": "pnpm build && pnpm typecheck --project tests && vitest run --dir tests/integration"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
@@ -171,5 +171,8 @@
     "react-dom": {
       "optional": true
     }
+  },
+  "engines": {
+    "node": ">=26"
   }
 }

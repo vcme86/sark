@@ -66,6 +66,7 @@ export interface AuthService {
    * @param token - Raw JWT string.
    * @param options - Optional request and cancellation signal supplied to application hooks.
    * @returns Validated identity, or null if invalid, expired, or revoked.
+   * @throws If an account validation hook or its dependency fails.
    */
   verify(
     token: string,
@@ -77,6 +78,7 @@ export interface AuthService {
    *
    * @param request - Incoming HTTP request.
    * @returns Validated identity, or null if unauthenticated.
+   * @throws If an account validation hook or its dependency fails.
    */
   authenticate(request: Request): Promise<Identity | null>
 }

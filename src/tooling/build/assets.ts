@@ -3,8 +3,8 @@ import { join, relative } from 'node:path'
 
 import { type Manifest, normalizePath, parseSync, type ViteDevServer } from 'vite'
 
-import { assetUrl } from '../../web/http/assets'
-import type { PageAssets } from '../../web/page/assets'
+import { assetUrl } from '../../http/assets'
+import type { PageAssets } from '../../page/assets'
 import type { ResolvedProjectConfig } from '../config'
 import type { DiscoveredPageTree } from './discover/pages'
 
@@ -90,7 +90,7 @@ export function productionAssets(
   for (const chunk of Object.values(manifest)) {
     for (const path of [chunk.file, ...(chunk.css ?? []), ...(chunk.assets ?? [])]) {
       files[path] = {
-        path: project.options.target === 'node' ? `client/${path}` : path,
+        path: project.target === 'node' ? `client/${path}` : path,
         hashed: true,
       }
     }
@@ -99,7 +99,7 @@ export function productionAssets(
     if (Object.hasOwn(files, path))
       throw new Error(`Public file conflicts with a generated asset: ${path}`)
     files[path] = {
-      path: project.options.target === 'node' ? `public/${path}` : path,
+      path: project.target === 'node' ? `public/${path}` : path,
       hashed: false,
     }
   }
@@ -132,8 +132,7 @@ export function productionAssets(
   ]
   if (pages?.pages.length) {
     styles['/*'] = cssFor(rootFiles)
-    styles[project.options.webPrefix === '/' ? '/*' : project.options.webPrefix + '/*'] =
-      styles['/*']
+    styles[project.webPrefix === '/' ? '/*' : project.webPrefix + '/*'] = styles['/*']
   }
   for (const page of pages?.pages ?? []) {
     styles[page.routePath.urlPath] = cssFor([
@@ -248,7 +247,7 @@ export async function collectDevelopmentAssets(
     styles[chain.pattern] = [...css]
   }
   if (pages?.pages.length) {
-    const webPrefix = project.options.webPrefix
+    const webPrefix = project.webPrefix
     styles[webPrefix === '/' ? '/*' : webPrefix + '/*'] = styles['/*']
     const clientUrl = new URL(assets.entry!, 'http://vite.local').pathname.slice(
       server.config.base.length - 1,

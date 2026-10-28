@@ -4,34 +4,33 @@
  * @module
  */
 
-import { isAbsolute, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 
 import type { RequiresEnv } from '../../core/declaration'
-import { type DatabaseDeclaration, type DatabaseInput, resolveDatabaseOptions } from './declaration'
+import { type DatabaseDeclaration, type DatabaseInput, evaluateDatabaseConfig } from './declaration'
 
 /** Native SQLite Drizzle result, including its better-sqlite3 client. */
-export type SqliteDatabase<Schema extends Record<string, unknown> = Record<string, never>> =
-  ReturnType<typeof drizzle<Schema>>
+type SqliteDatabase<Schema extends Record<string, unknown> = Record<string, never>> = ReturnType<
+  typeof drizzle<Schema>
+>
 
-/** Options for the Node SQLite database. */
-export interface SqliteOptions<Schema extends Record<string, unknown> = Record<string, never>> {
+/** Configuration for the Node SQLite database. */
+export interface SqliteConfig<Schema extends Record<string, unknown> = Record<string, never>> {
   /** Database filename relative to the application runtime directory, or :memory:. */
-  filename: string
+  filename: string | undefined
   /** Imported Drizzle tables and relations. */
   schema?: Schema
 }
 
 /** SQLite declaration retaining its concrete schema and native result. */
 export type SqliteDeclaration<Schema extends Record<string, unknown> = Record<string, never>> =
-  DatabaseDeclaration<'sqlite', SqliteOptions<Schema>, SqliteDatabase<Schema>>
+  DatabaseDeclaration<'sqlite', SqliteConfig<Schema>, SqliteDatabase<Schema>>
 
 /** SQLite configuration after filename validation and path resolution. */
-export interface ResolvedSqliteConfig<
-  Schema extends Record<string, unknown> = Record<string, never>,
-> {
+interface ResolvedSqliteConfig<Schema extends Record<string, unknown> = Record<string, never>> {
   filename: string
   schema?: Schema
 }
@@ -39,11 +38,11 @@ export interface ResolvedSqliteConfig<
 /**
  * Declares a SQLite database without opening a connection.
  *
- * @param options - Database settings and optional Drizzle schema.
+ * @param config - Database settings and optional Drizzle schema.
  * @returns A declaration assembled by the owning host.
  */
 export function defineDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(
-  options: SqliteOptions<TSchema>,
+  config: SqliteConfig<TSchema>,
 ): SqliteDeclaration<TSchema>
 
 /**
@@ -55,21 +54,19 @@ export function defineDatabase<TSchema extends Record<string, unknown> = Record<
 export function defineDatabase<
   TSchema extends Record<string, unknown> = Record<string, never>,
   E = unknown,
->(factory: (env: E) => SqliteOptions<TSchema>): SqliteDeclaration<TSchema> & RequiresEnv<E>
+>(factory: (env: E) => SqliteConfig<TSchema>): SqliteDeclaration<TSchema> & RequiresEnv<E>
 
 export function defineDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(
-  optionsOrFactory: DatabaseInput<SqliteOptions<TSchema>>,
+  input: DatabaseInput<SqliteConfig<TSchema>>,
 ): SqliteDeclaration<TSchema> {
   return {
     kind: 'database',
     driver: 'sqlite',
     target: 'node',
-    isFactory: typeof optionsOrFactory === 'function',
-    value: optionsOrFactory,
+    value: input,
+    isFactory: typeof input === 'function',
     async createStatic(env: unknown) {
-      const config = resolveSqliteConfig(optionsOrFactory, env)
-      const { db, dispose } = await createSqliteDatabase(config)
-      return { value: db, dispose }
+      return createSqliteDatabase(resolveSqliteConfig(input, env))
     },
   }
 }
@@ -79,30 +76,19 @@ export function defineDatabase<TSchema extends Record<string, unknown> = Record<
  *
  * @param input - Database options or environment factory.
  * @param env - Environment passed to the configuration factory.
- * @param rootDir - Base directory for relative filenames; defaults to the current working directory.
  * @returns Validated settings with an absolute filename, or the unchanged :memory: identifier.
  * @throws {Error} If the filename is absent or invalid, or factory resolution fails.
  */
-export function resolveSqliteConfig<
-  TSchema extends Record<string, unknown> = Record<string, never>,
->(
-  input: DatabaseInput<SqliteOptions<TSchema>>,
+function resolveSqliteConfig<TSchema extends Record<string, unknown> = Record<string, never>>(
+  input: DatabaseInput<SqliteConfig<TSchema>>,
   env: unknown,
-  rootDir = process.cwd(),
 ): ResolvedSqliteConfig<TSchema> {
-  const raw = resolveDatabaseOptions(input, env)
+  const raw = evaluateDatabaseConfig(input, env)
 
   if (typeof raw.filename !== 'string' || raw.filename.length === 0)
     throw new Error('SQLite filename is required.')
-  const filename =
-    raw.filename === ':memory:'
-      ? ':memory:'
-      : isAbsolute(raw.filename)
-        ? raw.filename
-        : resolve(rootDir, raw.filename)
-
   return {
-    filename,
+    filename: raw.filename === ':memory:' ? ':memory:' : resolve(raw.filename),
     schema: raw.schema,
   }
 }
@@ -112,16 +98,14 @@ export function resolveSqliteConfig<
  * Initialization failure closes the connection before propagating the error.
  *
  * @param config - Resolved SQLite database configuration.
- * @returns Initialized Drizzle instance with native client and synchronous disposal function.
+ * @returns Initialized Drizzle resource with native client and synchronous disposal function.
  */
-export async function createSqliteDatabase<
-  TSchema extends Record<string, unknown> = Record<string, never>,
->(
+function createSqliteDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(
   config: ResolvedSqliteConfig<TSchema>,
-): Promise<{
-  db: SqliteDatabase<TSchema>
+): {
+  value: SqliteDatabase<TSchema>
   dispose: () => void
-}> {
+} {
   const client = new Database(config.filename, { timeout: 5000 })
 
   let db: SqliteDatabase<TSchema>
@@ -137,7 +121,7 @@ export async function createSqliteDatabase<
   }
 
   return {
-    db,
+    value: db,
     dispose: () => {
       client.close()
     },

@@ -1,7 +1,10 @@
 /** OAuth endpoint responses, transaction cookies and application callbacks. */
-import type { SarkContext } from '../../../web/http/types'
+
+import { HttpError } from '../../../http/error'
+import type { Context } from '../../../http/types'
 import { createAuthorizationUrl, exchangeAuthorizationCode } from './authorization'
 import type { DiscoveryCache } from './client'
+import { isAuthorizationFailure } from './error'
 import {
   createClearTransactionCookie,
   createTransactionCookie,
@@ -13,7 +16,7 @@ import type { OAuthResult, ResolvedOAuthProvider } from './types'
 /** Starts a signed transaction and redirects to the selected provider. */
 export async function handleSignIn(
   provider: ResolvedOAuthProvider,
-  ctx: SarkContext,
+  ctx: Context,
   secret: string,
   production: boolean,
   discovery: DiscoveryCache,
@@ -32,7 +35,7 @@ export async function handleSignIn(
 /** Verifies the transaction, obtains the login result and calls the application. */
 export async function handleCallback(
   provider: ResolvedOAuthProvider,
-  ctx: SarkContext,
+  ctx: Context,
   secret: string,
   discovery: DiscoveryCache,
 ): Promise<Response> {
@@ -51,10 +54,15 @@ export async function handleCallback(
 
 async function handleOAuthError(
   provider: ResolvedOAuthProvider,
-  ctx: SarkContext,
+  ctx: Context,
   error: unknown,
 ): Promise<Response> {
-  if (!provider.onError) return ctx.json({ error: 'OAuth authorization failed' }, 401)
-  const response = await provider.onError(error, ctx)
-  return response ?? new Response(null, { status: 204 })
+  if (provider.onError) {
+    const response = await provider.onError(error, ctx)
+    return response ?? new Response(null, { status: 204 })
+  }
+  if (isAuthorizationFailure(error)) {
+    throw new HttpError(401, 'OAuth authorization failed', { code: 'oauth_failed' })
+  }
+  throw error
 }

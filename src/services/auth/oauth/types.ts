@@ -5,7 +5,7 @@
  */
 
 import type { BaseDeclaration } from '../../../core/declaration'
-import type { SarkContext } from '../../../web/http/types'
+import type { Context } from '../../../http/types'
 import type { OAuthTokens, UserProfile } from '../contracts'
 
 /** Supported OAuth provider presets and standard protocols. */
@@ -20,7 +20,7 @@ export interface OAuthProviderConfig {
   /** Required for 'oidc'; other OIDC presets supply a default, and Google rejects overrides. */
   readonly issuer?: string
   /** Registered client identifier. */
-  readonly clientId: string
+  readonly clientId: string | undefined
   /**
    * Client secret for confidential clients; required by GitHub, Apple, and WeChat.
    * Apple uses an application-generated client secret JWT.
@@ -39,7 +39,7 @@ export interface OAuthProviderConfig {
    */
   readonly callbackPath?: string
   /** Absolute public redirect URI registered with the external identity provider. */
-  readonly redirectUri: string
+  readonly redirectUri: string | undefined
   /**
    * Callback invoked after successful authorization and profile retrieval.
    * Returning a Response sends that response to the client; returning void responds with 204.
@@ -52,24 +52,24 @@ export interface OAuthProviderConfig {
   readonly onSuccess: (
     profile: UserProfile,
     tokens: OAuthTokens,
-    ctx: SarkContext,
+    ctx: Context,
   ) => Response | void | Promise<Response | void>
   /**
-   * Handles authorization or exchange failures; defaults to HTTP 401.
-   * Exceptions from application callbacks propagate to the HTTP error boundary.
+   * Handles protocol or provider failures using an application-selected response.
+   * Without this callback, expected rejections return HTTP 401 with code oauth_failed;
+   * operational faults and exceptions from application callbacks reach the HTTP error boundary.
    *
    * @param error - Authorization, exchange, or provider profile failure.
    * @param ctx - Callback or authorization-entry request context.
    * @returns An application response, or void for HTTP 204.
    */
-  readonly onError?: (
-    error: unknown,
-    ctx: SarkContext,
-  ) => Response | void | Promise<Response | void>
+  readonly onError?: (error: unknown, ctx: Context) => Response | void | Promise<Response | void>
 }
 
 /** Fully resolved OAuth provider with all paths and settings materialized. */
 export interface ResolvedOAuthProvider extends OAuthProviderConfig {
+  readonly clientId: string
+  readonly redirectUri: string
   readonly signInPath: string
   readonly callbackPath: string
   readonly issuer: string

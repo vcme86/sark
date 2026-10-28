@@ -9,10 +9,12 @@ export interface RequiresEnv<E> {
 export type EnvOf<D> = D extends RequiresEnv<infer E> ? E : unknown
 
 /** Recursively intersects required environments from a tuple of declarations. */
-export type MergeEnvironments<Declarations extends readonly unknown[]> =
-  Declarations extends readonly [infer First, ...infer Rest]
-    ? EnvOf<First> & MergeEnvironments<Rest>
-    : unknown
+type MergeEnvironments<Declarations extends readonly unknown[]> = Declarations extends readonly [
+  infer First,
+  ...infer Rest,
+]
+  ? EnvOf<First> & MergeEnvironments<Rest>
+  : unknown
 
 /** Arguments required by createApp depending on whether definition demands an environment. */
 export type EnvironmentArgs<D> =
@@ -23,6 +25,28 @@ export interface BaseDeclaration<K extends string = string, T = unknown> {
   readonly kind: K
   readonly value: T | ((env: any) => T)
   readonly isFactory: boolean
+}
+
+/**
+ * Evaluates a configuration value or environment factory without applying defaults.
+ * The owning resolver validates the returned shape and fields.
+ *
+ * @param input - Static value or environment factory.
+ * @param env - Environment supplied by the current host.
+ * @param name - Declaration name used in the missing-environment diagnostic.
+ * @returns The static value or the factory's result.
+ * @throws If a factory requires an environment that the host did not supply.
+ */
+export function evaluateDeclaration<T>(
+  input: T | ((env: any) => T),
+  env: unknown,
+  name: string,
+): T {
+  if (typeof input !== 'function') return input
+  if (env === undefined) {
+    throw new Error(`Environment required by ${name} declaration factory was not provided.`)
+  }
+  return (input as (env: unknown) => T)(env)
 }
 
 /** Intersects resource environments before unknown requirements can absorb concrete inputs. */

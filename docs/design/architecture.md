@@ -37,49 +37,51 @@ sark/
 │   │   ├── lifecycle.ts                就绪、排空与逆序释放
 │   │   ├── logging.ts                  LogTape 基础诊断与关联
 │   │   └── types.ts                    基础实例及生命周期契约
-│   ├── web/
-│   │   ├── http/
-│   │   │   ├── config.ts               HTTP 选项、默认值与校验
-│   │   │   ├── types.ts                endpoint 与 API 类型注册
-│   │   │   ├── path.ts                 共同路径规则
-│   │   │   ├── url.ts                  两端 URL 规范化规则
-│   │   │   ├── error.ts                同构 HttpError
-│   │   │   ├── cookie.ts               配置感知的 Hono Cookie 接入
-│   │   │   ├── server/
-│   │   │   │   ├── route.ts            路由声明与类型声明
-│   │   │   │   ├── body-limit.ts       正文长度检查与流式计数
-│   │   │   │   ├── input.ts            正文、查询和参数解析
-│   │   │   │   ├── output.ts           JSON 协商与错误响应
-│   │   │   │   ├── policy.ts           应用、作用域、路由的策略合并
-│   │   │   │   ├── pipeline.ts         已装配请求链的准入与分发
-│   │   │   │   ├── request-context.ts  请求作用域、来源解析和响应头
-│   │   │   │   └── sse.ts              事件流、背压与关闭
-│   │   │   ├── client/
-│   │   │   │   ├── client.ts           typed client 与传输
-│   │   │   │   ├── encode.ts           路径、查询、头与正文编码
-│   │   │   │   ├── decode.ts           成功与错误解码
-│   │   │   │   └── sse.ts              订阅、解析与重连
-│   │   │   └── middleware/
-│   │   │       ├── cors.ts
-│   │   │       ├── csrf.ts
-│   │   │       ├── compress.ts
-│   │   │       └── rate-limit/         声明、Node 计数、CF binding 与装配
-│   │   ├── page/
-│   │   │   ├── config.ts               页面 API 传输与身份快照配置
-│   │   │   ├── bootstrap.ts            SSR 与浏览器共用的启动载荷契约
-│   │   │   ├── components/             Head、Outlet、Scripts、Link、错误边界、根文档
-│   │   │   ├── execution/              匹配、Loader、Action、重新加载与元数据
-│   │   │   ├── server/                 流式渲染、载荷、样式与 API 传输
-│   │   │   │   └── cache/              声明、资格、键、LRU、填充、正文缓冲和失效
-│   │   │   ├── browser/                水合、路由视图、导航、历史、守卫和资源准备
-│   │   │   ├── context.tsx
-│   │   │   ├── hooks.tsx
-│   │   │   ├── signals.ts
-│   │   │   ├── storage.ts              浏览器 Storage 的 SSR 接入
-│   │   │   ├── build.ts
-│   │   │   └── types.ts
-│   │   ├── ws/                         连接、事件、类型与按需装配
-│   │   └── assets/                     构建静态交付、Node 目录挂载与装配
+│   ├── http/
+│   │   ├── config.ts                   HTTP 选项、默认值与校验
+│   │   ├── types.ts                    endpoint 与 API 类型注册
+│   │   ├── path.ts                     共同路径规则
+│   │   ├── url.ts                      两端 URL 规范化规则
+│   │   ├── error.ts                    同构 HttpError
+│   │   ├── cookie.ts                   配置感知的 Hono Cookie 接入
+│   │   ├── server/
+│   │   │   ├── route.ts                路由声明与类型声明
+│   │   │   ├── body-limit.ts           正文长度检查与流式计数
+│   │   │   ├── input.ts                正文、查询和参数解析
+│   │   │   ├── output.ts               JSON 协商与错误响应
+│   │   │   ├── policy.ts               应用、作用域、路由的策略合并
+│   │   │   ├── pipeline.ts             已装配请求链的准入与分发
+│   │   │   ├── types.ts                路由装配与页面终端的共同契约
+│   │   │   ├── request-context.ts      请求作用域、来源解析和响应头
+│   │   │   └── sse.ts                  事件流、背压与关闭
+│   │   ├── client/
+│   │   │   ├── client.ts               typed client 与传输
+│   │   │   ├── encode.ts               路径、查询、头与正文编码
+│   │   │   ├── decode.ts               成功与错误解码
+│   │   │   └── sse.ts                  订阅、解析与重连
+│   │   └── middleware/
+│   │       ├── cors.ts
+│   │       ├── csrf.ts
+│   │       ├── compress.ts
+│   │       └── rate-limit/             声明、Node 计数、CF binding 与装配
+│   ├── page/
+│   │   ├── config.ts                   页面 API 传输与身份快照配置
+│   │   ├── bootstrap.ts                SSR 与浏览器共用的启动载荷契约
+│   │   ├── components/                 Head、Outlet、Scripts、Link、错误边界、根文档
+│   │   ├── match.ts                    路由匹配与参数解码
+│   │   ├── meta.ts                     元数据合并
+│   │   ├── serialize.ts                启动载荷序列化
+│   │   ├── server/                     流式渲染、载荷、样式与 API 传输
+│   │   │   └── cache/                  声明、资格、键、LRU、填充、正文缓冲和失效
+│   │   ├── browser/                    水合、路由视图、导航、历史、守卫和资源准备
+│   │   ├── context.tsx
+│   │   ├── hooks.tsx
+│   │   ├── signals.ts
+│   │   ├── storage.ts                  浏览器 Storage 的 SSR 接入
+│   │   ├── build.ts
+│   │   └── types.ts
+│   ├── ws/                             连接、事件、类型与按需装配
+│   ├── assets/                         构建静态交付、Node 目录挂载与装配
 │   ├── services/
 │   │   ├── auth/
 │   │   │   ├── contracts.ts            共享身份、认证结果及资源检查上下文
@@ -97,7 +99,7 @@ sark/
 │   │   │       └── db/                 SQLite、PostgreSQL、D1 适配及 schema
 │   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
 │   │   ├── storage/                    local、r2、s3 后端及独立 presign 接入
-│   │   ├── visitors/                   声明、Cookie 身份与初始化端点
+│   │   ├── visitors/                   声明、访客标识与初始化端点
 │   │   ├── stats/                      具名计数、主体解析、专用存取与 SQL 适配
 │   │   └── jobs/                       共同执行、Node 调度、CF 事件映射
 │   ├── observability/
@@ -107,23 +109,25 @@ sark/
 │   ├── tooling/
 │   │   ├── build/
 │   │   │   ├── discover/               配置导出、路由、页面和冲突
-│   │   │   ├── generate/               应用、类型、浏览器及宿主入口
+│   │   │   ├── generate.ts             应用、类型、浏览器及宿主入口生成
 │   │   │   ├── capabilities.ts         官方能力的构建期装配登记
-│   │   │   ├── project.ts              按运行端筛选构建数据
+│   │   │   ├── project.ts              按有效工程配置发现、校验并生成
 │   │   │   ├── bundle.ts
 │   │   │   └── types.ts
-│   │   ├── vite/                       插件、Node 开发、CF 官方插件与 HMR
-│   │   └── cli/                        generate、dev、build、start 命令
+│   │   ├── vite.ts                     插件、Node 开发、CF 官方插件与 HMR
+│   │   └── cli.ts                      generate、dev、build、start 命令
 │   ├── adapter/
 │   │   ├── node/                       runtime 配置、监听、来源、升级、env 和基础探针
 │   │   └── cloudflare/                 Fetch、Scheduled、bindings、升级和事件执行期限
 │   └── entries/                        按公开子路径组织的薄导出
 ├── tests/
 │   ├── unit/
-│   ├── contract/                       公开类型、协议、存取契约和生命周期
-│   ├── integration/
+│   ├── contract/                       内存协议、存取契约和生命周期
+│   │   └── types/                      独立编译的类型契约
+│   ├── integration/                    真实宿主、构建产物及工程流程
 │   ├── e2e/
-│   └── fixtures/                       最小应用与独立客户端工程
+│   ├── fixtures/                       固定数据、最小应用和独立客户端输入
+│   └── helpers/                        生成、编译、启动与清理助手
 ├── examples/                           使用示例，不代替测试夹具
 ├── docs/                               设计文档
 └── package.json                        包元数据、公开导出与标准命令
@@ -145,21 +149,23 @@ services/db 负责数据库声明、连接及资源生命周期；认证模块�
 - 运行代码不导入 Vite、构建片段或 CLI；浏览器不导入服务端配置和驱动
 - 分组目录不建立提前加载所有子能力的聚合 index
 
+HTTP 路由装配与页面终端的共同契约放在 http/server/types.ts，装配器和领域端点不从执行器文件借用类型。页面的导航、作用域快照和 Action 结果等共同类型放在 page/types.ts；React Context 负责向组件树交付这些状态，不作为页面执行器或启动载荷的类型来源。
+
 page 公开入口仅含同构信号、类型和 definePage 纯声明构造，允许 Loader/浏览器导入，不加载应用配置、驱动或服务初始化；client 复用同一信号实现。
 
 全部配置入口及后续能力遵循 [configuration.md](configuration.md) 的解析、合并与传递机制。各领域在所属入口提供完整的已解析配置，下游直接消费，不自行补默认值或掩盖配置缺失。
 
-HTTP 默认值由 web/http/config 唯一维护；core/config 组合它。policy 只应用局部覆盖；create 负责创建与生命周期；pipeline 执行已经确定的请求链。
+core/config 定义 AppConfig 与应用声明；http/config 维护 HTTP 默认值与解析结果，直接接收 AppConfig，不另设同义输入类型。policy 只应用局部覆盖；create 负责创建与生命周期；pipeline 执行已经确定的请求链。
 
 ## 公开包入口
 
 一个 npm 包通过显式 exports 交付。源码分组、应用配置导出和包子路径不一一对应。以下按用途列出入口及主要运行时导出；选项、上下文、服务接口和协议类型由对应专项定义，不在这里重复全部类型清单。
 
-- `server`：defineApp、createApp、route、HttpError、z、dedup、getLogger，以及 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie
+- `server`：defineApp、createApp、route、HttpError、z、dedup、getLogger，以及 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie；Context、MiddlewareHandler 类型保留本应用声明的资源与请求服务
 - `http`：createClient、HttpError 与协议类型；无 React 依赖
 - `client`：Head、Outlet、Scripts、Link、useClient、useAction、useNavigate、useNavigation、useBlocker、reload、setIdentity、redirect、notFound；复用同一 HTTP 客户端，具体契约见 [pages.md](pages.md)
 - `page`：definePage、redirect、notFound 及页面类型；`page/cache`：definePageCache、revalidatePath、revalidateTag 及缓存类型
-- `server/node`：defineNodeRuntime 与 NodeRuntimeOptions；`assets/node`：defineAssets
+- `server/node`：defineNodeRuntime 与 NodeRuntimeConfig；`assets/node`：defineAssets
 - `db/sqlite`、`db/postgres`、`db/d1`：各自的 defineDatabase
 - `storage/local`：defineStorage、saveUploadFile；`storage/r2`、`storage/s3`：各自的 defineStorage；`storage/presign`：definePresign
 - `auth/session`：defineAuth、signToken、verifyToken、requireStepUp 及会话类型

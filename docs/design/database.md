@@ -34,14 +34,14 @@ PostgreSQL 从 db/postgres 导入同名函数：
 ```ts
 type Env = NodeJS.ProcessEnv
 
-export const database = defineDatabase((env: Env) => {
-  const url = env.DATABASE_URL
-  if (!url) throw new Error('DATABASE_URL is required')
-  return { url, schema, pool: { max: 10, idleTimeout: 30000, connectTimeout: 5000 } }
-})
+export const database = defineDatabase((env: Env) => ({
+  url: env.DATABASE_URL,
+  schema,
+  pool: { max: 10, idleTimeout: 30000, connectTimeout: 5000 },
+}))
 ```
 
-url 必填，pool.max 默认 10、idleTimeout 默认 30000 毫秒、connectTimeout 默认 5000 毫秒。适配转换到 postgres.js 的原生单位，不把毫秒直接传给其秒字段。Node 环境变量在工厂中检查，Env 不声明为已保证存在的字符串；完整环境约定见 [application.md](application.md)。
+url 必填，pool.max 默认 10、idleTimeout 默认 30000 毫秒、connectTimeout 默认 5000 毫秒。适配转换到 postgres.js 的原生单位，不把毫秒直接传给其秒字段。工厂直接交付 Node 环境值，由配置入口检查，Env 不声明为已保证存在的字符串；完整环境约定见 [application.md](application.md)。
 
 max 必须为正整数；idleTimeout、connectTimeout 为非负有限毫秒数，0 按上游语义关闭对应计时器。单位转换保留小数，不将应用指定的时长向上取整。
 
@@ -55,6 +55,8 @@ export const database = defineDatabase((env: Env) => ({
 ```
 
 Env 中 DB 使用 Wrangler 生成的 D1Database 类型。实际 binding 从当前事件取得，不从字符串环境猜测、不创建池。Node 声明用于 CF 或 D1 声明用于 Node 都报目标错误。
+
+filename、url、binding 在原始配置中保留必填属性，但允许值为 undefined；框架在打开连接或接入 binding 前校验，解析结果保留有效地址和具体平台类型。应用可以直接传环境值，不另写必填检查。
 
 一个应用声明一个主 database。具名文件存储不是额外数据库配置；框架不借此提供跨库协调。
 

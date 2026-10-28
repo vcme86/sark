@@ -20,7 +20,7 @@ export const metrics = defineMetrics({
 })
 ```
 
-MetricsOptions 包含 path、runtime、buckets、eventLoopPrecision、gcDurationBuckets、auth(request)。path 默认 /metrics，runtime 默认 true；请求桶默认 [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] 秒；事件循环精度默认 10 毫秒；GC 桶默认 [0.001,0.01,0.1,1,2,5] 秒。
+MetricsConfig 包含 path、runtime、buckets、eventLoopPrecision、gcDurationBuckets、auth(request)。path 默认 /metrics，runtime 默认 true；请求桶默认 [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] 秒；事件循环精度默认 10 毫秒；GC 桶默认 [0.001,0.01,0.1,1,2,5] 秒。
 
 不增加统一采样周期。默认指标抓取时取值，GC 用 observer，事件循环按上游精度。字段名与外部指标格式沿上游/Prometheus 习惯，不做全局单位重命名。
 
@@ -56,7 +56,7 @@ interface Gauge {
 
 框架标签采用有限集合：http_requests_total 的 method/route/status；http_request_duration_seconds 的 method/route；http_active_requests；ws_connections_active；jobs_runs_total、jobs_running、jobs_skipped_total 的 job/结果。未匹配路由记 `/*`，不把原始 URL 参数或用户 ID 放进标签。
 
-应用负责自定义标签基数，不将游客唯一计数当作 Prometheus 用户标签。
+应用负责自定义标签基数，不将访客标识当作 Prometheus 用户标签。
 
 ## 采集所有权
 

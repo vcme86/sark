@@ -2,7 +2,6 @@ import { expect, it } from 'vitest'
 
 import { getCurrentScope } from '../../src/core/context'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { startNodeServer } from '../../src/entries/runtime/node'
 import {
   type AppConfig,
   type AppInstance,
@@ -10,15 +9,15 @@ import {
   defineApp,
   route,
 } from '../../src/entries/server'
-import { parseApiFilePath } from '../../src/web/http/path'
+import { parseApiFilePath } from '../../src/http/path'
 import {
   compileProxyRules,
-  isTrustedProxy,
+  matchesCompiledRules,
   resolveClientIp,
   resolveExternalOrigin,
   validateHost,
-} from '../../src/web/http/proxy'
-import type { RouteEntry } from '../../src/web/http/server/pipeline'
+} from '../../src/http/proxy'
+import type { RouteEntry } from '../../src/http/server/types'
 
 async function withApp(
   config: AppConfig,
@@ -32,26 +31,25 @@ async function withApp(
     await app.close()
   }
 }
-
 it('matches CIDRs and predefined ranges for loopback and private networks', () => {
   // Loopback
-  expect(isTrustedProxy('127.0.0.1', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('127.0.0.2', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('::1', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('::ffff:127.0.0.1', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('192.168.1.1', ['loopback'])).toBe(false)
+  expect(matchesCompiledRules('127.0.0.1', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('127.0.0.2', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('::1', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('::ffff:127.0.0.1', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('192.168.1.1', compileProxyRules(['loopback']))).toBe(false)
 
   // Private networks
-  expect(isTrustedProxy('10.0.5.1', ['private'])).toBe(true)
-  expect(isTrustedProxy('172.16.10.20', ['private'])).toBe(true)
-  expect(isTrustedProxy('192.168.0.1', ['private'])).toBe(true)
-  expect(isTrustedProxy('fc00::1', ['private'])).toBe(true)
-  expect(isTrustedProxy('8.8.8.8', ['private'])).toBe(false)
+  expect(matchesCompiledRules('10.0.5.1', compileProxyRules(['private']))).toBe(true)
+  expect(matchesCompiledRules('172.16.10.20', compileProxyRules(['private']))).toBe(true)
+  expect(matchesCompiledRules('192.168.0.1', compileProxyRules(['private']))).toBe(true)
+  expect(matchesCompiledRules('fc00::1', compileProxyRules(['private']))).toBe(true)
+  expect(matchesCompiledRules('8.8.8.8', compileProxyRules(['private']))).toBe(false)
 
   // Custom CIDR and exact IP
-  expect(isTrustedProxy('203.0.113.42', ['203.0.113.0/24'])).toBe(true)
-  expect(isTrustedProxy('203.0.114.1', ['203.0.113.0/24'])).toBe(false)
-  expect(isTrustedProxy('198.51.100.1', ['198.51.100.1'])).toBe(true)
+  expect(matchesCompiledRules('203.0.113.42', compileProxyRules(['203.0.113.0/24']))).toBe(true)
+  expect(matchesCompiledRules('203.0.114.1', compileProxyRules(['203.0.113.0/24']))).toBe(false)
+  expect(matchesCompiledRules('198.51.100.1', compileProxyRules(['198.51.100.1']))).toBe(true)
 })
 
 it('discards X-Forwarded-For if the direct peer is not trusted', () => {
@@ -177,73 +175,6 @@ it('rejects requests with disallowed Host header through the application pipelin
   )
 })
 
-it('populates clientIp and externalOrigin in ExecutionScope and aligns with CSRF verification', async () => {
-  let observedScope: { clientIp?: string; externalOrigin?: string } | undefined
-
-  const routes: RouteEntry[] = [
-    {
-      routePath: parseApiFilePath('submit.post.ts', '/api')!,
-      declaration: route().handler((_ctx) => {
-        const scope = getCurrentScope()
-        observedScope = {
-          clientIp: scope?.clientIp,
-          externalOrigin: scope?.externalOrigin,
-        }
-        return { success: true }
-      }),
-    },
-  ]
-
-  await withApp(
-    {
-      trustedProxies: ['loopback', 'private'],
-      csrf: true,
-    },
-    routes,
-    async (app) => {
-      const server = await startNodeServer(app, undefined, { PORT: '0' })
-      try {
-        const url = `http://127.0.0.1:${server.port}/api/submit`
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'X-Forwarded-For': '203.0.113.88, 10.0.0.1',
-            'X-Forwarded-Proto': 'https',
-            'X-Forwarded-Host': 'portal.customer.example',
-            Origin: 'https://portal.customer.example',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'name=alice',
-        })
-
-        expect(res.status).toBe(200)
-        expect(await res.json()).toEqual({ success: true })
-        expect(observedScope?.clientIp).toBe('203.0.113.88')
-        expect(observedScope?.externalOrigin).toBe('https://portal.customer.example')
-
-        // If Origin does not match externalOrigin, CSRF triggers 403 csrf_forbidden
-        const rejectedRes = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'X-Forwarded-For': '203.0.113.88, 10.0.0.1',
-            'X-Forwarded-Proto': 'https',
-            'X-Forwarded-Host': 'portal.customer.example',
-            Origin: 'https://evil.attacker.example',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'name=alice',
-        })
-
-        expect(rejectedRes.status).toBe(403)
-        const err = await rejectedRes.json()
-        expect(err.error.code).toBe('csrf_forbidden')
-      } finally {
-        await server.close()
-      }
-    },
-  )
-})
-
 it('extracts peer socket remoteAddress from Node server environment and discards spoofed proxy headers', async () => {
   let observedClientIp: string | undefined
 
@@ -309,14 +240,18 @@ it('does not infer a trusted peer from the destination URL during in-memory disp
 
 it('rejects ::2 from loopback, matches mapped IPv6 CIDR, and handles IPv6 host validation and external port', () => {
   // A. IPv6 loopback contains ::1, not neighboring addresses.
-  expect(isTrustedProxy('::2', ['loopback'])).toBe(false)
-  expect(isTrustedProxy('::1', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('127.0.0.1', ['loopback'])).toBe(true)
-  expect(isTrustedProxy('::ffff:127.0.0.1', ['loopback'])).toBe(true)
+  expect(matchesCompiledRules('::2', compileProxyRules(['loopback']))).toBe(false)
+  expect(matchesCompiledRules('::1', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('127.0.0.1', compileProxyRules(['loopback']))).toBe(true)
+  expect(matchesCompiledRules('::ffff:127.0.0.1', compileProxyRules(['loopback']))).toBe(true)
 
   // B. IPv4-mapped address ::ffff:10.0.0.5 matches ::ffff:10.0.0.0/104
-  expect(isTrustedProxy('::ffff:10.0.0.5', ['::ffff:10.0.0.0/104'])).toBe(true)
-  expect(isTrustedProxy('::ffff:11.0.0.5', ['::ffff:10.0.0.0/104'])).toBe(false)
+  expect(matchesCompiledRules('::ffff:10.0.0.5', compileProxyRules(['::ffff:10.0.0.0/104']))).toBe(
+    true,
+  )
+  expect(matchesCompiledRules('::ffff:11.0.0.5', compileProxyRules(['::ffff:10.0.0.0/104']))).toBe(
+    false,
+  )
 
   // C. validateHost parses bracketed IPv6 host without truncating
   expect(() => validateHost('[::1]:3000', ['[::1]'])).not.toThrow()

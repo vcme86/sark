@@ -12,11 +12,11 @@ import type { RequiresEnv } from '../../core/declaration'
 import { applicationLifecycles } from '../../core/lifecycle'
 import { getLogger } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
-import type { StaticAssets } from '../../web/http/assets'
-import type { ResolvedCompressionOptions } from '../../web/http/compression'
-import { requestCompressionPolicies } from '../../web/http/middleware/compress'
-import { cors } from '../../web/http/middleware/cors'
-import { applyResponseHeaders } from '../../web/http/server/request-context'
+import type { StaticAssets } from '../../http/assets'
+import type { ResolvedCompressionOptions } from '../../http/compression'
+import { requestCompressionPolicies } from '../../http/middleware/compress'
+import { cors } from '../../http/middleware/cors'
+import { applyResponseHeaders } from '../../http/server/request-context'
 import { waitUntil } from './deadline'
 import { mountNodeProbes } from './probes'
 import { type NodeRuntimeDeclaration, resolveNodeRuntime } from './runtime'
@@ -41,13 +41,13 @@ export interface NodeServerControl {
 }
 
 /** Environment requirements and optional build assets accepted by the Node host. */
-export type RuntimeEnvRequirement<R> =
+type RuntimeEnvRequirement<R> =
   R extends RequiresEnv<infer E>
     ? [env: E, build?: NodeBuildAssets]
     : [env?: NodeJS.ProcessEnv, build?: NodeBuildAssets]
 
 /** Location of the deployed build and its generated public resource mapping. */
-export interface NodeBuildAssets {
+interface NodeBuildAssets {
   /** Directory containing the deployed server entry and its public build files. */
   readonly rootDir: string
   /** Public URL mapping with file paths relative to rootDir. */
@@ -58,7 +58,7 @@ export interface NodeBuildAssets {
  * Starts the Node HTTP host with probes, compression, and graceful shutdown.
  *
  * Startup order:
- * 1. Resolve runtime settings and validate listening/shutdown options.
+ * 1. Resolve runtime settings and validate listening/shutdown config.
  * 2. Mount probes before compression and business request forwarding.
  * 3. Register response compression, optional build assets, and business forwarding.
  * 4. Bind the listener and wait for successful startup.
@@ -90,18 +90,18 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
 ): Promise<NodeServerControl> {
   const env = args[0] ?? process.env
   try {
-    const options = resolveNodeRuntime(runtimeDecl, env)
+    const config = resolveNodeRuntime(runtimeDecl, env)
 
     const deliveryApp = new Hono()
 
     // Probes bypass business admission and compression, including during draining.
-    mountNodeProbes(deliveryApp, instance, options.probes)
+    mountNodeProbes(deliveryApp, instance, config.probes)
 
     const compressors = new WeakMap<ResolvedCompressionOptions, MiddlewareHandler>()
     deliveryApp.use('*', async (ctx, next) => {
       await next()
       const override = requestCompressionPolicies.get(ctx.req.raw)
-      const policy = override === undefined ? options.compress : override
+      const policy = override === undefined ? config.compress : override
       if (policy === false || ctx.req.header('range')) return
       if (ctx.res.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) return
 
@@ -136,15 +136,15 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
     deliveryApp.all('*', (ctx) => instance.fetch(ctx.req.raw, ctx.env))
 
     let serverInstance: ServerType
-    let resolvedPort = options.port
+    let resolvedPort = config.port
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error)
       serverInstance = serve(
         {
           fetch: (request, serverEnv) => deliveryApp.fetch(request, serverEnv),
-          port: options.port,
-          hostname: options.hostname,
+          port: config.port,
+          hostname: config.hostname,
         },
         (info) => {
           serverInstance.removeListener('error', onError)
@@ -161,7 +161,7 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
     let closePromise: Promise<void> | undefined
     function closeServer(): Promise<void> {
       if (closePromise) return closePromise
-      const deadline = performance.now() + options.shutdown.deadline
+      const deadline = performance.now() + config.shutdown.deadline
       const transportDrained = Promise.withResolvers<void>()
       lifecycle.deferDisposalUntil(transportDrained.promise, deadline)
       const applicationClosed = instance.close().then(
@@ -176,7 +176,7 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
         try {
           const drained = await waitUntil(
             Promise.all([transportClosed, lifecycle.waitForIdle()]),
-            deadline - options.shutdown.reserve,
+            deadline - config.shutdown.reserve,
           )
           if (!drained) {
             const timeout = new Error('Graceful shutdown exceeded the request drain budget')
@@ -231,7 +231,7 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
     return {
       server: serverInstance!,
       port: resolvedPort,
-      hostname: options.hostname,
+      hostname: config.hostname,
       close: closeServer,
     }
   } catch (error) {

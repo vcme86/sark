@@ -1,7 +1,3 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-
 import { configureSync, getConfig, type LogRecord, resetSync } from '@logtape/logtape'
 import { expect, it, vi } from 'vitest'
 
@@ -9,9 +5,46 @@ import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
 import { getCurrentScope } from '../../src/core/context'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { defineApp, route, z } from '../../src/entries/server'
-import { generateBuildArtifacts } from '../../src/tooling/build/generate'
-import { parseApiFilePath } from '../../src/web/http/path'
-import type { RouteEntry } from '../../src/web/http/server/pipeline'
+import { parseApiFilePath } from '../../src/http/path'
+import type { RouteEntry } from '../../src/http/server/types'
+
+it('shares resolved static configuration between assets and API requests per Worker handler', async () => {
+  let reads = 0
+  const definition = createDefinition({
+    app: defineApp({
+      get headers() {
+        reads++
+        return { 'X-Application': 'shared' }
+      },
+    }),
+    assets: { base: '/assets/', files: { 'main.js': { path: 'main.js', hashed: true } } },
+    routes: [
+      {
+        routePath: parseApiFilePath('ping.get.ts', '/api')!,
+        declaration: route().handler(() => ({ ok: true })),
+      },
+    ],
+  })
+  const env = { ASSETS: { fetch: async () => new Response('asset') } }
+  const context = { waitUntil: vi.fn(), passThroughOnException: vi.fn() }
+  const handler = createWorkerHandler(definition)
+  expect(reads).toBe(0)
+  const asset = await handler.fetch(new Request('https://worker.test/assets/main.js'), env, context)
+  expect(await asset.text()).toBe('asset')
+  expect(asset.headers.get('X-Application')).toBe('shared')
+  const initial = reads
+  expect(initial).toBeGreaterThan(0)
+  for (const path of ['/api/ping', '/assets/main.js', '/api/ping']) {
+    const response = await handler.fetch(new Request('https://worker.test' + path), env, context)
+    expect(response.headers.get('X-Application')).toBe('shared')
+    if (path === '/api/ping') expect(await response.json()).toEqual({ ok: true })
+    else expect(await response.text()).toBe('asset')
+    expect(reads).toBe(initial)
+  }
+  const independent = createWorkerHandler(definition)
+  await independent.fetch(new Request('https://worker.test/api/ping'), env, context)
+  expect(reads).toBeGreaterThan(initial)
+})
 
 it('resolves concurrent event factories once each and reuses their policies during internal dispatch', async () => {
   const entered = Promise.withResolvers<void>()
@@ -79,15 +112,6 @@ it('resolves concurrent event factories once each and reuses their policies duri
   expect(factory).toHaveBeenCalledTimes(2)
 })
 
-function withTempDir(run: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), 'sark-worker-test-'))
-  try {
-    run(dir)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
 it('keeps request metadata and reports configuration failures before routing', async () => {
   const failure = new Error('SECRET is required')
   const handler = createWorkerHandler(
@@ -140,7 +164,7 @@ it('keeps request metadata and reports configuration failures before routing', a
     }
     expect(records).toHaveLength(4)
     for (const record of records) {
-      expect(record.message.join('')).toContain('configuration-failure')
+      expect(record.properties.requestId).toBe('configuration-failure')
       expect(record.properties.args).toEqual([{ error: failure }])
     }
 
@@ -308,111 +332,4 @@ it('extracts platform client IP from cf-connecting-ip and requestId from cf-ray'
   expect(observedScope?.clientIp).toBe('198.51.100.42')
   expect(observedScope?.requestId).toBe('8c123456789abcde-SJC')
   expect(res.headers.get('x-request-id')).toBe('8c123456789abcde-SJC')
-})
-
-it('enforces platform boundary by rejecting Node runtime declarations for Cloudflare target', () => {
-  withTempDir((root) => {
-    expect(() =>
-      generateBuildArtifacts({
-        generatedDir: join(root, '.build'),
-        appEntryPath: join(root, 'app.ts'),
-        appExports: {
-          hasApp: true,
-          hasRuntime: true,
-          exports: ['app', 'runtime'],
-        },
-        routes: [],
-        apiPrefix: '/api',
-        webPrefix: '/',
-        target: 'cloudflare',
-      }),
-    ).toThrowError(/Cloudflare Workers target does not support Node runtime configuration/)
-
-    expect(() =>
-      generateBuildArtifacts({
-        generatedDir: join(root, '.build'),
-        appEntryPath: join(root, 'app.ts'),
-        appExports: {
-          hasApp: true,
-          hasRuntime: false,
-          exports: ['app', 'health'],
-        },
-        routes: [],
-        apiPrefix: '/api',
-        webPrefix: '/',
-        target: 'cloudflare',
-      }),
-    ).toThrowError(/Cloudflare Workers target does not support Node health probes/)
-
-    expect(() =>
-      generateBuildArtifacts({
-        generatedDir: join(root, '.build'),
-        appEntryPath: join(root, 'app.ts'),
-        appExports: {
-          hasApp: true,
-          hasRuntime: false,
-          exports: ['app', 'metrics'],
-        },
-        routes: [],
-        apiPrefix: '/api',
-        webPrefix: '/',
-        target: 'cloudflare',
-      }),
-    ).toThrowError(/Cloudflare Workers target does not support Node metrics/)
-  })
-})
-
-it('generates .build/worker.ts for Cloudflare target without Node runtime imports', () => {
-  withTempDir((root) => {
-    const generatedDir = join(root, '.build')
-    generateBuildArtifacts({
-      generatedDir,
-      appEntryPath: join(root, 'app.ts'),
-      appExports: {
-        hasApp: true,
-        hasRuntime: false,
-        exports: ['app'],
-      },
-      routes: [],
-      apiPrefix: '/api',
-      webPrefix: '/',
-      target: 'cloudflare',
-    })
-
-    expect(existsSync(join(generatedDir, 'worker.ts'))).toBe(true)
-    expect(existsSync(join(generatedDir, 'start.ts'))).toBe(false)
-
-    const workerSource = readFileSync(join(generatedDir, 'worker.ts'), 'utf8')
-    expect(workerSource).toContain('@olivaw/sark/runtime/cloudflare')
-    expect(workerSource).toContain('createWorkerHandler(definition, import.meta.env.PROD)')
-    expect(workerSource).toContain('export default {')
-    expect(workerSource).not.toContain('@olivaw/sark/runtime/node')
-    expect(workerSource).not.toContain('node:')
-  })
-})
-
-it('generates .build/start.ts for Node target without Workers runtime imports', () => {
-  withTempDir((root) => {
-    const generatedDir = join(root, '.build')
-    generateBuildArtifacts({
-      generatedDir,
-      appEntryPath: join(root, 'app.ts'),
-      appExports: {
-        hasApp: true,
-        hasRuntime: false,
-        exports: ['app'],
-      },
-      routes: [],
-      apiPrefix: '/api',
-      webPrefix: '/',
-      target: 'node',
-    })
-
-    expect(existsSync(join(generatedDir, 'start.ts'))).toBe(true)
-    expect(existsSync(join(generatedDir, 'worker.ts'))).toBe(false)
-
-    const startSource = readFileSync(join(generatedDir, 'start.ts'), 'utf8')
-    expect(startSource).toContain('@olivaw/sark/runtime/node')
-    expect(startSource).not.toContain('@olivaw/sark/runtime/cloudflare')
-  })
 })

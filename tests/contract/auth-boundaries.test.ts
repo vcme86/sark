@@ -1,24 +1,17 @@
-import { spawnSync } from 'node:child_process'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-
 import { configureSync, type LogRecord, resetSync } from '@logtape/logtape'
-import { build } from 'vite'
 import { expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
 import { getCurrentScope } from '../../src/core/context'
 import { createApp } from '../../src/core/create'
 import { createDefinition } from '../../src/core/definition'
-import { ensureBasicLogging } from '../../src/core/logging'
+import { ensureBasicLogging, getLogger } from '../../src/core/logging'
 import { defineOAuth } from '../../src/entries/auth/oauth'
 import { defineAuth, type RequestAuth, signToken } from '../../src/entries/auth/session'
 import { defineApp, route } from '../../src/entries/server'
+import { parseApiFilePath } from '../../src/http/path'
 import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
 import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import { generateProject } from '../../src/tooling/vite'
-import { parseApiFilePath } from '../../src/web/http/path'
-import { createProject } from '../helpers/project'
 
 const secret = 'session-signing-secret-at-least-32-bytes'
 
@@ -27,6 +20,7 @@ it('records authentication hook failures through default diagnostics', async () 
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   const instance = await createApp(
     createDefinition({
+      app: defineApp({ cors: { origin: 'https://frontend.test' } }),
       services: {
         auth: createAuthAssembly(
           defineAuth({
@@ -50,9 +44,13 @@ it('records authentication hook failures through default diagnostics', async () 
   try {
     const token = await signToken({ sub: 'reader' }, { secret })
     const response = await instance.fetch(
-      new Request('http://localhost/api/me', { headers: { Authorization: `Bearer ${token}` } }),
+      new Request('http://localhost/api/me', {
+        headers: { Authorization: `Bearer ${token}`, Origin: 'https://frontend.test' },
+      }),
     )
-    expect(await response.json()).toEqual({ user: null })
+    expect(response.status).toBe(500)
+    expect((await response.json()).error.code).toBe('internal_server_error')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://frontend.test')
     expect(consoleError).toHaveBeenCalledOnce()
     expect(consoleError.mock.calls.flat().join(' ')).toContain('database unavailable')
   } finally {
@@ -99,12 +97,54 @@ it('preserves host logging and attaches the active request ID to hook failures',
       new Request('http://localhost/api/me', { headers: { Authorization: `Bearer ${token}` } }),
     )
     expect(records).toHaveLength(1)
-    expect(records[0].category).toEqual(['app', 'auth'])
+    expect(response.status).toBe(500)
+    expect(records[0].category).toEqual(['app'])
     expect(records[0].properties.requestId).toBe(response.headers.get('X-Request-Id'))
   } finally {
     await instance.close()
     resetSync()
     ensureBasicLogging()
+  }
+})
+
+it('skips account checks for preflight and URL redirects, then authenticates the canonical request', async () => {
+  const tokenVersion = vi.fn(async () => 0)
+  const instance = await createApp(
+    createDefinition({
+      app: defineApp({ cors: { origin: 'https://frontend.test' } }),
+      services: { auth: createAuthAssembly(defineAuth({ secret, tokenVersion })) },
+      routes: [
+        {
+          routePath: parseApiFilePath('me.get.ts', '/api')!,
+          declaration: route().handler((ctx) => ({
+            sub: (ctx.get('auth' as never) as RequestAuth).identity?.sub,
+          })),
+        },
+      ],
+    }),
+  )
+  try {
+    const token = await signToken({ sub: 'reader' }, { secret })
+    const preflight = await instance.fetch(
+      new Request('http://localhost/api/me', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://frontend.test', 'Access-Control-Request-Method': 'GET' },
+      }),
+    )
+    expect(preflight.status).toBe(204)
+    expect(tokenVersion).not.toHaveBeenCalled()
+
+    const headers = { Cookie: `auth_token=${token}`, Origin: 'https://frontend.test' }
+    const redirect = await instance.fetch(new Request('http://localhost/api/me/', { headers }))
+    expect(redirect.status).toBe(308)
+    expect(redirect.headers.get('Access-Control-Allow-Origin')).toBe('https://frontend.test')
+    expect(tokenVersion).not.toHaveBeenCalled()
+
+    const response = await instance.fetch(new Request('http://localhost/api/me', { headers }))
+    expect(await response.json()).toEqual({ sub: 'reader' })
+    expect(tokenVersion).toHaveBeenCalledOnce()
+  } finally {
+    await instance.close()
   }
 })
 
@@ -238,17 +278,17 @@ it('awaits request authentication in the active scope before running business ha
   }
 })
 
-it('removes explicitly disabled response headers and preserves the framework request ID', async () => {
+it('disables default headers without deleting application headers and preserves the request ID', async () => {
   const instance = await createApp(
     createDefinition({
-      app: defineApp({ headers: { 'X-Remove': false } }),
+      app: defineApp({ headers: { 'x-frame-options': false } }),
       routes: [
         {
           routePath: parseApiFilePath('headers.get.ts', '/api')!,
           declaration: route().handler(
             () =>
               new Response('body', {
-                headers: { 'X-Remove': 'present', 'X-Request-Id': 'application-value' },
+                headers: { 'X-Frame-Options': 'DENY', 'X-Request-Id': 'application-value' },
               }),
           ),
         },
@@ -257,7 +297,7 @@ it('removes explicitly disabled response headers and preserves the framework req
   )
   try {
     const response = await instance.fetch(new Request('http://localhost/api/headers'))
-    expect(response.headers.get('X-Remove')).toBeNull()
+    expect(response.headers.get('X-Frame-Options')).toBe('DENY')
     expect(response.headers.get('X-Request-Id')).not.toBe('application-value')
     expect(await response.text()).toBe('body')
   } finally {
@@ -325,59 +365,41 @@ it('reuses event configuration and domain routes during concurrent internal Work
   expect(factory).toHaveBeenCalledTimes(2)
 })
 
-it('runs generated session-only composition with OAuth packages blocked by the module loader', async () => {
-  const project = createProject()
-  project.write(
-    'app.ts',
-    `import { defineAuth } from '@olivaw/sark/auth/session'
-export const auth = defineAuth({ secret: '${secret}' })`,
-  )
-  project.write(
-    'api/me.get.ts',
-    `import { route } from '@olivaw/sark/server'
-export default route().handler(ctx => ({ user: ctx.var.auth.identity?.sub ?? null }))`,
+it('attaches request IDs as structured fields when a logger is created before requests', async () => {
+  resetSync()
+  const records: LogRecord[] = []
+  configureSync({
+    sinks: { host: (record) => records.push(record) },
+    loggers: [{ category: ['app'], lowestLevel: 'info', sinks: ['host'] }],
+  })
+  const logger = getLogger('business')
+  const instance = await createApp(
+    createDefinition({
+      routes: [
+        {
+          routePath: parseApiFilePath('log.get.ts', '/api')!,
+          declaration: route().handler(() => {
+            logger.info('Loaded')
+            logger.warn('Details', { item: 42 })
+            return null
+          }),
+        },
+      ],
+    }),
   )
   try {
-    generateProject(project.root)
-    await build({
-      root: project.root,
-      configFile: false,
-      logLevel: 'silent',
-      build: {
-        ssr: join(project.root, '.build/app.ts'),
-        outDir: 'dist',
-        rolldownOptions: {
-          external: (id) => id.startsWith('@olivaw/sark/'),
-          output: { entryFileNames: 'definition.mjs' },
-        },
-      },
-    })
-    const url = pathToFileURL(join(project.root, 'dist/definition.mjs')).href
-    const result = spawnSync(
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        `
-import { registerHooks } from 'node:module'
-registerHooks({ resolve(specifier, context, next) {
-  if (['openid-client', 'oauth4webapi', 'jose'].includes(specifier)) throw new Error('Unused OAuth package loaded: ' + specifier)
-  return next(specifier, context)
-} })
-const { definition } = await import(${JSON.stringify(url)})
-const { createApp } = await import('@olivaw/sark/server')
-const app = await createApp(definition)
-try {
-  const response = await app.fetch(new Request('http://localhost/api/me'))
-  if (response.status !== 200 || (await response.json()).user !== null) throw new Error('Session pipeline failed')
-} finally { await app.close() }
-`,
-      ],
-      { cwd: project.root, encoding: 'utf8', timeout: 15000 },
-    )
-    if (result.error) throw result.error
-    expect(result.status, result.stdout + result.stderr).toBe(0)
+    for (let index = 0; index < 2; index++) {
+      const response = await instance.fetch(new Request('http://localhost/api/log'))
+      const [info, warning] = records.slice(index * 2)
+      expect(info.properties.requestId).toBe(response.headers.get('X-Request-Id'))
+      expect(warning.properties.requestId).toBe(response.headers.get('X-Request-Id'))
+      expect(info.properties).not.toHaveProperty('args')
+      expect(warning.properties.args).toEqual([{ item: 42 }])
+      expect(info.message.join('')).not.toContain('[req:')
+    }
+    expect(records[0].properties.requestId).not.toBe(records[2].properties.requestId)
   } finally {
-    project.remove()
+    await instance.close()
+    resetSync()
   }
 })

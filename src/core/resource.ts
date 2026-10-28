@@ -13,7 +13,7 @@ export interface DisposalContext {
 }
 
 /** Resource value and its owned cleanup, registered immediately after creation. */
-export interface ResourceResult<T> {
+interface ResourceResult<T> {
   readonly value: T
   readonly dispose?: (context: DisposalContext) => Promise<void> | void
 }

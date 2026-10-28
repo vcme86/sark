@@ -4,6 +4,8 @@
  * @module
  */
 
+import { fetchProvider } from '../client'
+import { OAuthAuthorizationError } from '../error'
 import type { OAuthResult, ResolvedOAuthProvider } from '../types'
 
 interface WeChatTokenResponse {
@@ -57,7 +59,7 @@ export async function exchangeWeChatCode(
   const url = new URL(request.url)
   const code = url.searchParams.get('code')
   if (!code || url.searchParams.get('state') !== expectedState)
-    throw new Error('Invalid WeChat authorization response.')
+    throw new OAuthAuthorizationError('Invalid WeChat authorization response.')
   const signal = request.signal
   const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${encodeURIComponent(
     provider.clientId,
@@ -65,13 +67,16 @@ export async function exchangeWeChatCode(
     code,
   )}&grant_type=authorization_code`
 
-  const tokenRes = await fetch(tokenUrl, { signal })
+  const tokenRes = await fetchProvider(tokenUrl, { signal })
   if (!tokenRes.ok) {
     throw new Error(`WeChat token exchange failed with HTTP ${tokenRes.status}`)
   }
 
   const tokenJson = (await tokenRes.json()) as WeChatTokenResponse
   if (tokenJson.errcode) {
+    if ([40029, 40163, 42003].includes(tokenJson.errcode)) {
+      throw new OAuthAuthorizationError('WeChat rejected the authorization code.')
+    }
     throw new Error(`WeChat token error: ${tokenJson.errmsg || tokenJson.errcode}`)
   }
 
@@ -117,7 +122,7 @@ async function fetchWeChatUserInfo(
     openid: subject,
     lang: 'zh_CN',
   }).toString()
-  const response = await fetch(url, { signal })
+  const response = await fetchProvider(url, { signal })
   if (!response.ok) return {}
   const profile = (await response.json()) as WeChatUserInfo
   return profile.errcode ? {} : profile

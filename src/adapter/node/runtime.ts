@@ -1,16 +1,15 @@
 import { isIP } from 'node:net'
 
-import type { BaseDeclaration, RequiresEnv } from '../../core/declaration'
+import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from '../../core/declaration'
 import {
   type CompressionOptions,
-  DEFAULT_COMPRESSION_OPTIONS,
   resolveCompression,
   type ResolvedCompressionOptions,
-} from '../../web/http/compression'
-export type { CompressionOptions } from '../../web/http/compression'
+} from '../../http/compression'
+export type { CompressionOptions } from '../../http/compression'
 
-/** Node runtime deployment configuration options. */
-export interface NodeRuntimeOptions {
+/** Node runtime deployment configuration. */
+export interface NodeRuntimeConfig {
   /**
    * Integer TCP port to listen on (0–65535).
    * Resolution priority: explicit `port` option > `PORT` environment variable > default `3000`.
@@ -82,19 +81,18 @@ export interface NodeRuntimeOptions {
 /** Declaration representation for Node runtime configuration. */
 export interface NodeRuntimeDeclaration extends BaseDeclaration<
   'runtime_node',
-  NodeRuntimeOptions
+  NodeRuntimeConfig
 > {}
 
-/** Default options for the Node runtime. */
-export const DEFAULT_NODE_RUNTIME_OPTIONS = {
+/** Default Node runtime configuration. */
+const DEFAULT_NODE_RUNTIME_CONFIG = {
   port: 3000,
-  compress: DEFAULT_COMPRESSION_OPTIONS,
   shutdown: { deadline: 10000, reserve: 2000 },
   probes: { liveness: '/livez', readiness: '/readyz' },
 }
 
 /** Fully resolved Node runtime configuration with all defaults applied. */
-export interface ResolvedNodeRuntimeOptions {
+export interface ResolvedNodeRuntimeConfig {
   readonly port: number
   readonly hostname?: string
   readonly compress: false | ResolvedCompressionOptions
@@ -104,29 +102,29 @@ export interface ResolvedNodeRuntimeOptions {
 
 /**
  * Declares the Node runtime configuration for the application.
- * Accepts a static options object or a factory receiving the environment.
+ * Accepts a static configuration object or a factory receiving the environment.
  *
- * @param options - Listening, compression, shutdown, and probe settings.
+ * @param config - Listening, compression, shutdown, and probe settings.
  * @returns A declaration resolved at Node startup or when Vite creates a Node application instance.
  */
-export function defineNodeRuntime(options?: NodeRuntimeOptions): NodeRuntimeDeclaration
+export function defineNodeRuntime(config?: NodeRuntimeConfig): NodeRuntimeDeclaration
 /**
  * Declares Node runtime settings resolved from the environment.
  *
- * @param factory - Options factory evaluated at Node startup or Vite instance creation.
+ * @param factory - Configuration factory evaluated at Node startup or Vite instance creation.
  * @returns A declaration preserving the factory's environment requirement.
  */
 export function defineNodeRuntime<E>(
-  factory: (env: E) => NodeRuntimeOptions,
+  factory: (env: E) => NodeRuntimeConfig,
 ): NodeRuntimeDeclaration & RequiresEnv<E>
 export function defineNodeRuntime<E>(
-  input?: NodeRuntimeOptions | ((env: E) => NodeRuntimeOptions),
-): NodeRuntimeDeclaration & RequiresEnv<E> {
+  input?: NodeRuntimeConfig | ((env: E) => NodeRuntimeConfig),
+): NodeRuntimeDeclaration {
   return {
     kind: 'runtime_node',
     value: input === undefined ? {} : input,
     isFactory: typeof input === 'function',
-  } as NodeRuntimeDeclaration & RequiresEnv<E>
+  }
 }
 
 /**
@@ -141,28 +139,23 @@ export function defineNodeRuntime<E>(
 export function resolveNodeRuntime(
   declaration?: NodeRuntimeDeclaration,
   env?: any,
-): ResolvedNodeRuntimeOptions {
-  let opts: NodeRuntimeOptions = {}
-  if (declaration) {
-    if (typeof declaration.value === 'function') {
-      if (env === undefined)
-        throw new Error('Environment required by runtime declaration factory was not provided.')
-      opts = declaration.value(env)
-    } else {
-      opts = declaration.value
-    }
-  }
+): ResolvedNodeRuntimeConfig {
+  const input = declaration ? evaluateDeclaration(declaration.value, env, 'runtime') : {}
 
-  if (!opts || typeof opts !== 'object' || Array.isArray(opts)) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('Node runtime configuration must be an object.')
   }
 
-  for (const [field, value] of Object.entries(opts)) {
+  for (const [field, value] of Object.entries(input)) {
     if (value === null) throw new Error(`runtime.${field} does not accept null.`)
   }
 
-  let resolvedPort = opts.port
-  if (resolvedPort === undefined && env?.PORT !== undefined) {
+  let resolvedPort = input.port
+  if (resolvedPort !== undefined) {
+    if (!Number.isInteger(resolvedPort) || resolvedPort < 0 || resolvedPort > 65535) {
+      throw new Error(`Invalid port configured: ${resolvedPort}. Expected integer 0-65535.`)
+    }
+  } else if (env?.PORT !== undefined) {
     const parsed = Number(env.PORT)
     if (
       !/^\d+$/.test(String(env.PORT).trim()) ||
@@ -175,14 +168,11 @@ export function resolveNodeRuntime(
       )
     }
     resolvedPort = parsed
-  }
-  if (resolvedPort === undefined) {
-    resolvedPort = DEFAULT_NODE_RUNTIME_OPTIONS.port
-  } else if (!Number.isInteger(resolvedPort) || resolvedPort < 0 || resolvedPort > 65535) {
-    throw new Error(`Invalid port configured: ${resolvedPort}. Expected integer 0-65535.`)
+  } else {
+    resolvedPort = DEFAULT_NODE_RUNTIME_CONFIG.port
   }
 
-  const resolvedHostname = opts.hostname
+  const resolvedHostname = input.hostname
   if (
     resolvedHostname !== undefined &&
     (!resolvedHostname.trim() ||
@@ -193,13 +183,13 @@ export function resolveNodeRuntime(
   }
 
   const deadline =
-    opts.shutdown?.deadline === undefined
-      ? DEFAULT_NODE_RUNTIME_OPTIONS.shutdown.deadline
-      : opts.shutdown.deadline
+    input.shutdown?.deadline === undefined
+      ? DEFAULT_NODE_RUNTIME_CONFIG.shutdown.deadline
+      : input.shutdown.deadline
   const reserve =
-    opts.shutdown?.reserve === undefined
-      ? DEFAULT_NODE_RUNTIME_OPTIONS.shutdown.reserve
-      : opts.shutdown.reserve
+    input.shutdown?.reserve === undefined
+      ? DEFAULT_NODE_RUNTIME_CONFIG.shutdown.reserve
+      : input.shutdown.reserve
   if (
     !Number.isFinite(deadline) ||
     !Number.isFinite(reserve) ||
@@ -212,16 +202,16 @@ export function resolveNodeRuntime(
   }
 
   let resolvedProbes: false | { liveness: string; readiness: string } = false
-  if (opts.probes !== false) {
+  if (input.probes !== false) {
     resolvedProbes = {
       liveness:
-        opts.probes?.liveness === undefined
-          ? DEFAULT_NODE_RUNTIME_OPTIONS.probes.liveness
-          : opts.probes.liveness,
+        input.probes?.liveness === undefined
+          ? DEFAULT_NODE_RUNTIME_CONFIG.probes.liveness
+          : input.probes.liveness,
       readiness:
-        opts.probes?.readiness === undefined
-          ? DEFAULT_NODE_RUNTIME_OPTIONS.probes.readiness
-          : opts.probes.readiness,
+        input.probes?.readiness === undefined
+          ? DEFAULT_NODE_RUNTIME_CONFIG.probes.readiness
+          : input.probes.readiness,
     }
     for (const [field, path] of Object.entries(resolvedProbes)) {
       if (typeof path !== 'string' || !path.startsWith('/') || /[?#\s]/.test(path)) {
@@ -236,9 +226,7 @@ export function resolveNodeRuntime(
   return {
     port: resolvedPort,
     hostname: resolvedHostname,
-    compress: resolveCompression(
-      opts.compress === undefined ? DEFAULT_NODE_RUNTIME_OPTIONS.compress : opts.compress,
-    ),
+    compress: resolveCompression(input.compress),
     shutdown: { deadline, reserve },
     probes: resolvedProbes,
   }

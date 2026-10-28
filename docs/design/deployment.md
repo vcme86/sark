@@ -14,7 +14,9 @@
 
 标准入口在导入应用配置前加载环境。Node 文件从低到高为 .env、.env.local、.env.[mode]、.env.[mode].local，已有进程变量最高；生产从应用运行根加载，默认 production，不引用构建机器目录。开发/构建沿 Vite 的 envDir/mode。
 
-各能力只使用传入的 Env。DATABASE_URL、JWT/游客/因素密钥由应用工厂明确赋值；不自动把 COOKIE_SECRET/HOSTS 等变量变成另一套核心配置来源。
+各能力只使用传入的 Env。DATABASE_URL、JWT/访客/因素密钥由应用工厂明确赋值；不自动把 COOKIE_SECRET/HOSTS 等变量变成另一套核心配置来源。
+
+Node 部署在可信反向代理后时，代理须移除或覆写客户端提供的 X-Forwarded-For、X-Forwarded-Host、X-Forwarded-Proto 等转发头。trustedProxies 允许采信代理提供的来源信息，不代替这项代理配置；请求 Host 约束与对外转发主机也不混用。
 
 Node 开发入口将 Vite 加载结果作为该实例的 Env，不把文件值写入 process.env。Vite 重启后重新取得环境，已有进程变量仍最高优先，不让上次文件值污染本次解析。
 

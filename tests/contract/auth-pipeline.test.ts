@@ -1,8 +1,3 @@
-/**
- * Full-stack contract tests for first-party authentication pipeline,
- * Bearer/Cookie resolution, CSRF interaction, and rolling renewal.
- */
-
 import { Context } from 'hono'
 import { parse } from 'hono/utils/cookie'
 import { describe, expect, it, vi } from 'vitest'
@@ -12,9 +7,14 @@ import { createApp } from '../../src/core/create'
 import { createDefinition } from '../../src/core/definition'
 import { type AuthDeclaration, defineAuth, signToken } from '../../src/entries/auth/session'
 import { type AppDeclaration, defineApp } from '../../src/entries/server'
+import type { RouteEntry } from '../../src/http/server/types'
 import { requireStepUp } from '../../src/services/auth/guard'
 import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import type { RouteEntry } from '../../src/web/http/server/pipeline'
+
+/**
+ * Full-stack contract tests for first-party authentication pipeline,
+ * Bearer/Cookie resolution, CSRF interaction, and rolling renewal.
+ */
 
 const TEST_SECRET = 'a-very-long-secret-key-that-is-at-least-32-bytes-long!'
 
@@ -22,7 +22,7 @@ function createAuthTestDefinition(input: {
   app?: AppDeclaration
   auth: AuthDeclaration
   routes?: any[]
-  resolvePageConfig?: any
+  createPageConfigResolver?: () => (env: unknown) => unknown
   apiPrefix?: string
 }) {
   return createDefinition({
@@ -31,7 +31,7 @@ function createAuthTestDefinition(input: {
       auth: createAuthAssembly(input.auth),
     },
     routes: input.routes,
-    resolvePageConfig: input.resolvePageConfig,
+    createPageConfigResolver: input.createPageConfigResolver,
     apiPrefix: input.apiPrefix,
   })
 }
@@ -897,8 +897,8 @@ describe('Auth Pipeline & Request Context Integration', () => {
 
   it('delivers renewed session cookie on real SSR page when remaining lifetime < expiresIn / 2', async () => {
     const { createElement } = await import('react')
-    const { createPageHandler } = await import('../../src/web/page/server/handler')
-    const { resolvePageConfig } = await import('../../src/web/page/config')
+    const { createPageHandler } = await import('../../src/page/server/handler')
+    const { resolvePageConfig } = await import('../../src/page/config')
 
     const appDecl = defineApp({ hosts: 'localhost' })
     const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 604_800_000, rolling: true })
@@ -937,7 +937,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
       app: appDecl,
       auth: authDecl,
       apiPrefix: '/api',
-      resolvePageConfig: (env: unknown) => resolvePageConfig(undefined, env, '/api'),
+      createPageConfigResolver: () => (env: unknown) => resolvePageConfig(undefined, env, '/api'),
       routes: [pageRoute],
     })
 

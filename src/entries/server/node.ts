@@ -8,5 +8,5 @@ export {
   defineNodeRuntime,
   type CompressionOptions,
   type NodeRuntimeDeclaration,
-  type NodeRuntimeOptions,
+  type NodeRuntimeConfig,
 } from '../../adapter/node/runtime'

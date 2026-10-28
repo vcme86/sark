@@ -6,7 +6,7 @@
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
-import { HttpError } from '../../web/http/error'
+import { HttpError } from '../../http/error'
 import type { RequestAuth } from './session/types'
 
 /** Options required to guard sensitive operations with step-up verification. */
@@ -25,12 +25,7 @@ export interface StepUpOptions {
  * @throws If maxAge is not a finite, non-negative duration.
  */
 export function requireStepUp(options: StepUpOptions): MiddlewareHandler {
-  if (
-    !options ||
-    typeof options.maxAge !== 'number' ||
-    !Number.isFinite(options.maxAge) ||
-    options.maxAge < 0
-  ) {
+  if (!options || !Number.isFinite(options.maxAge) || options.maxAge < 0) {
     throw new Error('requireStepUp requires a non-negative maxAge in milliseconds.')
   }
 

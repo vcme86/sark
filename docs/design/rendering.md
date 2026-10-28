@@ -25,26 +25,22 @@ import { definePage } from '@olivaw/sark/page'
 
 type Env = NodeJS.ProcessEnv
 
-export const page = definePage((env: Env) => {
-  const serverUrl = env.INTERNAL_API_URL
-  if (!serverUrl) throw new Error('INTERNAL_API_URL is required')
-  return {
-    api: { serverUrl, browserUrl: '/api' },
-    identity: async ({ client, signal }) => {
-      const user = await client.get('/me', { init: { signal } })
-      return { user }
-    },
-  }
-})
+export const page = definePage((env: Env) => ({
+  api: { serverUrl: env.INTERNAL_API_URL, browserUrl: '/api' },
+  identity: async ({ client, signal }) => {
+    const user = await client.get('/me', { init: { signal } })
+    return { user }
+  },
+}))
 ```
 
-这是 Node 环境工厂示例；Workers 使用 Wrangler Env，环境来源与校验见 [application.md](application.md)。api 为可选的远端模式，选用时 serverUrl 必须是完整受信 API 基址，browserUrl 为浏览器可访问基址，缺省采用工程 apiPrefix。api 另接受 `credentials?: RequestCredentials`，传给浏览器绑定客户端；默认值与单次调用覆盖沿 [http.md](http.md)。
+这是 Node 环境工厂示例；Workers 使用 Wrangler Env，环境来源与校验见 [application.md](application.md)。api 为可选的远端模式，选用时 serverUrl 必须是完整受信 API 基址，browserUrl 为浏览器可访问基址，缺省采用工程 apiPrefix。两种 API 基址均不含 query、fragment 或 URL 内凭据，在配置入口校验；serverUrl 只接受绝对 HTTP(S)，browserUrl 另可使用相对路径。api 另接受 `credentials?: RequestCredentials`，传给浏览器绑定客户端；默认值与单次调用覆盖沿 [http.md](http.md)。
 
 服务端在所属入口解析 page 声明后，将本次有效的公开 API 基址和 credentials 写入启动载荷，浏览器据此构造绑定客户端。声明解析时机遵循 [configuration.md](configuration.md)，identity 等请求回调仍按请求执行。
 
 identity 是可选的 SSR 映射回调，签名为 `({ client, signal }) => IdentitySnapshot | Promise<IdentitySnapshot>`；同应用内部传输和远端 api 模式都可以使用，不要求先声明 api。
 
-不声明 api 时使用本应用内部调用；不在本地返回 404 时尝试远端。远端模式和本地模式只改变传输，不改变 Loader、Action、错误和类型调用。
+声明 api 时必须提供 serverUrl 属性，可直接赋可能缺失的环境值；入口拒绝缺失或无效地址，不能据此回落到本地 API。不声明 api 时使用本应用内部调用；不在本地返回 404 时尝试远端。远端模式和本地模式只改变传输，不改变 Loader、Action、错误和类型调用。
 
 未配置 identity 时，单体默认将已验证身份的 sub 和可选 roles 映射到 user，无身份则 user=null；不自动生成 displayName。分离模式默认匿名展示快照，API 仍自己认证。应用可通过 identity 或 Loader 数据提供展示名；框架不猜 /me 的名称与响应字段，页面服务不必持有后端 DB/签名密钥。
 
@@ -52,9 +48,19 @@ API 类型通过工程 apiTypes 或独立类型引用交付。浏览器运行时
 
 ## 远端请求与 Cookie 传递
 
-框架绑定的 API client 只向显式受信目标传递必要 Cookie/Bearer、请求 ID 和取消信号；普通外部 createClient 不自动继承当前请求秘密。请求按 API 基址构造，不接受浏览器指定任意服务器地址。
+框架绑定的 API client 只向显式受信目标传递必要 Cookie/Bearer、请求 ID 和取消信号；普通外部 createClient 不自动继承当前请求秘密。请求按 API 基址构造，不接受浏览器指定任意服务器地址。应用显式使用 requestRaw 调用基址外的绝对 URL 时走普通 fetch，不自动继承入站凭据。
 
 服务端不使用 credentials 枚举模拟浏览器 Cookie jar；内部调用保留当前请求上下文，远端 SSR 按受信目标规则显式转发凭据。浏览器的 include 不扩展 SSR 可转发秘密的目标。
+
+远端业务请求传递取消信号，框架不设置默认操作期限，以保留长查询和持续流语义。有限操作可由应用通过 init.signal 指定期限，并保留所属请求的取消：
+
+```ts
+await client.get('/report', {
+  init: { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) },
+})
+```
+
+上例中的 signal 来自 Loader/Action 参数；期限同样覆盖响应正文读取，不是整个 SSR 的总期限。
 
 远端 fetch 使用手动重定向，客户端按既定 HTTP 响应及错误规则处理，不向重定向目标继续发送秘密，也不把 API 重定向直接变成页面导航。网络故障作为调用失败，由页面边界处理。
 

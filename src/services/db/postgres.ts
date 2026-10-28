@@ -9,14 +9,14 @@ import postgres from 'postgres'
 
 import type { RequiresEnv } from '../../core/declaration'
 import type { DisposalContext } from '../../core/resource'
-import { type DatabaseDeclaration, type DatabaseInput, resolveDatabaseOptions } from './declaration'
+import { type DatabaseDeclaration, type DatabaseInput, evaluateDatabaseConfig } from './declaration'
 
 /** Native postgres.js Drizzle result, including its client. */
 export type PostgresDatabase<Schema extends Record<string, unknown> = Record<string, never>> =
   ReturnType<typeof drizzle<Schema>>
 
 /** PostgreSQL connection pool overrides. */
-export interface PostgresPoolOptions {
+export interface PostgresPoolConfig {
   /** Positive maximum connection count; defaults to 10. */
   max?: number
   /** Idle timeout in milliseconds; defaults to 30000. Zero disables the timer. */
@@ -25,27 +25,25 @@ export interface PostgresPoolOptions {
   connectTimeout?: number
 }
 
-/** Options for the Node PostgreSQL database. */
-export interface PostgresOptions<Schema extends Record<string, unknown> = Record<string, never>> {
+/** Configuration for the Node PostgreSQL database. */
+export interface PostgresConfig<Schema extends Record<string, unknown> = Record<string, never>> {
   /** PostgreSQL connection URL. */
-  url: string
+  url: string | undefined
   /** Imported Drizzle tables and relations. */
   schema?: Schema
   /** Connection pool limits and timeout overrides. */
-  pool?: PostgresPoolOptions
+  pool?: PostgresPoolConfig
 }
 
 /** PostgreSQL declaration retaining its schema and native result. */
 export type PostgresDeclaration<Schema extends Record<string, unknown> = Record<string, never>> =
-  DatabaseDeclaration<'postgres', PostgresOptions<Schema>, PostgresDatabase<Schema>>
+  DatabaseDeclaration<'postgres', PostgresConfig<Schema>, PostgresDatabase<Schema>>
 
 /** PostgreSQL options with Sark pool defaults applied. */
-export interface ResolvedPostgresConfig<
-  Schema extends Record<string, unknown> = Record<string, never>,
-> {
+interface ResolvedPostgresConfig<Schema extends Record<string, unknown> = Record<string, never>> {
   url: string
   schema?: Schema
-  pool: Required<PostgresPoolOptions>
+  pool: Required<PostgresPoolConfig>
 }
 
 const DEFAULT_POOL = {
@@ -57,11 +55,11 @@ const DEFAULT_POOL = {
 /**
  * Declares a PostgreSQL database without opening a connection.
  *
- * @param options - Database settings and optional Drizzle schema.
+ * @param config - Database settings and optional Drizzle schema.
  * @returns A declaration assembled by the owning host.
  */
 export function defineDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(
-  options: PostgresOptions<TSchema>,
+  config: PostgresConfig<TSchema>,
 ): PostgresDeclaration<TSchema>
 
 /**
@@ -73,21 +71,19 @@ export function defineDatabase<TSchema extends Record<string, unknown> = Record<
 export function defineDatabase<
   TSchema extends Record<string, unknown> = Record<string, never>,
   E = unknown,
->(factory: (env: E) => PostgresOptions<TSchema>): PostgresDeclaration<TSchema> & RequiresEnv<E>
+>(factory: (env: E) => PostgresConfig<TSchema>): PostgresDeclaration<TSchema> & RequiresEnv<E>
 
 export function defineDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(
-  optionsOrFactory: DatabaseInput<PostgresOptions<TSchema>>,
+  input: DatabaseInput<PostgresConfig<TSchema>>,
 ): PostgresDeclaration<TSchema> {
   return {
     kind: 'database',
     driver: 'postgres',
     target: 'node',
-    isFactory: typeof optionsOrFactory === 'function',
-    value: optionsOrFactory,
+    value: input,
+    isFactory: typeof input === 'function',
     async createStatic(env: unknown) {
-      const config = resolvePostgresConfig(optionsOrFactory, env)
-      const { db, dispose } = await createPostgresDatabase(config)
-      return { value: db, dispose }
+      return createPostgresDatabase(resolvePostgresConfig(input, env))
     },
   }
 }
@@ -102,8 +98,8 @@ export function defineDatabase<TSchema extends Record<string, unknown> = Record<
  */
 export function resolvePostgresConfig<
   TSchema extends Record<string, unknown> = Record<string, never>,
->(input: DatabaseInput<PostgresOptions<TSchema>>, env: unknown): ResolvedPostgresConfig<TSchema> {
-  const raw = resolveDatabaseOptions(input, env)
+>(input: DatabaseInput<PostgresConfig<TSchema>>, env: unknown): ResolvedPostgresConfig<TSchema> {
+  const raw = evaluateDatabaseConfig(input, env)
 
   if (typeof raw.url !== 'string' || raw.url.length === 0)
     throw new Error('PostgreSQL database url is required.')
@@ -114,26 +110,11 @@ export function resolvePostgresConfig<
     }
   }
 
-  if (raw.pool?.idleTimeout !== undefined) {
-    if (
-      typeof raw.pool.idleTimeout !== 'number' ||
-      !Number.isFinite(raw.pool.idleTimeout) ||
-      raw.pool.idleTimeout < 0
-    ) {
+  for (const field of ['idleTimeout', 'connectTimeout'] as const) {
+    const value = raw.pool?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
       throw new Error(
-        `PostgreSQL pool.idleTimeout must be a non-negative finite number, got ${raw.pool.idleTimeout}.`,
-      )
-    }
-  }
-
-  if (raw.pool?.connectTimeout !== undefined) {
-    if (
-      typeof raw.pool.connectTimeout !== 'number' ||
-      !Number.isFinite(raw.pool.connectTimeout) ||
-      raw.pool.connectTimeout < 0
-    ) {
-      throw new Error(
-        `PostgreSQL pool.connectTimeout must be a non-negative finite number, got ${raw.pool.connectTimeout}.`,
+        `PostgreSQL pool.${field} must be a non-negative finite number, got ${value}.`,
       )
     }
   }
@@ -156,12 +137,12 @@ export function resolvePostgresConfig<
  * @param config - Resolved PostgreSQL database configuration.
  * @returns Initialized Drizzle instance and disposal function.
  */
-export async function createPostgresDatabase<
+async function createPostgresDatabase<
   TSchema extends Record<string, unknown> = Record<string, never>,
 >(
   config: ResolvedPostgresConfig<TSchema>,
 ): Promise<{
-  db: PostgresDatabase<TSchema>
+  value: PostgresDatabase<TSchema>
   dispose: (context: DisposalContext) => Promise<void>
 }> {
   const client = postgres(config.url, {
@@ -180,7 +161,7 @@ export async function createPostgresDatabase<
   }
 
   return {
-    db,
+    value: db,
     dispose: ({ signal, deadline }) => {
       // postgres.js reuses the first end() operation, so its timeout must be set once.
       const timeout = signal.aborted

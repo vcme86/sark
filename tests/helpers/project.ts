@@ -4,12 +4,13 @@ import type { Server } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 
 export const projectRoot = resolve('.')
-export const cliEntry = join(projectRoot, 'dist/tooling/cli/index.mjs')
+export const cliEntry = join(projectRoot, 'dist/tooling/cli.mjs')
 export const viteEntry = '@olivaw/sark/vite'
 
 /** Creates an isolated application that resolves the repository's built package exports. */
 export function createProject() {
-  const root = mkdtempSync(join(projectRoot, 'tests/fixtures/application-'))
+  mkdirSync(join(projectRoot, '.build'), { recursive: true })
+  const root = mkdtempSync(join(projectRoot, '.build/application-'))
   return {
     root,
     write(path: string, source: string) {

@@ -6,9 +6,10 @@
 
 import type { Hono } from 'hono'
 
+import { getApplicationRoutes } from '../../core/context'
 import type { ApplicationDefinition } from '../../core/definition'
 import type { AppInstance } from '../../core/types'
-import { requestContext } from '../../web/http/server/request-context'
+import { requestContext } from '../../http/server/request-context'
 
 /**
  * Mounts probes outside business admission.
@@ -38,14 +39,19 @@ export function mountNodeProbes(
     return instance.config.caseSensitive ? value : value.toLowerCase()
   }
   for (const [name, path] of Object.entries(probesConfig)) {
-    const conflict = instance.definition.routes.find(
-      ({ routePath }) =>
-        (routePath.method === 'GET' || routePath.method === 'ALL') &&
-        normalize(routePath.urlPath) === normalize(path),
+    const conflict = getApplicationRoutes(instance).find(
+      (route) =>
+        (route.method === 'GET' || route.method === 'ALL') &&
+        normalize(route.path) === normalize(path),
     )
     if (conflict) {
+      const source = instance.definition.routes.find(
+        ({ routePath }) =>
+          routePath.method === conflict.method &&
+          normalize(routePath.urlPath) === normalize(conflict.path),
+      )?.source
       throw new Error(
-        `Route conflict: Node ${name} probe GET ${path} conflicts with ${conflict.source ?? `${conflict.routePath.method} ${conflict.routePath.urlPath}`}.`,
+        `Route conflict: Node ${name} probe GET ${path} conflicts with ${source ?? `${conflict.method} ${conflict.path}`}.`,
       )
     }
   }

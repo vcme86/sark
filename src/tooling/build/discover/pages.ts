@@ -9,12 +9,12 @@ import {
   parseApiFilePath,
   type RouteSegment,
   tokenizePath,
-} from '../../../web/http/path'
+} from '../../../http/path'
 import { scanRouteFiles } from './files'
 import { parseModule } from './module'
 
 /** Parsed page route URL and collision signature. */
-export interface ParsedPageRoutePath {
+interface ParsedPageRoutePath {
   /** Relative URL path (e.g. `/`, `/posts/:id`, `/posts/*`). */
   readonly urlPath: string
   /** Normalized path signature used for route collision detection (e.g. `/posts/:param`). */
@@ -28,7 +28,7 @@ export interface ParsedPageRoutePath {
 }
 
 /** Discovered AST export flags for a page or layout module. */
-export interface PageExportFlags {
+interface PageExportFlags {
   readonly hasDefault: boolean
   readonly hasLoader: boolean
   readonly hasAction: boolean
@@ -39,7 +39,7 @@ export interface PageExportFlags {
 }
 
 /** Discovered layout source file. */
-export interface DiscoveredLayoutFile {
+interface DiscoveredLayoutFile {
   readonly filePath: string
   readonly relativePath: string
   readonly scopeKey: string
@@ -48,7 +48,7 @@ export interface DiscoveredLayoutFile {
 }
 
 /** Discovered error presentation source file. */
-export interface DiscoveredErrorFile {
+interface DiscoveredErrorFile {
   readonly filePath: string
   readonly relativePath: string
   readonly scopeKey: string
@@ -56,14 +56,14 @@ export interface DiscoveredErrorFile {
 }
 
 /** Discovered root document source file (`_root.tsx`). */
-export interface DiscoveredRootFile {
+interface DiscoveredRootFile {
   readonly filePath: string
   readonly relativePath: string
   readonly exports: { readonly hasDefault: boolean }
 }
 
 /** Discovered page scope middleware file (`_middleware.ts/.js`). */
-export interface DiscoveredPageMiddlewareFile {
+interface DiscoveredPageMiddlewareFile {
   readonly filePath: string
   readonly relativePath: string
   readonly scopeKey: string
@@ -72,7 +72,7 @@ export interface DiscoveredPageMiddlewareFile {
 }
 
 /** Complete scope metadata linking ancestor layouts, errors, and middlewares. */
-export interface DiscoveredPageScope {
+interface DiscoveredPageScope {
   readonly scopeKey: string
   readonly layout?: DiscoveredLayoutFile
   readonly error?: DiscoveredErrorFile
@@ -80,7 +80,7 @@ export interface DiscoveredPageScope {
 }
 
 /** Discovered page route source file. */
-export interface DiscoveredPageFile {
+interface DiscoveredPageFile {
   readonly filePath: string
   readonly relativePath: string
   readonly routePath: ParsedPageRoutePath
@@ -249,7 +249,7 @@ function parsePageRoutePath(relativePath: string, webPrefix: string): ParsedPage
  * @param b - Second candidate page route.
  * @returns A negative number when a precedes b, positive when b precedes a, or 0 when equal.
  */
-export function comparePageRoutes(a: ParsedPageRoutePath, b: ParsedPageRoutePath): number {
+function comparePageRoutes(a: ParsedPageRoutePath, b: ParsedPageRoutePath): number {
   return compareRoutes({ urlPath: a.urlPath, method: 'GET' }, { urlPath: b.urlPath, method: 'GET' })
 }
 

@@ -4,8 +4,8 @@
  * @module
  */
 
-export { definePage } from '../web/page/config'
-export { notFound, NotFoundSignal, redirect, RedirectSignal } from '../web/page/signals'
+export { definePage } from '../page/config'
+export { notFound, NotFoundSignal, redirect, RedirectSignal } from '../page/signals'
 export type {
   ActionArgs,
   ActionResult,
@@ -23,4 +23,4 @@ export type {
   PageIdentityCallback,
   ScriptDescriptor,
   ShouldRevalidateArgs,
-} from '../web/page/types'
+} from '../page/types'

@@ -5,4 +5,4 @@
  */
 
 export { defineDatabase, type SqliteDeclaration } from '../../services/db/sqlite'
-export type { SqliteOptions } from '../../services/db/sqlite'
+export type { SqliteConfig } from '../../services/db/sqlite'

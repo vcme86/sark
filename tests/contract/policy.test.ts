@@ -12,8 +12,8 @@ import {
   type RouteDeclaration,
   z,
 } from '../../src/entries/server'
-import { parseApiFilePath } from '../../src/web/http/path'
-import type { RouteEntry } from '../../src/web/http/server/pipeline'
+import { parseApiFilePath } from '../../src/http/path'
+import type { RouteEntry } from '../../src/http/server/types'
 
 const origin = 'https://frontend.example'
 const entry = (file: string, declaration: RouteDeclaration): RouteEntry => ({

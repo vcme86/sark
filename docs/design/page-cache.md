@@ -44,7 +44,7 @@ ttl/SWR 为秒；vary 是额外参与内容匹配的请求头名。布局向下�
 
 请求携 Cookie/Authorization 等凭据时，跳过公共实例缓存。请求 no-cache 强制渲染且不参与合并，但可写新产物；请求 no-store 同时禁止读、合并和写。
 
-该规则也包括 visitor Cookie，因此已初始化游客的回访请求不命中 Sark 公共实例缓存。HTML 不含游客 ID 不等于请求不带 Cookie；框架不据 Cookie 名自动忽略身份，因为应用可能用它读取私人阅读进度。不增加 Cookie 分类器，公共 cache 声明不能放宽私人输出限制。
+该规则也包括 visitor Cookie，因此已初始化访客的回访请求不命中 Sark 公共实例缓存。HTML 不含访客 ID 不等于请求不带 Cookie；框架不据 Cookie 名自动忽略身份，因为应用可能用它读取私人阅读进度。不增加 Cookie 分类器，公共 cache 声明不能放宽私人输出限制。
 
 响应 private/no-store/no-cache 不进入公共实例缓存；Set-Cookie 不保存，等待者退出共享。不能仅凭旧产物自身的 ETag 判定 no-cache 响应已完成向源站的重新验证。错误响应和重定向不缓存。
 

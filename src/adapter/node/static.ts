@@ -1,28 +1,32 @@
-import { createReadStream, realpathSync, type Stats, statSync } from 'node:fs'
+import { createReadStream, realpathSync, type Stats } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 
 import { getMimeType } from 'hono/utils/mime'
 
-import type { StaticAssets } from '../../web/http/assets'
+import type { StaticAssets } from '../../http/assets'
 
 /** Fully resolved build location and public URL mapping. */
-export interface NodeStaticOptions {
+interface NodeStaticOptions {
   /** Deployed output directory; a symbolic link is resolved when the handler is created. */
   readonly rootDir: string
   /** Allowed public URLs and file paths relative to rootDir. */
   readonly assets: StaticAssets
 }
 
-function resolveDecodedPath(rootDir: string, path: string): { path: string; stat: Stats } | null {
+async function resolveDecodedPath(
+  rootDir: string,
+  path: string,
+): Promise<{ path: string; stat: Stats } | null> {
   if (path.includes('\0') || path.split(/[/\\]/).includes('..')) return null
   const absolute = resolve(rootDir, `.${sep}${path}`)
   const rel = relative(rootDir, absolute)
   if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null
   try {
-    if (realpathSync(absolute) !== absolute) return null
-    const stat = statSync(absolute)
-    return stat.isFile() ? { path: absolute, stat } : null
+    if ((await realpath(absolute)) !== absolute) return null
+    const info = await stat(absolute)
+    return info.isFile() ? { path: absolute, stat: info } : null
   } catch (error) {
     if (
       error &&
@@ -60,11 +64,11 @@ export function createNodeStaticHandler(
     }
     if (!Object.hasOwn(options.assets.files, key)) return null
     const entry = options.assets.files[key]
-    const file = resolveDecodedPath(root, '/' + entry.path)
+    const file = await resolveDecodedPath(root, '/' + entry.path)
     if (!file) return null
-    const { path, stat } = file
-    const etag = `W/"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`
-    const modified = new Date(stat.mtimeMs).toUTCString()
+    const { path, stat: info } = file
+    const etag = `W/"${info.size.toString(16)}-${info.mtimeMs.toString(16)}"`
+    const modified = new Date(info.mtimeMs).toUTCString()
     const mime = getMimeType(path) ?? 'application/octet-stream'
     const headers = new Headers({
       'content-type': mime,
@@ -85,38 +89,38 @@ export function createNodeStaticHandler(
       }
     } else {
       const since = request.headers.get('if-modified-since')
-      if (since && Date.parse(since) >= Math.floor(stat.mtimeMs / 1000) * 1000) {
+      if (since && Date.parse(since) >= Math.floor(info.mtimeMs / 1000) * 1000) {
         return new Response(null, { status: 304, headers })
       }
     }
     let start = 0
-    let end = stat.size - 1
+    let end = info.size - 1
     let status = 200
     const range = request.headers.get('range')
     const ifRange = request.headers.get('if-range')
     const rangeAllowed =
       !ifRange ||
-      (!ifRange.startsWith('W/') && Date.parse(ifRange) >= Math.floor(stat.mtimeMs / 1000) * 1000)
+      (!ifRange.startsWith('W/') && Date.parse(ifRange) >= Math.floor(info.mtimeMs / 1000) * 1000)
     if (range && rangeAllowed && request.method === 'GET') {
       const match = /^bytes=(\d*)-(\d*)$/.exec(range)
       if (match && (match[1] || match[2])) {
-        start = match[1] ? Number(match[1]) : Math.max(0, stat.size - Number(match[2]))
+        start = match[1] ? Number(match[1]) : Math.max(0, info.size - Number(match[2]))
         end = match[1] && match[2] ? Math.min(Number(match[2]), end) : end
         if (
           !Number.isSafeInteger(start) ||
           !Number.isSafeInteger(end) ||
           start > end ||
-          start >= stat.size
+          start >= info.size
         ) {
-          headers.set('content-range', `bytes */${stat.size}`)
+          headers.set('content-range', `bytes */${info.size}`)
           return new Response(null, { status: 416, headers })
         }
         status = 206
-        headers.set('content-range', `bytes ${start}-${end}/${stat.size}`)
+        headers.set('content-range', `bytes ${start}-${end}/${info.size}`)
       }
     }
-    headers.set('content-length', String(stat.size === 0 ? 0 : end - start + 1))
-    if (request.method === 'HEAD' || stat.size === 0) return new Response(null, { status, headers })
+    headers.set('content-length', String(info.size === 0 ? 0 : end - start + 1))
+    if (request.method === 'HEAD' || info.size === 0) return new Response(null, { status, headers })
     const stream = createReadStream(path, { start, end, signal: request.signal })
     return new Response(Readable.toWeb(stream) as ReadableStream, { status, headers })
   }

@@ -23,7 +23,7 @@ export const mfa = defineMfa({
 database 是应用已有声明。Node 单进程启用因素后可省略 mfa，使用默认内存短期状态和共同策略；不因此启用恢复码。CF/多实例需要显式选择满足共享语义的状态后端。官方提供 PG/D1，允许等价自定义实现，不把特定数据库作为唯一合法选择。
 
 ```ts
-interface MfaOptions {
+interface MfaConfig {
   state?: AuthStateDeclaration
   login?:
     | 'required'

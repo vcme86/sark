@@ -9,8 +9,10 @@ export { requireStepUp, type StepUpOptions } from '../../services/auth/guard'
 export {
   defineAuth,
   type AuthDeclaration,
-  type AuthOptions,
-  type SessionCookieOptions,
+  type AuthConfig,
+  type SessionCookieConfig,
+  type SigningConfig,
+  type SigningKeyConfig,
 } from '../../services/auth/session/config'
 export type {
   AuthCheckContext,

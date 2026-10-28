@@ -25,7 +25,7 @@ export const health = defineHealth({
 
 这是 PostgreSQL 示例，sql 为 Drizzle 导入。SQLite 按实际驱动用 get/run/all，不假定所有驱动都有 execute。
 
-HealthOptions 包含 readiness（检查名到异步函数）、timeout、cache 和可选 auth(request)。timeout 默认 1000 毫秒，cache 默认 2000 毫秒，readiness 默认空。probes 已关闭却声明 health 是组合错误。
+HealthConfig 包含 readiness（检查名到异步函数）、timeout、cache 和可选 auth(request)。timeout 默认 1000 毫秒，cache 默认 2000 毫秒，readiness 默认空。probes 已关闭却声明 health 是组合错误。
 
 HealthCheckContext 提供 logger、signal 和所声明资源，例如 db；没有数据库时不出现虚构字段。检查不使用包含自身的 AppInstance。
 

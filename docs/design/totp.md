@@ -15,11 +15,11 @@ import { sqlTotp } from '@olivaw/sark/auth/totp/sqlite'
 type Env = NodeJS.ProcessEnv
 
 export const totp = defineTotp((env: Env) => {
-  const key = env.TOTP_KEY
-  if (!key) throw new Error('TOTP_KEY is required')
   return {
     issuer: 'Example',
-    keys: { current: { id: 'k2', key: decodeKey(key) } },
+    keys: {
+      current: { id: 'k2', key: env.TOTP_KEY === undefined ? undefined : decodeKey(env.TOTP_KEY) },
+    },
     store: sqlTotp({ database }),
   }
 })
@@ -28,7 +28,7 @@ export const totp = defineTotp((env: Env) => {
 这是 Node/SQLite 示例；Workers 使用 Wrangler Env 并选择 D1 适配，环境约定见 [application.md](application.md)。decodeKey 是应用解析部署密钥的函数，验证编码后返回 32 字节。Node/PG 与 CF/D1 从对应子路径选择同名 sqlTotp，不静态加载全部驱动。自定义模型也可提供专用 store。
 
 ```ts
-interface TotpOptions {
+interface TotpConfig {
   issuer: string
   keys: {
     current: { id: string; key: Uint8Array }
@@ -44,7 +44,7 @@ interface TotpOptions {
 
 issuer、keys、store 必需。默认 SHA1、6 位、period=30 秒、epochTolerance=30 秒。period/epochTolerance 沿 otplib 秒单位；epoch 使用 Unix 秒，匹配 timeStep 是时间步序号，不当作毫秒时间戳。
 
-启用 TOTP 需要 session 和共同 MFA 流程；缺依赖在资源创建前报错。Node 默认短期状态或显式共享状态由 MFA 选择，不在 TotpOptions 再放一份 challenge/accountLimit/recovery 配置。
+启用 TOTP 需要 session 和共同 MFA 流程；缺依赖在资源创建前报错。Node 默认短期状态或显式共享状态由 MFA 选择，不在 TotpConfig 再放一份 challenge/accountLimit/recovery 配置。
 
 ## 公开操作
 
@@ -113,6 +113,8 @@ SQLite/D1 用 SQLite 表定义，PG 用原生 PG 定义。应用可直接从 sch
 自定义 TotpStoreDeclaration 按 [application.md](application.md) 的 create(context) 延迟构造，返回 { value: TotpStore, dispose? }；回调中的 AuthCheckContext 仍属于实际验证执行，不与创建期上下文混用。
 
 ## 密钥与重加密
+
+原始密钥配置的 key 属性必填，类型为 Uint8Array | undefined；入口校验存在性及字节长度，解析结果为有效 Uint8Array。示例中的 decodeKey 是应用选择的编码转换，不是必填检查；缺失环境值保留为 undefined 交给入口，无效编码由转换函数报告。issuer 等必需环境值也由所属入口校验，不改变实际操作接口中的密钥类型。
 
 采用 WebCrypto AES-256-GCM，随机 nonce，密文封装包含版本与 keyId，并绑定 sub/factorId。密文挪到另一因素或主体不能解密。
 

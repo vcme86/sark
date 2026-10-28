@@ -16,7 +16,7 @@ publicDir 以 Vite 解析值为准，默认 public，可以修改或关闭。框
 - publicDir 中未哈希的文件及 HTML 使用 `Cache-Control: no-cache`，允许保存，但每次复用前必须验证；支持时通过 ETag/Last-Modified 条件请求返回 304
 - 开发环境不发送上述长期缓存策略
 
-内容哈希产物依据 Vite 构建清单识别，不按文件名外观猜测。未哈希文件不设一段允许直接复用旧内容的默认时间，避免同 URL 更新后继续使用旧版本。no-cache 的验证语义见 [RFC 9111 §5.2.2.4](https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.4)。本节只规定构建文件，不覆盖动态 SSR 页面的 cache 策略。
+内容哈希产物依据 Vite 构建清单识别，不按文件名外观猜测。Node 在请求内异步读取路径与文件信息，保持条件响应对当前文件的校验，不缓存全部文件元数据。未哈希文件不设一段允许直接复用旧内容的默认时间，避免同 URL 更新后继续使用旧版本。no-cache 的验证语义见 [RFC 9111 §5.2.2.4](https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.4)。本节只规定构建文件，不覆盖动态 SSR 页面的 cache 策略。
 
 生产资源 URL 由 manifest 与宿主接入生成，不手写哈希路径。Node 静态文件处理与 Workers 的 ASSETS 响应接入均应用上述默认头，并保留适用的条件响应及验证器；平台内部缓存仍由平台管理。
 

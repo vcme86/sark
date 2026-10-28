@@ -9,12 +9,12 @@ import {
   parseApiFilePath,
   type ParsedRoutePath,
   tokenizePath,
-} from '../../../web/http/path'
+} from '../../../http/path'
 import { scanRouteFiles } from './files'
 import { parseModule } from './module'
 
 /** Middleware source file and the directory scope it belongs to. */
-export interface DiscoveredMiddlewareFile {
+interface DiscoveredMiddlewareFile {
   /** Absolute file path on the host filesystem. */
   readonly filePath: string
   /** Path relative to the scanned API directory. */
@@ -96,7 +96,8 @@ function getRouteAncestorScopeKeys(relativePath: string): string[] {
   if (tokens.length < 2) return ['']
 
   // Drop the extension and method suffix; each remaining prefix identifies an ancestor scope.
-  const pathTokens = tokens.slice(0, tokens.length - 2).filter((t) => t !== 'index')
+  const pathTokens = tokens.slice(0, tokens.length - 2)
+  if (pathTokens.at(-1) === 'index') pathTokens.pop()
   const keys: string[] = ['']
   for (let i = 1; i <= pathTokens.length; i++) {
     keys.push(pathTokens.slice(0, i).join('/'))

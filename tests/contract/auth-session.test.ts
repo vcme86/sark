@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { requireStepUp } from '../../src/services/auth/guard'
 import { defineAuth, resolveAuthConfig } from '../../src/services/auth/session/config'
 import { formatSetCookie, initRequestSession } from '../../src/services/auth/session/request'
-import { createAuthService } from '../../src/services/auth/session/service'
+import { createAuthCacheStore, createAuthService } from '../../src/services/auth/session/service'
 import { signToken, verifyToken } from '../../src/services/auth/session/token'
 import type { SignInInput } from '../../src/services/auth/session/types'
 
@@ -220,9 +220,23 @@ describe('First-party Auth & Session', () => {
         resolveAuthConfig({ secret: SECRET, cacheKey: (identity) => identity.sub, validate }),
       )
       const { token } = await service.issue({ sub: 'alice' })
-      expect(await service.verify(token)).toBeNull()
+      await expect(service.verify(token)).rejects.toThrow('storage unavailable')
       expect((await service.verify(token))?.sub).toBe('alice')
       expect(validate).toHaveBeenCalledTimes(2)
+    })
+
+    it('propagates version-store failures and retries without caching the failed lookup', async () => {
+      const tokenVersion = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('version store unavailable'))
+        .mockResolvedValue(0)
+      const service = createAuthService(
+        resolveAuthConfig({ secret: SECRET, tokenVersion, cacheTtl: 60 }),
+      )
+      const { token } = await service.issue({ sub: 'alice' })
+      await expect(service.verify(token)).rejects.toThrow('version store unavailable')
+      expect((await service.verify(token))?.sub).toBe('alice')
+      expect(tokenVersion).toHaveBeenCalledTimes(2)
     })
 
     it('coalesces explicit keys even when result caching is disabled', async () => {
@@ -392,14 +406,14 @@ describe('First-party Auth & Session', () => {
       const declaration = defineAuth({ secret: SECRET })
       expect(declaration.kind).toBe('auth')
       expect(declaration.isFactory).toBe(false)
-      const resolved = resolveAuthConfig(declaration.value as any, undefined)
+      const resolved = resolveAuthConfig(declaration.value, undefined)
       expect(resolved.activeKey.secret).toBe(SECRET)
 
       const factoryDeclaration = defineAuth((env: { KEY: string }) => ({
         secret: env.KEY,
       }))
       expect(factoryDeclaration.isFactory).toBe(true)
-      const resolvedFactory = resolveAuthConfig(factoryDeclaration.value as any, { KEY: SECRET })
+      const resolvedFactory = resolveAuthConfig(factoryDeclaration.value, { KEY: SECRET })
       expect(resolvedFactory.activeKey.secret).toBe(SECRET)
     })
 
@@ -424,3 +438,42 @@ describe('First-party Auth & Session', () => {
     })
   })
 })
+
+it('bounds both hook caches and rechecks evicted credentials without changing cache hits', async () => {
+  const cache = createAuthCacheStore()
+  const tokenVersion = vi.fn(async () => 0)
+  const validate = vi.fn(async () => true)
+  const service = createAuthService(
+    resolveAuthConfig({
+      secret: SECRET,
+      cacheTtl: 60,
+      tokenVersion,
+      validate,
+      cacheKey: (identity) => identity.sub,
+    }),
+    {},
+    cache,
+  )
+  let first = ''
+  let last = ''
+  for (let index = 0; index <= 2000; index++) {
+    const token = await signToken({ sub: `reader-${index}`, ver: 0 }, { secret: SECRET })
+    if (index === 0) first = token
+    last = token
+    await service.verify(token)
+  }
+  expect(cache.versionCache.size).toBe(2000)
+  expect(cache.validateCache.size).toBe(2000)
+  expect(cache.versionInFlight.size).toBe(0)
+  expect(cache.validateInFlight.size).toBe(0)
+  expect(tokenVersion).toHaveBeenCalledTimes(2001)
+  expect(validate).toHaveBeenCalledTimes(2001)
+  expect((await service.verify(last))?.sub).toBe('reader-2000')
+  expect(tokenVersion).toHaveBeenCalledTimes(2001)
+  expect(validate).toHaveBeenCalledTimes(2001)
+  expect((await service.verify(first))?.sub).toBe('reader-0')
+  expect(tokenVersion).toHaveBeenCalledTimes(2002)
+  expect(validate).toHaveBeenCalledTimes(2002)
+  expect(cache.versionCache.size).toBe(2000)
+  expect(cache.validateCache.size).toBe(2000)
+}, 10000)

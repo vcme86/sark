@@ -9,6 +9,7 @@ import {
   getConfig,
   getConsoleSink,
   getLogger as getLogtapeLogger,
+  lazy,
 } from '@logtape/logtape'
 
 import { getRequestId } from './context'
@@ -34,35 +35,35 @@ export function ensureBasicLogging(): void {
 }
 
 /**
- * Application logger whose messages include the current request ID when available.
+ * Application logger with the current request ID as a structured property.
  * Additional arguments are stored in the structured args property, not interpolated.
  */
 export interface Logger {
   /**
    * Logs an informational message.
    *
-   * @param message - Message text, prefixed with the active request ID when available.
+   * @param message - Message text; the active request ID is attached as a structured property.
    * @param args - Values recorded in the structured args property.
    */
   info(message: string, ...args: unknown[]): void
   /**
    * Logs a warning.
    *
-   * @param message - Message text, prefixed with the active request ID when available.
+   * @param message - Message text; the active request ID is attached as a structured property.
    * @param args - Values recorded in the structured args property.
    */
   warn(message: string, ...args: unknown[]): void
   /**
    * Logs an error.
    *
-   * @param message - Message text, prefixed with the active request ID when available.
+   * @param message - Message text; the active request ID is attached as a structured property.
    * @param args - Values recorded in the structured args property.
    */
   error(message: string, ...args: unknown[]): void
   /**
    * Logs a debug message, subject to the configured minimum level.
    *
-   * @param message - Message text, prefixed with the active request ID when available.
+   * @param message - Message text; the active request ID is attached as a structured property.
    * @param args - Values recorded in the structured args property.
    */
   debug(message: string, ...args: unknown[]): void
@@ -72,34 +73,30 @@ class SarkLogger implements Logger {
   private readonly logger: ReturnType<typeof getLogtapeLogger>
 
   constructor(category: string) {
-    this.logger = getLogtapeLogger(category === 'app' ? ['app'] : ['app', category])
-  }
-
-  private format(message: string): string {
-    const reqId = getRequestId()
-    return reqId ? `[req:${reqId}] ${message}` : message
+    this.logger = getLogtapeLogger(category === 'app' ? ['app'] : ['app', category]).with({
+      requestId: lazy(getRequestId),
+    })
   }
 
   info(message: string, ...args: unknown[]): void {
-    this.logger.info(this.format(message), { args })
+    this.logger.info(message, args.length ? { args } : undefined)
   }
 
   warn(message: string, ...args: unknown[]): void {
-    this.logger.warn(this.format(message), { args })
+    this.logger.warn(message, args.length ? { args } : undefined)
   }
 
   error(message: string, ...args: unknown[]): void {
-    this.logger.error(this.format(message), { args })
+    this.logger.error(message, args.length ? { args } : undefined)
   }
 
   debug(message: string, ...args: unknown[]): void {
-    this.logger.debug(this.format(message), { args })
+    this.logger.debug(message, args.length ? { args } : undefined)
   }
 }
 
 /**
- * Creates a logger for `category` (default: `app`). Messages include `[req:<id>]`
- * when emitted within a request scope.
+ * Creates a logger for `category` (default: `app`) with a lazy requestId property.
  *
  * @param category - Category namespace (defaults to `'app'`).
  * @returns Logger instance configured for contextual output.

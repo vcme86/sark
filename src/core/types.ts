@@ -1,6 +1,4 @@
-import type { Hono } from 'hono'
-
-import type { ResolvedHttpConfig } from '../web/http/config'
+import type { ResolvedHttpConfig } from '../http/config'
 import type { DisposalContext, InferResource } from './resource'
 
 /** Server-side global type registry augmented by build-time code generation. */
@@ -31,15 +29,12 @@ export interface DisposableResource {
 }
 
 /** Base application instance interface common to all configurations. */
-export interface BaseAppInstance<D = unknown> {
+interface BaseAppInstance<D = unknown> {
   /** Definition used to create this instance. */
   readonly definition: D
 
   /** Resolved instance configuration; event hosts expose the current event configuration only within its scope. */
   readonly config: ResolvedHttpConfig
-
-  /** Underlying Hono instance for advanced extension and inspection. */
-  readonly hono: Hono<any>
 
   /** Current lifecycle state of the application. */
   readonly state: LifecycleState
@@ -76,7 +71,7 @@ export interface BaseAppInstance<D = unknown> {
 }
 
 /** Inferred resource capabilities derived from application definition resources. */
-export type AppInstanceResources<D> = D extends { resources?: infer R }
+type AppInstanceResources<D> = D extends { resources?: infer R }
   ? [NonNullable<R>] extends [never]
     ? {}
     : {
@@ -85,7 +80,7 @@ export type AppInstanceResources<D> = D extends { resources?: infer R }
   : {}
 
 /** Inferred domain service capabilities derived from application definition services. */
-export type AppInstanceServices<D> = D extends { services?: infer S }
+type AppInstanceServices<D> = D extends { services?: infer S }
   ? {
       readonly [
         K in keyof NonNullable<S> as [import('./service').InferService<NonNullable<S>[K]>] extends [

@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { RequiresEnv } from '../../../core/declaration'
+import { evaluateDeclaration, type RequiresEnv } from '../../../core/declaration'
 import { normalizePresetConfig } from './providers/presets'
 import type {
   OAuthDeclaration,
@@ -51,42 +51,29 @@ export function defineOAuth<E = unknown>(
  */
 export function defineOAuth(providers: readonly OAuthProviderConfig[]): OAuthDeclaration
 
-export function defineOAuth(inputOrFactory: OAuthInput): OAuthDeclaration {
+export function defineOAuth(input: OAuthInput): OAuthDeclaration {
   return {
     kind: 'oauth',
-    isFactory: typeof inputOrFactory === 'function',
-    value: inputOrFactory,
+    value: input,
+    isFactory: typeof input === 'function',
   }
 }
 
 /**
  * Resolves declared OAuth configurations into fully validated ResolvedOAuthProvider objects.
  *
- * @param input - Declared provider array, declaration, or factory function.
+ * @param input - Provider array or configuration factory.
  * @param env - Current instance or event environment.
  * @param apiPrefix - Resolved engineering API prefix for default authorization endpoints.
  * @returns Fully validated and normalized array of ResolvedOAuthProvider.
  * @throws If credentials or path configurations are invalid.
  */
 export function resolveOAuthProviders(
-  input: OAuthInput | OAuthDeclaration,
+  input: OAuthInput,
   env: unknown,
   apiPrefix: string,
 ): readonly ResolvedOAuthProvider[] {
-  const actualInput =
-    input && typeof input === 'object' && 'kind' in input && input.kind === 'oauth'
-      ? (input as OAuthDeclaration).value
-      : input
-
-  let list: readonly OAuthProviderConfig[]
-  if (typeof actualInput === 'function') {
-    if (env === undefined) {
-      throw new Error('Environment required by OAuth declaration factory was not provided.')
-    }
-    list = (actualInput as (env: any) => readonly OAuthProviderConfig[])(env)
-  } else {
-    list = actualInput as readonly OAuthProviderConfig[]
-  }
+  const list = evaluateDeclaration(input, env, 'OAuth')
 
   if (!Array.isArray(list)) {
     throw new Error('OAuth configuration must provide an array of providers.')

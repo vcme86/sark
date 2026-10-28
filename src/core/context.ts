@@ -8,7 +8,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 import type { Hono } from 'hono'
 
-import type { ResolvedHttpConfig } from '../web/http/config'
+import type { ResolvedHttpConfig } from '../http/config'
 import type { ServiceBinding, ServiceBindingFactory } from './service'
 import type { AppInstance } from './types'
 
@@ -63,11 +63,30 @@ export interface RequestScope extends ExecutionScope {
   readonly config: ResolvedHttpConfig
   readonly clientIp: string
   readonly externalOrigin: string
+  readonly serviceBindings: Record<string, ServiceBinding>
+  readonly parentBindings?: Readonly<Record<string, ServiceBinding>>
+  readonly isHeadersCommitted: () => boolean
   readonly appendCookies: NonNullable<ExecutionScope['appendCookies']>
   readonly commitResponseHeaders: NonNullable<ExecutionScope['commitResponseHeaders']>
 }
 
 const storage = new AsyncLocalStorage<ExecutionScope>()
+
+/** Static route tables retained for internal Node host inspection without exposing the router. */
+export const applicationRoutes = new WeakMap<object, Readonly<Hono['routes']>>()
+
+/**
+ * Reads a static application's compiled routes for host dispatch and conflict checks.
+ *
+ * @param instance - Created Node application whose routing metadata is registered.
+ * @returns The existing Hono route table, without copying or rebuilding it.
+ * @throws If the instance has no static host route table.
+ */
+export function getApplicationRoutes(instance: object): Readonly<Hono['routes']> {
+  const routes = applicationRoutes.get(instance)
+  if (!routes) throw new Error('Route inspection requires a static application instance.')
+  return routes
+}
 
 /**
  * Runs a callback and its asynchronous work within the supplied scope.

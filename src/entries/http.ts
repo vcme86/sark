@@ -11,12 +11,12 @@ export {
   type DefaultApi,
   type HttpClient,
   type Register,
-} from '../web/http/client/client'
-export { HttpError } from '../web/http/error'
+} from '../http/client/client'
+export { HttpError } from '../http/error'
 export type {
   ClientInputFromSchemas,
   Endpoint,
   EndpointFromRoute,
   HttpMethod,
   Jsonify,
-} from '../web/http/types'
+} from '../http/types'

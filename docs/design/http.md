@@ -1,8 +1,14 @@
 # HTTP 接口与客户端
 
+## 请求上下文与中间件
+
+server 导出的 Context 是带本应用资源和请求服务类型的 Hono Context，MiddlewareHandler 使用同一环境类型。应用、目录及路由中间件与处理器采用一致的上下文，不因省略 Hono 泛型而接受任意服务属性。
+
+独立中间件可使用 `const middleware: MiddlewareHandler = async (ctx, next) => { ... }`；目录文件可导入该类型约束默认导出。未声明的能力在类型和运行时均不存在，不为类型检查创建占位服务。绑定顺序及 CORS 回调的可用上下文见 [application.md](application.md)。
+
 ## 文件路由与匹配
 
-apiDir 默认 api，apiPrefix 默认 /api。目录和平铺点号等价；index 省去末段，(group) 不进入 URL，[id] 是单段参数，[...slug] 是通配参数，[.] 表示字面点号。
+apiDir 默认 api，apiPrefix 默认 /api。目录和平铺点号等价；只有终端索引文件的 index 省略，中间 index 目录保留为普通段，(group) 不进入 URL，[id] 是单段参数，[...slug] 是通配参数，[.] 表示字面点号。users.index.get.ts 对应 /api/users，users.index.posts.get.ts 与 users/index/posts.get.ts 对应 /api/users/index/posts。
 
 例如 users.[id].get.ts 对应 /api/users/:id，site[.]webmanifest.get.ts 对应 /api/site.webmanifest。
 
@@ -32,7 +38,7 @@ API 树只发现带上述方法、ws 或 sse 后缀的 `.ts/.js/.tsx/.jsx` 模�
 
 trailingSlash 默认 never：GET/HEAD 把 /a/ 以 308 转到 /a。always 相反，ignore 不重定向且保留两种 URL。非 GET/HEAD 两种形式直接匹配同一处理器，不因规范化重放正文。根路径与静态文件不参与。
 
-caseSensitive 默认 false，静态段大小写按共同规范处理；GET/HEAD 可 308，其他方法直接匹配，动态参数值不改写。WS 不重定向，仍按相同路径规则匹配。
+caseSensitive 默认 false，控制请求匹配；声明阶段始终拒绝同方法下仅大小写不同的重复路径。静态段大小写按共同规范处理；GET/HEAD 可 308，其他方法直接匹配，动态参数值不改写。WS 不重定向，仍按相同路径规则匹配。
 
 匹配使用规范化后的路径，不改动原始 Request.url。服务端、作用域、页面导航、链接和缓存使用相同规则；ignore 时保留的不同 URL 快照不合并为同一个缓存产物。
 
@@ -61,7 +67,9 @@ schema 支持 Standard Schema V1 及 safeParse/safeParseAsync 接口。在路由
 - params：文件路径参数
 - headers：请求头，名字小写
 
-json/form/text 三种正文字段互斥，同时声明多个时，在资源创建前报错。GET/HEAD 不声明或发送正文；POST、PUT、PATCH、DELETE、OPTIONS、QUERY 可以声明。all 声明不得让 GET/HEAD 依赖正文，不能绕过方法限制。
+json/form/text 三种正文字段互斥，同时声明多个时，在资源创建前报错。GET/HEAD 不声明或发送正文，发现的明确 GET/HEAD 声明若含正文 schema，在应用装配、资源创建前报错；POST、PUT、PATCH、DELETE、OPTIONS、QUERY 可以声明。all 声明不得让 GET/HEAD 依赖正文，不能绕过方法限制。
+
+例如 mixed.get.ts 处理无正文 GET 及派生 HEAD，mixed.all.ts 可以为其余方法声明 JSON 正文。必填正文优先使用具体方法；使用 all 时由应用确保实际落入其中的 GET/HEAD 不依赖正文，框架不探测 schema 或跳过校验。不符合该约束的请求按实际输入校验失败。
 
 正文按 Content-Type 解析，媒体类型不适用返回 415，语法错误或 schema 校验失败返回 400。缺省正文与空值按 schema 分开处理。正文读取产生的 HttpError（包括超限的 413）原样传播，不转换为解析错误。
 
@@ -111,7 +119,7 @@ interface ErrorBody {
 }
 ```
 
-code 用于程序识别，message 用于展示。未知异常记录实际错误，生产返回 500 的通用信息，不带内部堆栈或敏感 details。401 在适用认证方案下提供 WWW-Authenticate。错误响应体不再进行 Accept 协商。
+code 用于程序识别，message 用于展示。未知异常记录实际错误，生产返回 500 的通用信息，不带内部堆栈或敏感 details。401 在适用认证方案下提供 WWW-Authenticate。错误响应体不再进行 Accept 协商。序列化的状态若为 204、205 或 304，遵循无正文要求，不生成 JSON 错误体；正常成功或条件响应仍由应用直接返回 Response 表达。
 
 Hono 原生 HTTPException 是已识别的协议异常，保留其 getResponse() 的状态、正文和响应头，不转换为未知异常或另套错误信封。
 

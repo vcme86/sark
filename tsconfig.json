@@ -7,5 +7,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "exclude": ["**/dist"]
+  "exclude": ["**/dist", "tests/integration/package*.test.ts"]
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 
 import { discoverAppEntry } from '../../src/tooling/build/discover/app'
+import { discoverPages } from '../../src/tooling/build/discover/pages'
 import { discoverApiRoutes } from '../../src/tooling/build/discover/routes'
 
 it('rejects middleware syntax errors at discovery with the source file identified', () => {
@@ -17,6 +18,49 @@ it('rejects middleware syntax errors at discovery with the source file identifie
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+it.each(['directory', 'dotted'])(
+  'preserves intermediate index directories and group ancestry in %s routes',
+  (format) => {
+    const root = mkdtempSync(join(tmpdir(), 'sark-index-discovery-'))
+    const name = (path: string) => (format === 'dotted' ? path.replaceAll('/', '.') : path)
+    const write = (tree: string, path: string, source: string) => {
+      const fullPath = join(root, tree, name(path))
+      mkdirSync(join(fullPath, '..'), { recursive: true })
+      writeFileSync(fullPath, source)
+    }
+    try {
+      for (const tree of ['api', 'app']) {
+        write(tree, '(content)/users/_middleware.ts', 'export const scope = {}')
+        write(tree, '(content)/users/index/_middleware.ts', 'export const scope = {}')
+      }
+      write('api', '(content)/users/index.get.ts', 'export default {}')
+      write('api', '(content)/users/index/posts.get.ts', 'export default {}')
+      write('app', '(content)/users/index.tsx', 'export default () => null')
+      write('app', '(content)/users/index/posts.tsx', 'export default () => null')
+      const api = discoverApiRoutes(join(root, 'api'), '/api')
+      const pages = discoverPages(join(root, 'app'), '/')
+      expect(api.map((entry) => entry.routePath.urlPath)).toEqual([
+        '/api/users',
+        '/api/users/index/posts',
+      ])
+      expect(pages.pages.map((entry) => entry.routePath.urlPath)).toEqual([
+        '/users',
+        '/users/index/posts',
+      ])
+      expect(api.map((entry) => entry.ancestorMiddlewares.map((mw) => mw.scopeKey))).toEqual([
+        ['(content)/users'],
+        ['(content)/users', '(content)/users/index'],
+      ])
+      expect(pages.pages.map((entry) => entry.middlewareChain.map((mw) => mw.scopeKey))).toEqual([
+        ['(content)/users'],
+        ['(content)/users', '(content)/users/index'],
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+)
 
 it('ignores helper segments consistently in dotted and directory API routes', () => {
   const root = mkdtempSync(join(tmpdir(), 'sark-discovery-'))
@@ -49,8 +93,6 @@ it.each([
       'export type Env = NodeJS.ProcessEnv; export const app = {}',
     )
     expect(discoverAppEntry(join(root, 'app.ts'))).toEqual({
-      hasApp: true,
-      hasRuntime: false,
       exports: ['app'],
     })
   } finally {

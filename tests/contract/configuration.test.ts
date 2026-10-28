@@ -1,14 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
-import { createServer } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { type ClientOptions, createClient } from '../../src/entries/http'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { createApp, defineApp, route, setCookie } from '../../src/entries/server'
-import { sark } from '../../src/tooling/vite'
-import { parseApiFilePath } from '../../src/web/http/path'
+import { parseApiFilePath } from '../../src/http/path'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -103,53 +98,3 @@ it('uses resolved client options for typed and raw calls while factories remain 
   ])
   expect(factory).toHaveBeenCalledTimes(2)
 })
-
-it.each(['/service/v2/', '/'])(
-  'runs generated routes with custom project paths and prefix %s',
-  async (apiPrefix) => {
-    mkdirSync('.build', { recursive: true })
-    const root = mkdtempSync(resolve('.build/configuration-'))
-    mkdirSync(resolve(root, 'config'))
-    mkdirSync(resolve(root, 'handlers'))
-    writeFileSync(
-      resolve(root, 'config/application.ts'),
-      `import { defineApp } from '@olivaw/sark/server'
-export const app = defineApp({ headers: { 'X-Project': 'custom' } })`,
-    )
-    writeFileSync(
-      resolve(root, 'handlers/item.get.ts'),
-      `import { route } from '@olivaw/sark/server'
-export default route().handler(() => ({ item: 42 }))`,
-    )
-    const server = await createServer({
-      root,
-      configFile: false,
-      logLevel: 'silent',
-      server: { middlewareMode: true, hmr: false, watch: null },
-      plugins: [
-        sark({
-          appEntry: 'config/application.ts',
-          apiDir: 'handlers',
-          generatedDir: 'generated/server',
-          apiPrefix,
-        }),
-      ],
-    })
-    let instance: Awaited<ReturnType<typeof createApp>> | undefined
-    try {
-      const { definition } = await server.ssrLoadModule('/generated/server/app.ts')
-      const { createApp: createBuiltApp } = await import('@olivaw/sark/server')
-      instance = await createBuiltApp(definition, { env: process.env })
-      const prefix = apiPrefix === '/' ? '' : '/service/v2'
-      const response = await instance.fetch(new Request(`https://example.test${prefix}/item`))
-      expect(response.status).toBe(200)
-      expect(response.headers.get('X-Project')).toBe('custom')
-      expect(await response.json()).toEqual({ item: 42 })
-      expect((await instance.fetch(new Request('https://example.test/api/item'))).status).toBe(404)
-    } finally {
-      await instance?.close()
-      await server.close()
-      rmSync(root, { recursive: true, force: true })
-    }
-  },
-)

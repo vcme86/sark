@@ -11,19 +11,15 @@ import { defineAuth } from '@olivaw/sark/auth/session'
 
 type Env = NodeJS.ProcessEnv
 
-export const auth = defineAuth((env: Env) => {
-  const secret = env.AUTH_SECRET
-  if (!secret) throw new Error('AUTH_SECRET is required')
-  return {
-    secret,
-    expiresIn: 7 * 24 * 60 * 60 * 1000,
-    tokenVersion: async (sub, { db }) => readVersion(db, sub),
-    validate: async (identity, { db }) => isActive(db, identity.sub),
-  }
-})
+export const auth = defineAuth((env: Env) => ({
+  secret: env.AUTH_SECRET,
+  expiresIn: 7 * 24 * 60 * 60 * 1000,
+  tokenVersion: async (sub, { db }) => readVersion(db, sub),
+  validate: async (identity, { db }) => isActive(db, identity.sub),
+}))
 ```
 
-这是 Node 工厂示例；Workers 使用 Wrangler Env，必填密钥同样需要检查，环境约定见 [application.md](application.md)。readVersion/isActive 是应用函数。数据库不是会话的必需依赖；只有回调实际使用时声明它。OAuth、TOTP、WebAuthn 和共同 MFA 分别声明，session 不静态导入这些能力。
+这是 Node 工厂示例；Workers 使用 Wrangler Env，所属入口统一校验必填密钥，环境约定见 [application.md](application.md)。readVersion/isActive 是应用函数。数据库不是会话的必需依赖；只有回调实际使用时声明它。OAuth、TOTP、WebAuthn 和共同 MFA 分别声明，session 不静态导入这些能力。
 
 ## 身份与认证结果
 
@@ -72,7 +68,15 @@ SessionOptions、IssuedSession 与会话签发契约统一定义在 session/type
 ```ts
 type SigningCredentials = { secret: string; keys?: never } | { keys: SigningKey[]; secret?: never }
 
-type AuthOptions = SigningCredentials & {
+interface SigningKeyConfig extends Omit<SigningKey, 'secret'> {
+  secret: string | undefined
+}
+
+type SigningConfig =
+  | { secret: string | undefined; keys?: never }
+  | { keys: readonly SigningKeyConfig[] | undefined; secret?: never }
+
+type AuthConfig = SigningConfig & {
   cookieName?: string
   cookie?: {
     path?: string
@@ -97,7 +101,7 @@ interface SigningKey {
 }
 ```
 
-secret 与 keys 二选一。应用装配需要唯一活动签发键，kid 不重复；简单模式无 kid，轮换模式签发写 kid、验签精确选键，不遍历猜测。缺少对应键拒绝。纯验签函数允许仅提供验证所需的已退役键。
+AuthConfig 使用原始 SigningConfig，允许必填密钥接收可能缺失的环境值；入口校验后交付有效密钥。独立 signToken/verifyToken 的 SigningCredentials 与 SigningKey 仍要求有效 string，不承担配置工厂的环境解析。secret 与 keys 二选一。应用装配需要唯一活动签发键，kid 不重复；简单模式无 kid，轮换模式签发写 kid、验签精确选键，不遍历猜测。缺少对应键拒绝。纯验签函数允许仅提供验证所需的已退役键。
 
 固定 HS256，复用 Hono JWT/WebCrypto，不提供多算法选择器。密钥满足 HS256 的长度要求，至少 32 个 UTF-8 字节；推荐随机秘密，不能用可预测口令充当安全密钥。[RFC 7518 §3.2](https://www.rfc-editor.org/rfc/rfc7518.html#section-3.2)
 
@@ -109,7 +113,7 @@ cookieName 默认 auth_token；cookie 只配置本会话的专用属性，HttpOn
 
 浏览器 Cookie 与 Authorization Bearer 都解析成同一 Identity。出现 Bearer 时优先选择它；它无效也不回落 Cookie。只有 Cookie 时按 Cookie 验证。
 
-每次请求依次验证签名、时间约束、已配置 iss/aud、当前版本和 validate。身份解析失败得到匿名，业务决定是否要求登录；真实存储故障记录原因，不假装跳过检查。
+每次请求依次验证签名、时间约束、已配置 iss/aud、当前版本和 validate。缺失、无效或过期凭据、版本不符，以及 validate 明确返回 false 时得到匿名，业务决定是否要求登录。tokenVersion/validate 的执行异常继续抛出；请求由公共 HTTP 错误边界处理并记录一次，服务级 verify/authenticate 则向调用者抛出。失败结果不写入钩子缓存，后续调用可重新执行；框架不自动重试、降级为匿名或跳转页面。
 
 AuthCheckContext 提供 logger、signal、可选 request 及已声明的资源实例，保留各资源的具体类型。没有数据库时不虚构 db；回调不依赖包含自身的 AppInstance。缺 request 的服务级验证仍调用 validate，依赖 request 的应用检查应明确拒绝，不静默绕过。
 
@@ -166,12 +170,18 @@ tokenVersion(sub) 返回应用当前版本，逐请求与 ver 比较；未配置
 只缓存钩子结果，不缓存「整个凭据已认证」：
 
 - 签名、时间及已配置 issuer/audience 仍逐请求校验
-- tokenVersion 缓存按完整凭据指纹，缓存命中仍比较版本
+- tokenVersion 缓存以完整凭据为键，缓存命中仍比较版本，不额外计算凭据指纹
 - validate 只有显式配置 cacheKey 才缓存结果并合并相同键的并发检查；没有 cacheKey 时每次调用 validate
 - cacheKey 接收与 validate 相同上下文，等价维度由应用决定
 - TTL 大于零意味着状态更新最多滞后相应秒数；实时副作用与实时撤销不应放进这份缓存
+- tokenVersion 与 validate 的结果缓存各最多 2000 项，插入超限时淘汰最早条目；访问到过期项时删除，不按请求全表扫描，也不启动定时清理。TTL 决定命中有效期，不保证到期立即物理回收
+- 在途检查完成后删除，不受结果缓存容量限制；TTL=0 不存结果，有 cacheKey 的 validate 仍可合并相同键的在途检查
 
 signOut 清 Cookie，本身不能撤销已复制的 JWT。单次撤销由应用按 jti 的状态检查实现；全部设备退出可递增版本。是否需要即时撤销及其存储由应用决定，框架不默认建立 session/撤销表。
+
+## 与访客标识配合
+
+认证身份与浏览器访客标识可以同时存在。signIn/signOut 不创建、清除或轮换 visitor；auth 不依赖 visitors。应用需要游客数据迁移或退出时清除访客标识，可在自己的业务流程中组合两项服务，见 [visitors.md · 与登录身份配合](visitors.md#与登录身份配合)。
 
 ## 再次认证守卫
 

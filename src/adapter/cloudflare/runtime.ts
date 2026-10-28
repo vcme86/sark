@@ -14,9 +14,9 @@ import type { EnvOf } from '../../core/declaration'
 import type { ApplicationDefinition } from '../../core/definition'
 import { ensureBasicLogging } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
-import { type ResolvedHttpConfig, resolveHttpConfig } from '../../web/http/config'
-import { formatErrorResponse } from '../../web/http/server/output'
-import { applyResponseHeaders } from '../../web/http/server/request-context'
+import { type ResolvedHttpConfig, resolveHttpConfig } from '../../http/config'
+import { formatErrorResponse } from '../../http/server/output'
+import { applyResponseHeaders } from '../../http/server/request-context'
 import { decorateCloudflareAssetResponse } from './assets'
 
 /** Cloudflare Workers standard execution context interface. */
@@ -67,17 +67,17 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
   let instancePromise: Promise<AppInstance<D>> | undefined
   let staticConfig: ResolvedHttpConfig | undefined
   const errorConfig = resolveHttpConfig({}, production)
+  const assets = definition.assets
+  const assetBase = assets ? new URL(assets.base, 'http://assets.local/').pathname : undefined
+
+  const declaration = definition.app
+  const resolveConfig = declaration?.isFactory
+    ? (env: unknown) => resolveAppConfig(declaration, env, production)
+    : (_env: unknown) => (staticConfig ??= resolveAppConfig(declaration, undefined, production))
 
   async function getInstance(): Promise<AppInstance<D>> {
     if (!instancePromise) {
-      const declaration = definition.appDeclaration
-      let resolveConfig: (env: unknown) => ResolvedHttpConfig
-      if (typeof declaration?.value === 'function') {
-        resolveConfig = (env) => resolveAppConfig(declaration, env, production)
-      } else {
-        const config = resolveAppConfig(declaration, undefined, production)
-        resolveConfig = () => config
-      }
+      if (!declaration?.isFactory) resolveConfig(undefined)
       instancePromise = assembleApp(definition, {
         kind: 'event',
         resolve: resolveConfig,
@@ -92,7 +92,6 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
 
   return {
     async fetch(request, env, ctx): Promise<Response> {
-      const assets = definition.assets
       const binding = (
         env as { ASSETS?: { fetch(request: Request): Promise<Response> } } | undefined
       )?.ASSETS
@@ -101,12 +100,12 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
         binding &&
         (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS')
       ) {
-        const base = new URL(assets.base, request.url).pathname
-        const path = new URL(request.url).pathname
+        const assetUrl = new URL(request.url)
+        const path = assetUrl.pathname
         let entry: (typeof assets.files)[string] | undefined
-        if (path.startsWith(base)) {
+        if (path.startsWith(assetBase!)) {
           try {
-            const key = decodeURIComponent(path.slice(base.length))
+            const key = decodeURIComponent(path.slice(assetBase!.length))
             if (Object.hasOwn(assets.files, key)) entry = assets.files[key]
           } catch {
             /* Invalid URL paths do not identify a build resource. */
@@ -118,12 +117,8 @@ export function createWorkerHandler<D extends ApplicationDefinition>(
           context.set('requestId', requestId)
           let config = errorConfig
           try {
-            const declaration = definition.appDeclaration
-            config = declaration?.isFactory
-              ? resolveAppConfig(declaration, env, production)
-              : (staticConfig ??= resolveAppConfig(declaration, undefined, production))
+            config = resolveConfig(env)
             const deliver = async () => {
-              const assetUrl = new URL(request.url)
               // Production ASSETS uses output-root paths. The official development
               // binding delegates to Vite middleware, which requires its public base.
               if (production)

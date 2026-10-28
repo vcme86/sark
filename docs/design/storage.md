@@ -22,6 +22,8 @@ export const storage = {
 - r2：binding 必填，由 env 工厂取得 R2Bucket；可选 publicUrl 表示已配置的公开域名
 - s3：bucket、region 必填，endpoint 用于 S3 兼容服务；凭据与 forcePathStyle 沿 SDK 支持配置，可选 publicUrl
 
+dir、bucket、region、binding 及 Sark 声明的必需签名凭据属性可直接接收可能缺失的环境值；所属入口在创建资源前校验，解析结果保证必需值有效。上游原生 SDK 选项保持其原类型，业务单次操作参数也不因此放宽。
+
 公开 URL 不是启用存储就自然存在。local 不自动挂目录，R2/S3 不自动公开 bucket。声明与模块导入不产生 I/O；框架按已选后端创建，借用 binding 或客户端，统一登记自己拥有的资源。
 
 publicUrl 只作为 StoredFile.url 的公开基址，按 key 的各路径段编码后拼接；没有配置时不生成 url。它不创建路由、设置存储权限或证明地址可达。local 需要公开交付时，由应用将同一 dir 和相应 URL 前缀显式声明到 defineAssets。
@@ -90,7 +92,7 @@ R2 普通读写直接复用平台 binding。S3 复用 AWS SDK v3 的对象操作
 
 较大文件可由应用 API 授权后签发短期上传 URL，浏览器直接传到对象存储，避免所有字节经过应用实例。小文件也可以走应用 API 流式写入。
 
-storage/presign 导出 `definePresign<Options extends PresignOptions>(options: Options): PresignDeclaration<Options>`，返回声明保留选项类型，作为所选对象存储配置的 presign 字段，不包装整个声明，也不增加顶层插件或配置导出名：
+storage/presign 导出 `definePresign<Options extends PresignConfig>(options: Options): PresignDeclaration<Options>`，返回声明保留选项类型，作为所选对象存储配置的 presign 字段，不包装整个声明，也不增加顶层插件或配置导出名：
 
 ```ts
 import { definePresign } from '@olivaw/sark/storage/presign'
@@ -105,10 +107,10 @@ export const storage = {
 }
 ```
 
-PresignOptions 按所属后端区分：
+PresignConfig 按所属后端区分：
 
 ```ts
-interface S3PresignOptions {
+interface S3PresignConfig {
   expiresIn?: number
   endpoint?: never
   region?: never
@@ -116,22 +118,22 @@ interface S3PresignOptions {
   credentials?: never
 }
 
-interface R2PresignOptions {
+interface R2PresignConfig {
   expiresIn?: number
-  endpoint: string
+  endpoint: string | undefined
   region?: string
-  bucket: string
+  bucket: string | undefined
   credentials: {
-    accessKeyId: string
-    secretAccessKey: string
+    accessKeyId: string | undefined
+    secretAccessKey: string | undefined
     sessionToken?: string
   }
 }
 
-type PresignOptions = S3PresignOptions | R2PresignOptions
+type PresignConfig = S3PresignConfig | R2PresignConfig
 ```
 
-S3 的 presign 只接受 S3PresignOptions，从所属存储复用客户端、bucket、endpoint、region 和凭据，不允许重复配置或覆盖签名目标。R2 的 presign 只接受 R2PresignOptions，额外提供与所属 binding 对应的 S3 endpoint、bucket 和凭据，region 默认 auto；这些信息不能从 R2Bucket 取得。类型检查覆盖通过变量传入的声明；缺少必需值、后端不符或提供不适用字段时，在资源创建前报配置错误，不静默忽略。
+S3 的 presign 只接受 S3PresignConfig，从所属存储复用客户端、bucket、endpoint、region 和凭据，不允许重复配置或覆盖签名目标。R2 的 presign 只接受 R2PresignConfig，额外提供与所属 binding 对应的 S3 endpoint、bucket 和凭据，region 默认 auto；这些信息不能从 R2Bucket 取得。类型检查覆盖通过变量传入的声明；缺少必需值、后端不符或提供不适用字段时，在资源创建前报配置错误，不静默忽略。
 
 Node 的 S3 预签名使用 `@aws-sdk/s3-request-presigner` 的 getSignedUrl，复用所属 S3Client。Workers 的 R2 预签名使用 aws4fetch，基于 Fetch 和 WebCrypto 生成签名，不创建 S3Client；普通读写继续使用原 R2 binding。两条实现按目标和后端生成独立导入，不因 Workers 启用预签名而放开 storage/s3 的 Node 限制，也不自行实现 Signature V4。[AWS SDK 预签名](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-s3-request-presigner/)、[Cloudflare aws4fetch 示例](https://developers.cloudflare.com/r2/examples/aws/aws4fetch/)
 

@@ -22,7 +22,7 @@ export interface RequestAuthSessionState {
 }
 
 /** Parameters supplied to initialize request-scoped authentication session. */
-export interface RequestSessionInitParams {
+interface RequestSessionInitParams {
   readonly request: Request
   readonly signal: AbortSignal
   readonly parentSessionState?: RequestAuthSessionState
@@ -31,14 +31,14 @@ export interface RequestSessionInitParams {
 }
 
 /** Handlers returned from request session initialization. */
-export interface RequestSessionResult {
+interface RequestSessionResult {
   readonly sessionState: RequestAuthSessionState
   readonly requestAuth: RequestAuth
   readonly onCommitHeaders: () => Promise<void>
 }
 
 /** Extracted credential representation from request headers. */
-export interface ExtractedCredentials {
+interface ExtractedCredentials {
   readonly token: string
   readonly isBearer: boolean
 }
@@ -114,7 +114,7 @@ export async function initRequestSession(
   params: RequestSessionInitParams,
 ): Promise<RequestSessionResult> {
   const { request, signal, parentSessionState, appendCookie, isHeadersCommitted } = params
-  const options = authService.options
+  const config = authService.config
 
   let sessionState: RequestAuthSessionState
   const isInternal = parentSessionState !== undefined
@@ -129,7 +129,7 @@ export async function initRequestSession(
       renewalApplied: false,
     }
 
-    const creds = extractCredentials(request, options.cookieName)
+    const creds = extractCredentials(request, config.cookieName)
     if (creds) {
       const verified = await authService.verifyInternal(creds.token, { request, signal })
       if (verified) {
@@ -154,9 +154,9 @@ export async function initRequestSession(
       sessionState.action = 'signed_in'
       if (signInOptions?.cookie !== false) {
         const setCookieVal = formatSetCookie(
-          options.cookieName,
+          config.cookieName,
           issued.token,
-          options.cookie,
+          config.cookie,
           Math.max(0, Math.floor(expiresAt - Date.now() / 1000)),
         )
         appendCookie(setCookieVal)
@@ -169,7 +169,7 @@ export async function initRequestSession(
       }
       sessionState.identity = null
       sessionState.action = 'signed_out'
-      const clearCookieVal = formatSetCookie(options.cookieName, '', options.cookie, 0)
+      const clearCookieVal = formatSetCookie(config.cookieName, '', config.cookie, 0)
       appendCookie(clearCookieVal)
     },
   }
@@ -179,22 +179,22 @@ export async function initRequestSession(
     if (isHeadersCommitted()) return
     if (sessionState.action !== 'none' || sessionState.renewalApplied) return
     if (sessionState.isBearer || !sessionState.identity) return
-    if (options.rolling === false) return
+    if (config.rolling === false) return
 
     sessionState.renewalApplied = true
     const exp = sessionState.cookieExp
     if (typeof exp === 'number') {
       const now = Date.now()
       const remainingMs = exp * 1000 - now
-      const thresholdMs = options.expiresIn / 2
+      const thresholdMs = config.expiresIn / 2
       if (remainingMs > 0 && remainingMs <= thresholdMs) {
         const renewed = await authService.renew(sessionState.identity, sessionState.cookieIat)
         // A sign-in or sign-out may complete while the asynchronous signer is running.
         if (sessionState.action !== 'none') return
         const setCookieVal = formatSetCookie(
-          options.cookieName,
+          config.cookieName,
           renewed.token,
-          options.cookie,
+          config.cookie,
           Math.max(0, Math.floor(renewed.expiresAt - Date.now() / 1000)),
         )
         appendCookie(setCookieVal)
