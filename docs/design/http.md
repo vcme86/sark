@@ -32,7 +32,7 @@ API 树只发现带上述方法、ws 或 sse 后缀的 `.ts/.js/.tsx/.jsx` 模�
 - 已命中处理器主动返回的业务 404 保持不变，不在响应后按状态改写为 405
 - 非预检 OPTIONS 优先显式 options，再 all，均无时按路径返回 404/405；CORS 预检按其独立规则处理
 
-例如 GET /items/:id 与 POST /items/new 并存，GET /items/new 仍匹配 GET 参数路由。方法集合来自唯一发现结果，动态路径匹配复用 Hono 公开能力，不用字面路径 Map 代替参数匹配。装配区分业务 all 与全局中间件；Hono methodNotAllowed 无法区分 use/all，不直接作为完整实现。[Hono 方法检查源码](https://github.com/honojs/hono/blob/v4.13.13/src/middleware/method-not-allowed/index.ts)
+例如 GET /items/:id 与 POST /items/new 并存，GET /items/new 仍匹配 GET 参数路由。业务路由的方法集合来自唯一发现结果；Node 运行目录仅在目标文件存在时补充 GET/HEAD，统一合并 Allow，见 [assets.md](assets.md)。动态路径匹配复用 Hono 公开能力，不用字面路径 Map 代替参数匹配。装配区分业务 all 与全局中间件；Hono methodNotAllowed 无法区分 use/all，不直接作为完整实现。[Hono 方法检查源码](https://github.com/honojs/hono/blob/v4.13.13/src/middleware/method-not-allowed/index.ts)
 
 ## URL 规范化
 

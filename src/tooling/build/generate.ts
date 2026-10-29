@@ -171,6 +171,11 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
         'Cloudflare Workers target does not support Node metrics ("metrics"). Platform analytics are provided by Cloudflare.',
       )
     }
+    if (appExports.exports.includes('assets')) {
+      throw new Error(
+        'Cloudflare Workers target does not support Node asset mounts ("assets"). Use static assets or R2 object storage.',
+      )
+    }
     if (appExports.databaseDriver === 'sqlite' || appExports.databaseDriver === 'postgres') {
       throw new Error(
         `Cloudflare Workers target does not support Node.js database driver ("${appExports.databaseDriver}"). Use Cloudflare D1 ("@olivaw/sark/db/d1") for Workers.`,
@@ -370,10 +375,18 @@ const page404Handler = createPage404Handler(
   }
 
   const hasDatabase = appExports.exports.includes('database')
+  const hasStorage = appExports.exports.includes('storage')
+  const hasAssets = appExports.exports.includes('assets')
   const hasAuth = appExports.exports.includes('auth')
   const hasOAuth = appExports.exports.includes('oauth')
 
-  const appTsContent = `import { createDefinition } from '@olivaw/sark/runtime/core'
+  const resourceEntries: string[] = []
+  if (hasDatabase) resourceEntries.push('db: database')
+  if (hasStorage) resourceEntries.push('storage: createStorageAssembly(storage)')
+  const resourcesCode =
+    resourceEntries.length > 0 ? `resources: { ${resourceEntries.join(', ')} },` : ''
+
+  const appTsContent = `import { createDefinition${hasStorage ? ', createStorageAssembly' : ''} } from '@olivaw/sark/runtime/core'
 ${hasAuth ? "import { createAuthAssembly } from '@olivaw/sark/runtime/auth'" : ''}
 ${hasOAuth ? "import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'" : ''}
 import type { EndpointFromRoute } from '@olivaw/sark/server'
@@ -382,6 +395,8 @@ ${hasApp ? `import { app } from ${appImportPath}` : ''}
 ${hasRuntime ? `import { runtime } from ${appImportPath}` : ''}
 ${appExports.exports.includes('page') ? `import { page } from ${appImportPath}` : ''}
 ${hasDatabase ? `import { database } from ${appImportPath}` : ''}
+${hasStorage ? `import { storage } from ${appImportPath}` : ''}
+${hasAssets ? `import { assets } from ${appImportPath}` : ''}
 ${hasAuth ? `import { auth } from ${appImportPath}` : ''}
 ${hasOAuth ? `import { oauth } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
@@ -395,7 +410,8 @@ export const definition = createDefinition({
   ${hasApp ? 'app,' : ''}
   ${appExports.exports.includes('page') ? 'page,' : ''}
   ${hasRuntime ? 'declarations: [runtime] as const,' : ''}
-  ${hasDatabase ? 'resources: { db: database },' : ''}
+  ${resourcesCode}
+  ${target === 'node' && hasAssets ? 'assetMounts: assets,' : ''}
   ${hasAuth || hasOAuth ? `services: { ${hasAuth ? 'auth: createAuthAssembly(auth),' : ''} ${hasOAuth ? `oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)}),` : ''} },` : ''}
   apiPrefix: ${JSON.stringify(apiPrefix)},
   webPrefix: ${JSON.stringify(webPrefix)},
@@ -425,19 +441,16 @@ ${routeApiEntries.join('\n')}
   }
 
   // 2. Generate resources-types.ts
-  const resourcesTypesContent = hasDatabase
-    ? `// Generated resource types
-import type { database } from ${appImportPath}
+  const resourcesTypesContent = `// Generated resource types
+${hasDatabase ? `import type { database } from ${appImportPath}` : ''}
+${hasStorage ? `import type { storage } from ${appImportPath}` : ''}
 import type { InferResource } from '@olivaw/sark/runtime/core'
 
-export type Db = InferResource<typeof database>
+${hasDatabase ? 'export type Db = InferResource<typeof database>' : ''}
+${hasStorage ? 'export type Storage = { [K in keyof typeof storage]: InferResource<(typeof storage)[K]> }' : ''}
 
 export interface Resources {
-  readonly db: Db
-}
-`
-    : `// Generated resource types
-export interface Resources {}
+${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: Storage\n' : ''}}
 `
   writeFileIfChanged(join(generatedDir, 'resources-types.ts'), resourcesTypesContent)
 
@@ -478,6 +491,7 @@ export type { AppDefinition, Api } from './app'
 export type { Resources } from './resources-types'
 export type { Services } from './services-types'
 ${hasDatabase ? "export type { Db } from './resources-types'" : ''}
+${hasStorage ? "export type { Storage } from './resources-types'" : ''}
 ${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth/session'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)

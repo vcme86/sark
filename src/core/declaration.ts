@@ -50,7 +50,7 @@ export function evaluateDeclaration<T>(
 }
 
 /** Intersects resource environments before unknown requirements can absorb concrete inputs. */
-type ResourceEnvironment<Resources> = [keyof Resources] extends [never]
+export type ResourceEnvironment<Resources> = [keyof Resources] extends [never]
   ? unknown
   : {
         [K in keyof Resources]: (env: EnvOf<Resources[K]>) => void

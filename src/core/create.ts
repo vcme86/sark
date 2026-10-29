@@ -68,6 +68,18 @@ export async function assembleApp<D extends ApplicationDefinition>(
     const staticPlan =
       options.kind === 'static' ? await prepareServices(options.env, options.config) : undefined
 
+    if (options.kind === 'event' && definition.assetMounts) {
+      throw new Error('assets/node is not supported on Cloudflare Workers.')
+    }
+
+    const staticAssetMountHandler =
+      options.kind === 'static' && definition.assetMounts
+        ? {
+            prefixes: definition.assetMounts.prefixes,
+            handle: definition.assetMounts.createHandler(),
+          }
+        : undefined
+
     // Compile the complete route graph before opening resources, using one conflict policy.
     const staticHonoApp =
       options.kind === 'static'
@@ -78,6 +90,7 @@ export async function assembleApp<D extends ApplicationDefinition>(
             definition.apiPrefix,
             definition.page404Handler,
             definition.webPrefix,
+            staticAssetMountHandler,
           )
         : undefined
     let cachedEventHonoApp: Hono<any> | undefined

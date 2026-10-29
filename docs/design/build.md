@@ -112,7 +112,7 @@ OAuth 端点使用 [oauth.md](oauth.md) 的已解析 signInPath/callbackPath，�
 
 本次 storage/s3 只交付 Node 接入，不据此宣称 S3 协议或 SDK 天然不能用于 Workers。纯类型导入、纯 schema 导入不算初始化相应驱动。
 
-storage/presign 只能组合到对应目标的对象存储声明：Node 的 storage/s3 使用 AWS SDK v3 预签名并复用所属客户端，Workers 的 storage/r2 使用 aws4fetch；storage/local 不支持预签名。未声明时不生成签名实现或加载签名依赖，Workers 的 R2 预签名不引入 storage/s3 运行代码。配置约束见 [storage.md](storage.md)。
+storage/presign 只能组合到对应目标的对象存储声明：Node 的 storage/s3 使用 AWS SDK v3 预签名并复用所属客户端，Workers 的 storage/r2 使用 AWS S3RequestPresigner 和平台 SHA-256 实现生成预签名；storage/local 不支持预签名。未声明时不生成签名实现或加载签名代码，Workers 的 R2 预签名不引入 storage/s3 运行代码。配置约束见 [storage.md](storage.md)。
 
 静态可识别的官方不支持声明在构建期诊断；工厂返回的 binding、具体选项及映射在创建阶段校验。未知回调内部行为沿正常目标模块检查和初始化错误报告，不为了提前发现文件 sink 而执行工厂、猜函数名或分析任意业务函数体。
 

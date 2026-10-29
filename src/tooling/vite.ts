@@ -170,6 +170,10 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
           id === '@olivaw/sark/server' ||
           id.startsWith('@olivaw/sark/server/') ||
           id.startsWith('@olivaw/sark/db/') ||
+          id === '@olivaw/sark/storage' ||
+          id.startsWith('@olivaw/sark/storage/') ||
+          id === '@olivaw/sark/assets' ||
+          id.startsWith('@olivaw/sark/assets/') ||
           (id.startsWith('@olivaw/sark/auth/') && id !== '@olivaw/sark/auth/webauthn/browser') ||
           id === '@olivaw/sark/middleware' ||
           id === '@olivaw/sark/vite' ||
@@ -588,11 +592,14 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         const isApi = matchesPrefix(pathname, apiPrefix)
         const isHtml = Boolean(req.headers.accept?.includes('text/html'))
         if (!isApi && (resolved.webDir === false || !isHtml)) {
-          // Protocol endpoints use their declared paths, independently of API/page prefixes.
+          // Protocol endpoints and runtime mounts may lie outside the API and website prefixes.
           void getAppInstance()
             .then((app) => {
-              if (matchesStaticRoute(app, pathname)) forwardToApplication()
-              else next()
+              if (matchesStaticRoute(app, pathname) || matchesAssetMount(app, pathname)) {
+                forwardToApplication()
+              } else {
+                next()
+              }
             })
             .catch(next)
           return
@@ -628,6 +635,16 @@ function matchesStaticRoute(instance: AppInstance, pathname: string): boolean {
   }
   const path = normalize(getRequestPath(new Request(`http://vite.local${pathname}`)))
   return getApplicationRoutes(instance).some((route) => normalize(route.path) === path)
+}
+
+/** Matches declared runtime asset mount URL prefixes for development request forwarding. */
+function matchesAssetMount(instance: AppInstance, pathname: string): boolean {
+  const definition = instance.definition as ApplicationDefinition | undefined
+  const prefixes = definition?.assetMounts?.prefixes
+  if (!prefixes || prefixes.length === 0) return false
+  return prefixes.some(
+    (prefix) => prefix === '/' || pathname === prefix || pathname.startsWith(prefix + '/'),
+  )
 }
 
 function matchesPrefix(path: string, pre: string): boolean {

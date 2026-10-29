@@ -64,6 +64,26 @@
       "types": "./dist/entries/auth/oauth.d.mts",
       "import": "./dist/entries/auth/oauth.mjs"
     },
+    "./storage/local": {
+      "types": "./dist/entries/storage/local.d.mts",
+      "import": "./dist/entries/storage/local.mjs"
+    },
+    "./storage/s3": {
+      "types": "./dist/entries/storage/s3.d.mts",
+      "import": "./dist/entries/storage/s3.mjs"
+    },
+    "./storage/r2": {
+      "types": "./dist/entries/storage/r2.d.mts",
+      "import": "./dist/entries/storage/r2.mjs"
+    },
+    "./storage/presign": {
+      "types": "./dist/entries/storage/presign.d.mts",
+      "import": "./dist/entries/storage/presign.mjs"
+    },
+    "./assets/node": {
+      "types": "./dist/entries/assets/node.d.mts",
+      "import": "./dist/entries/assets/node.mjs"
+    },
     "./runtime/core": {
       "types": "./dist/entries/runtime/core.d.mts",
       "import": "./dist/entries/runtime/core.mjs"
@@ -115,6 +135,10 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@aws-sdk/checksums": "^3.1001.6",
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/lib-storage": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/vite-plugin": "^1.65.0",
     "@cloudflare/workers-types": "^5.20261025.1",
     "@types/better-sqlite3": "^9.6.0",
@@ -126,9 +150,9 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
     "obuild": "^0.4.45",
+    "openid-client": "^6.8.8",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
-    "openid-client": "^6.8.8",
     "postgres": "^3.4.9",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -137,6 +161,10 @@
     "wrangler": "^4.152.0"
   },
   "peerDependencies": {
+    "@aws-sdk/checksums": "^3.1001.6",
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/lib-storage": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/workers-types": "^5.20261019.1",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.0",
@@ -147,6 +175,18 @@
     "react-dom": "^19.3.1"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/checksums": {
+      "optional": true
+    },
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/lib-storage": {
+      "optional": true
+    },
+    "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
     "@cloudflare/workers-types": {
       "optional": true
     },

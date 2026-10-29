@@ -4,6 +4,8 @@
  * @module
  */
 
+import type { Context } from 'hono'
+
 import type { StaticAssets } from '../http/assets'
 import type { PageRequestHandler, RouteEntry } from '../http/server/types'
 import type { AppDeclaration } from './config'
@@ -12,6 +14,14 @@ import type { ResourceAssembly } from './resource'
 import type { ServiceAssembly } from './service'
 
 export type { PageRequestHandler } from '../http/server/types'
+
+/** Assembly interface for declared runtime asset mounts. */
+export interface AssetMountAssembly {
+  /** URL prefixes handled by runtime asset mounts. */
+  readonly prefixes: readonly string[]
+  /** Creates a handler that serves a file or rejects a request; null continues dispatch. */
+  createHandler(runtimeRoot?: string): (ctx: Context) => Promise<Response | null> | Response | null
+}
 
 /** Raw input parameters used to construct an application definition. */
 export interface ApplicationDefinitionInput {
@@ -37,6 +47,8 @@ export interface ApplicationDefinitionInput {
   createPageConfigResolver?: () => (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   assets?: StaticAssets
+  /** Runtime directory mounts declared via defineAssets from @olivaw/sark/assets/node. */
+  assetMounts?: AssetMountAssembly
 }
 
 /** Application declarations and routes assembled for runtime creation. */
@@ -67,6 +79,8 @@ export type ApplicationDefinition<
   readonly createPageConfigResolver?: () => (env: unknown) => unknown
   /** Build-owned public file mapping, independent of page and business initialization. */
   readonly assets?: StaticAssets
+  /** Runtime directory mounts declared via defineAssets from @olivaw/sark/assets/node. */
+  readonly assetMounts?: AssetMountAssembly
   /** Discriminant flag identifying a compiled application definition. */
   readonly isDefinition: true
 } & EnvironmentRequirement<
@@ -104,6 +118,7 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
     page404Handler: input.page404Handler,
     createPageConfigResolver: input.createPageConfigResolver,
     assets: input.assets,
+    assetMounts: input.assetMounts,
     isDefinition: true,
   } as DefinitionFromInput<T>
 }

@@ -89,10 +89,10 @@ function compilePolicy(effective: ReturnType<typeof computeEffectivePolicy>): Re
  * 2. Apply the selected CORS policy, including target-method preflight handling.
  * 3. Check lifecycle admission and GET/HEAD URL normalization.
  * 4. Bind request services, inheriting same-application internal request state.
- * 5. Apply the selected route's CSRF and body-limit policies.
+ * 5. Apply the selected route's policy, or application policy for a runtime mount.
  * 6. Run application, directory-scope, and route middleware in that order.
  * 7. Parse declared inputs, execute the handler, and format its response.
- * 8. Resolve unmatched methods as 405, then optionally render the HTML 404 document.
+ * 8. Serve runtime files, resolve unmatched methods as 405, then render an applicable HTML 404.
  *
  * CORS precedes admission so rejections retain applicable CORS headers. Request
  * context awaits domain header-commit hooks before sealing the Cookie collector,
@@ -106,6 +106,7 @@ function compilePolicy(effective: ReturnType<typeof computeEffectivePolicy>): Re
  * @param apiPrefix - Resolved API base path for the page-bound internal client.
  * @param page404Handler - Optional HTML terminal for unmatched page requests.
  * @param webPrefix - Resolved website route prefix, including its HTML 404 scope.
+ * @param assetMounts - Prepared Node runtime mounts and their URL prefixes.
  * @returns Fully compiled Hono application instance.
  */
 export function buildHttpApp(
@@ -115,6 +116,10 @@ export function buildHttpApp(
   apiPrefix?: string,
   page404Handler?: PageRequestHandler,
   webPrefix?: string,
+  assetMounts?: {
+    readonly prefixes: readonly string[]
+    handle(ctx: Context): Promise<Response | null> | Response | null
+  },
 ): Hono<any> {
   const getConfig = typeof config === 'function' ? config : () => config
   const orderedRoutes = routes.toSorted((a, b) => compareRoutes(a.routePath, b.routePath))
@@ -191,7 +196,7 @@ export function buildHttpApp(
     const cached = requestPolicies.get(ctx)
     if (cached) return cached
     const cfg = getConfig()
-    const { defaultPolicy } = getPoliciesForConfig(cfg)
+    const { defaultPolicy, applicationPolicy } = getPoliciesForConfig(cfg)
     let selected = defaultPolicy
     let selectedEntry: RouteEntry | undefined
     for (const route of matchedRoutes(ctx)) {
@@ -200,6 +205,16 @@ export function buildHttpApp(
         selected = getRoutePolicy(cfg, entry)
         selectedEntry = entry
         break
+      }
+    }
+    if (!selectedEntry && assetMounts) {
+      const path = new URL(ctx.req.url).pathname
+      if (
+        assetMounts.prefixes.some(
+          (prefix) => prefix === '/' || path === prefix || path.startsWith(prefix + '/'),
+        )
+      ) {
+        selected = applicationPolicy
       }
     }
     const target = preflightMethod(ctx.req.raw)
@@ -332,9 +347,8 @@ export function buildHttpApp(
     if (policies.preflight) {
       return policies.preflight.cors ? policies.preflight.cors(ctx, next) : next()
     }
-    const { defaultPolicy } = getPoliciesForConfig(getConfig())
-    if (policies.route !== defaultPolicy) return next()
-    return defaultPolicy.cors ? defaultPolicy.cors(ctx, next) : next()
+    if (policies.selectedEntry) return next()
+    return policies.route.cors ? policies.route.cors(ctx, next) : next()
   })
   app.use('*', async (ctx, next) => {
     const instance = instanceProvider?.()
@@ -380,6 +394,13 @@ export function buildHttpApp(
     })
   }
 
+  app.use('*', (ctx, next) => {
+    const policy = policiesFor(ctx)
+    return !policy.selectedEntry && policy.route.admission
+      ? policy.route.admission(ctx, next)
+      : next()
+  })
+
   // Application-level middleware executes with effective request configuration
   const combinedMiddlewareCache = new WeakMap<ResolvedHttpConfig, MiddlewareHandler | null>()
 
@@ -416,42 +437,49 @@ export function buildHttpApp(
     app.on([routePath.method], [routePath.urlPath], ...allMiddlewares, handler)
   }
 
-  // Fallback 405 and 404 handler via Hono TrieRouter
+  // Runtime files and registered routes share one method fallback and 404 terminal.
   app.all('*', async (ctx: Context) => {
     const reqPath = ctx.req.path
     const reqMethod = ctx.req.method.toUpperCase()
+    const assetResponse = await assetMounts?.handle(ctx)
+    if (assetResponse && assetResponse.status !== 405) return assetResponse
 
-    // A path may have API and page handlers with different methods.
+    // A path may support both registered methods and GET/HEAD from a real file.
+    const allowedMethods = new Set<string>()
+    if (assetResponse) {
+      for (const method of assetResponse.headers.get('Allow')!.split(',')) {
+        allowedMethods.add(method.trim())
+      }
+    }
     const [matches] = methodRouter.match(METHOD_INDEX, reqPath)
     if (matches && matches.length > 0) {
-      const allowedMethods = new Set<string>()
       for (const [route] of matches) {
         allowedMethods.add(route.method)
         if (route.method === 'GET') allowedMethods.add('HEAD')
       }
+    }
 
-      if (!allowedMethods.has('ALL') && !allowedMethods.has(reqMethod)) {
-        const allowMethods = Array.from(allowedMethods)
-          .filter((m) => m !== 'ALL')
-          .toSorted()
-          .join(', ')
+    if (allowedMethods.size > 0 && !allowedMethods.has('ALL') && !allowedMethods.has(reqMethod)) {
+      const allowMethods = Array.from(allowedMethods)
+        .filter((m) => m !== 'ALL')
+        .toSorted()
+        .join(', ')
 
-        return new Response(
-          JSON.stringify({
-            error: {
-              code: 'method_not_allowed',
-              message: `Method ${reqMethod} Not Allowed`,
-            },
-          }),
-          {
-            status: 405,
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8',
-              Allow: allowMethods,
-            },
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 'method_not_allowed',
+            message: `Method ${reqMethod} Not Allowed`,
           },
-        )
-      }
+        }),
+        {
+          status: 405,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Allow: allowMethods,
+          },
+        },
+      )
     }
 
     const currentConfig = getConfig()

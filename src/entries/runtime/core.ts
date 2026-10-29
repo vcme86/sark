@@ -11,3 +11,4 @@ export {
   type PageRequestHandler,
 } from '../../core/definition'
 export type { InferResource } from '../../core/resource'
+export { createStorageAssembly } from '../../services/storage/assembly'
