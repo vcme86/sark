@@ -7,6 +7,7 @@ export interface BootstrapData {
   readonly build: {
     readonly api: { readonly browserUrl: string; readonly credentials: RequestCredentials }
     readonly styles: Readonly<Record<string, readonly string[]>>
+    readonly visitor?: { readonly path: string }
   }
   readonly request: {
     readonly url: string

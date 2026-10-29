@@ -5,6 +5,7 @@
  */
 
 import { evaluateDeclaration, type RequiresEnv } from '../../../core/declaration'
+import { resolveStaticPath } from '../../../http/url'
 import { normalizePresetConfig } from './providers/presets'
 import type {
   OAuthDeclaration,
@@ -12,26 +13,6 @@ import type {
   OAuthProviderConfig,
   ResolvedOAuthProvider,
 } from './types'
-
-/** Validates static endpoint paths and removes the matching key's trailing slash. */
-function resolveStaticPath(path: string, fieldName: string, providerId: string): string {
-  if (!path.startsWith('/') || path.startsWith('//')) {
-    throw new Error(
-      `OAuth provider "${providerId}" has invalid ${fieldName} "${path}": path must start with "/".`,
-    )
-  }
-  if (path.includes('?') || path.includes('#')) {
-    throw new Error(
-      `OAuth provider "${providerId}" has invalid ${fieldName} "${path}": path cannot contain query or fragment.`,
-    )
-  }
-  if (path.includes(':') || path.includes('*')) {
-    throw new Error(
-      `OAuth provider "${providerId}" has invalid ${fieldName} "${path}": path cannot contain parameters or wildcards.`,
-    )
-  }
-  return path.length > 1 ? path.replace(/\/$/, '') : path
-}
 
 /**
  * Declares providers resolved from the current instance or event environment.
@@ -131,13 +112,11 @@ export function resolveOAuthProviders(
 
     const signInPath = resolveStaticPath(
       raw.signInPath ?? `${apiPrefix === '/' ? '' : apiPrefix}/auth/${raw.id}/signin`,
-      'signInPath',
-      raw.id,
+      `OAuth provider "${raw.id}" signInPath`,
     )
     const callbackPath = resolveStaticPath(
       raw.callbackPath ?? parsedRedirectUri.pathname,
-      'callbackPath',
-      raw.id,
+      `OAuth provider "${raw.id}" callbackPath`,
     )
 
     resolvedList.push({

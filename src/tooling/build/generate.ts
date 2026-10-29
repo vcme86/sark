@@ -379,6 +379,7 @@ const page404Handler = createPage404Handler(
   const hasAssets = appExports.exports.includes('assets')
   const hasAuth = appExports.exports.includes('auth')
   const hasOAuth = appExports.exports.includes('oauth')
+  const hasVisitors = appExports.exports.includes('visitors')
 
   const resourceEntries: string[] = []
   if (hasDatabase) resourceEntries.push('db: database')
@@ -386,9 +387,18 @@ const page404Handler = createPage404Handler(
   const resourcesCode =
     resourceEntries.length > 0 ? `resources: { ${resourceEntries.join(', ')} },` : ''
 
+  const serviceEntries: string[] = []
+  if (hasAuth) serviceEntries.push('auth: createAuthAssembly(auth)')
+  if (hasOAuth)
+    serviceEntries.push(`oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)})`)
+  if (hasVisitors) serviceEntries.push('visitors: createVisitorsAssembly(visitors)')
+  const servicesCode =
+    serviceEntries.length > 0 ? `services: { ${serviceEntries.join(', ')} },` : ''
+
   const appTsContent = `import { createDefinition${hasStorage ? ', createStorageAssembly' : ''} } from '@olivaw/sark/runtime/core'
 ${hasAuth ? "import { createAuthAssembly } from '@olivaw/sark/runtime/auth'" : ''}
 ${hasOAuth ? "import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'" : ''}
+${hasVisitors ? "import { createVisitorsAssembly } from '@olivaw/sark/runtime/visitors'" : ''}
 import type { EndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
 ${hasApp ? `import { app } from ${appImportPath}` : ''}
@@ -399,6 +409,7 @@ ${hasStorage ? `import { storage } from ${appImportPath}` : ''}
 ${hasAssets ? `import { assets } from ${appImportPath}` : ''}
 ${hasAuth ? `import { auth } from ${appImportPath}` : ''}
 ${hasOAuth ? `import { oauth } from ${appImportPath}` : ''}
+${hasVisitors ? `import { visitors } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
@@ -412,7 +423,7 @@ export const definition = createDefinition({
   ${hasRuntime ? 'declarations: [runtime] as const,' : ''}
   ${resourcesCode}
   ${target === 'node' && hasAssets ? 'assetMounts: assets,' : ''}
-  ${hasAuth || hasOAuth ? `services: { ${hasAuth ? 'auth: createAuthAssembly(auth),' : ''} ${hasOAuth ? `oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)}),` : ''} },` : ''}
+  ${servicesCode}
   apiPrefix: ${JSON.stringify(apiPrefix)},
   webPrefix: ${JSON.stringify(webPrefix)},
   routes: [
@@ -455,16 +466,21 @@ ${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: S
   writeFileIfChanged(join(generatedDir, 'resources-types.ts'), resourcesTypesContent)
 
   // 3. Generate services-types.ts
-  const servicesTypesContent = hasAuth
-    ? `// Generated services types
-import type { RequestAuth } from '@olivaw/sark/auth/session'
+  const serviceTypeImports: string[] = []
+  const serviceTypeFields: string[] = []
+  if (hasAuth) {
+    serviceTypeImports.push("import type { RequestAuth } from '@olivaw/sark/auth/session'")
+    serviceTypeFields.push('  readonly auth: RequestAuth')
+  }
+  if (hasVisitors) {
+    serviceTypeImports.push("import type { RequestVisitor } from '@olivaw/sark/visitors'")
+    serviceTypeFields.push('  readonly visitor: RequestVisitor')
+  }
 
-export interface Services {
-  readonly auth: RequestAuth
+  const servicesTypesContent = `// Generated services types
+${serviceTypeImports.length > 0 ? `${serviceTypeImports.join('\n')}\n\n` : ''}export interface Services {
+${serviceTypeFields.join('\n')}
 }
-`
-    : `// Generated services types
-export interface Services {}
 `
   writeFileIfChanged(join(generatedDir, 'services-types.ts'), servicesTypesContent)
 
@@ -493,6 +509,7 @@ export type { Services } from './services-types'
 ${hasDatabase ? "export type { Db } from './resources-types'" : ''}
 ${hasStorage ? "export type { Storage } from './resources-types'" : ''}
 ${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth/session'" : ''}
+${hasVisitors ? "export type { RequestVisitor } from '@olivaw/sark/visitors'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
 

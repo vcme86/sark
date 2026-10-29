@@ -1,5 +1,6 @@
 import { getLogger } from '../../core/logging'
 import type { PageRequestHandler } from '../../http/server/types'
+import type { RequestVisitorState } from '../../services/visitors/request'
 import { toPageError } from '../errors'
 import { matchPattern } from '../match'
 import { notFound } from '../signals'
@@ -44,6 +45,9 @@ export function createPageHandler(
       const requestUrl = new URL(ctx.req.url)
       url.pathname = requestUrl.pathname
       url.search = requestUrl.search
+      const visitorPath = (
+        scope.serviceBindings?.visitors?.state as RequestVisitorState | undefined
+      )?.endpointPath
       return renderPageToResponse({
         url,
         params,
@@ -59,6 +63,7 @@ export function createPageHandler(
         build: {
           api: { browserUrl: config.api.browserUrl, credentials: config.api.credentials },
           styles: resources.routeStyles,
+          ...(visitorPath ? { visitor: { path: visitorPath } } : {}),
         },
         policy: {
           caseSensitive: scope.config.caseSensitive,

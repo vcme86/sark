@@ -33,11 +33,15 @@ interface VisitorsConfig {
 }
 ```
 
-声明示例使用 Node ProcessEnv，先检查必填值；Workers 使用 Wrangler Env，见 [application.md](application.md)。
+声明示例使用 Node ProcessEnv，必填值由配置入口校验；Workers 使用 Wrangler Env，见 [application.md](application.md)。
 
-secret 显式提供，不隐式借用 JWT/通用 Cookie 密钥。默认 Cookie 名 sark_visitor，expiresIn=15552000000 毫秒（180 天），初始化端点 path=/__sark/visitor；这里的 path 是端点，cookie.path 是 Cookie 范围，默认 /。
+secret 显式提供，使用独立的随机高熵秘密，至少 32 个 UTF-8 字节，不隐式借用 JWT/通用 Cookie 密钥。默认 Cookie 名 sark_visitor，可通过 cookieName 自定义；同域多个应用可分别设置名称及范围。名称、属性和 __Host-/__Secure- 前缀的组合约束在配置入口复用 Hono 序列化器校验。
 
-Cookie 默认 HttpOnly、SameSite=Lax、生产 Secure、不设置 Domain。expiresIn 有限正数，服务端也验证到期时间，不只依赖浏览器 Max-Age。标识由服务端 crypto.randomUUID 创建，签名封装包含格式版本、ID 与期限；编码和签名复用 Hono helper。
+expiresIn 默认 15552000000 毫秒（180 天），接受 1000–34560000000 毫秒（1 秒至 400 天）的安全整数，越界在配置入口报错，不静默截断。Cookie Max-Age 以秒向下取整，服务端也验证签名中的到期时间，不只依赖浏览器期限。
+
+初始化端点 path 默认 /__sark/visitor，是以 / 开头的静态路径；拒绝协议相对地址、查询、片段、空白、反斜线、点路径段、参数和通配符。合并重复斜线、去除尾斜线，保留根路径 /，并参与统一路由冲突检查。cookie.path 是另一项 Cookie 范围配置，默认 /。
+
+Cookie 固定 HttpOnly，默认 SameSite=Lax、生产 Secure、不设置 Domain；SameSite=None 要求 Secure。标识由服务端 crypto.randomUUID 创建，签名封装包含格式版本、ID 与期限；编码和签名复用 Hono helper。
 
 更换 secret 或清 Cookie 后，下次 ensure 创建新标识。登录/退出不自动轮换 visitor，不把它写成 Identity.sub；本能力不尝试解决跨浏览器/设备同一自然人的识别。
 
@@ -70,6 +74,8 @@ clear 不删除业务数据、不退出登录，也不撤销已复制的访客 C
 框架生成 POST 初始化端点，成功返回 204 和需要的 Cookie，Cache-Control: no-store；不返回登录身份或业务数据。它沿来源防护、正文限制及已选入口限流，不要求登录。路径和方法按有效规范化规则参与冲突检查，不保留整个 /__sark 前缀。
 
 visitors/browser 导出 ensureVisitor(options?)，返回 `Promise<void>`；options 可提供 url、signal、credentials，缺省同源并使用本工程生成的初始化地址。helper 发送无正文 POST，不主动设置 Content-Type；缺少该头仍按 [http.md](http.md) 的规则执行来源检查。同页面并发调用合并，失败后允许重新调用；成功返回后再开始依赖访客 Cookie 的业务请求。
+
+没有 Sark 启动数据时，独立消费端使用默认初始化地址；显式 url 优先。已有启动数据无法解析时直接拒绝，不吞掉错误后改用默认地址。浏览器和 SSR 共用启动载荷类型，仅交付公开端点路径，不传递访客内部状态。
 
 独立消费端或分离部署可明确提供公开初始化 URL。跨源浏览器调用时，服务端须将前端页面的 origin 加入 csrf.origins，并配置允许该 origin 且 credentials=true 的 CORS；helper 和后续业务请求显式使用 credentials='include'。CORS 放行不自动放行 CSRF。同源默认不需要增加允许项。
 

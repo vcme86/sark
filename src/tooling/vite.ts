@@ -174,6 +174,8 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
           id.startsWith('@olivaw/sark/storage/') ||
           id === '@olivaw/sark/assets' ||
           id.startsWith('@olivaw/sark/assets/') ||
+          id === '@olivaw/sark/visitors' ||
+          (id.startsWith('@olivaw/sark/visitors/') && id !== '@olivaw/sark/visitors/browser') ||
           (id.startsWith('@olivaw/sark/auth/') && id !== '@olivaw/sark/auth/webauthn/browser') ||
           id === '@olivaw/sark/middleware' ||
           id === '@olivaw/sark/vite' ||

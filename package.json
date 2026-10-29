@@ -84,6 +84,14 @@
       "types": "./dist/entries/assets/node.d.mts",
       "import": "./dist/entries/assets/node.mjs"
     },
+    "./visitors": {
+      "types": "./dist/entries/visitors.d.mts",
+      "import": "./dist/entries/visitors.mjs"
+    },
+    "./visitors/browser": {
+      "types": "./dist/entries/visitors/browser.d.mts",
+      "import": "./dist/entries/visitors/browser.mjs"
+    },
     "./runtime/core": {
       "types": "./dist/entries/runtime/core.d.mts",
       "import": "./dist/entries/runtime/core.mjs"
@@ -95,6 +103,10 @@
     "./runtime/oauth": {
       "types": "./dist/entries/runtime/oauth.d.mts",
       "import": "./dist/entries/runtime/oauth.mjs"
+    },
+    "./runtime/visitors": {
+      "types": "./dist/entries/runtime/visitors.d.mts",
+      "import": "./dist/entries/runtime/visitors.mjs"
     },
     "./runtime/node": {
       "types": "./dist/entries/runtime/node.d.mts",

@@ -5,6 +5,27 @@ export interface UrlPolicy {
 }
 
 /**
+ * Validates a static endpoint path and normalizes duplicate and trailing slashes.
+ *
+ * @param path - Absolute pathname without query, fragment, or router pattern syntax.
+ * @param field - Configuration field used in diagnostics.
+ * @returns A static pathname, preserving the root path.
+ * @throws If the path cannot identify a static endpoint.
+ */
+export function resolveStaticPath(path: string, field: string): string {
+  if (
+    typeof path !== 'string' ||
+    !path.startsWith('/') ||
+    path.startsWith('//') ||
+    /[\s?#\\:*]/.test(path) ||
+    path.split('/').some((segment) => segment === '.' || segment === '..')
+  ) {
+    throw new Error(`${field} must be an absolute static path without query or fragment.`)
+  }
+  return path.replace(/\/+/g, '/').replace(/\/$/, '') || '/'
+}
+
+/**
  * Restores static route spelling without changing encoded parameter values.
  *
  * @param pathname - Incoming encoded pathname.
