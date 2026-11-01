@@ -173,29 +173,37 @@ describe('Contract: Built Package Exports', () => {
   })
 })
 
-it.each(['db/d1', 'auth/session', 'auth/oauth'])(
-  'rejects the server capability %s in a real browser build',
-  async (entry) => {
-    const project = createProject()
-    project.write(
-      'entry.ts',
-      `import * as capability from '@olivaw/sark/${entry}'; console.log(capability)`,
-    )
-    try {
-      await expect(
-        build({
-          root: project.root,
-          configFile: false,
-          logLevel: 'silent',
-          plugins: [sark({ apiDir: false, webDir: false })],
-          build: { write: false, lib: { entry: project.root + '/entry.ts', formats: ['es'] } },
-        }),
-      ).rejects.toThrow(/cannot import server module/)
-    } finally {
-      project.remove()
-    }
-  },
-)
+it.each([
+  'db/d1',
+  'auth/session',
+  'auth/oauth',
+  'auth/mfa',
+  'auth/totp',
+  'auth/webauthn',
+  'auth/totp/d1',
+  'auth/webauthn/d1',
+  'auth/recovery/d1',
+  'auth/state/d1',
+])('rejects the server capability %s in a real browser build', async (entry) => {
+  const project = createProject()
+  project.write(
+    'entry.ts',
+    `import * as capability from '@olivaw/sark/${entry}'; console.log(capability)`,
+  )
+  try {
+    await expect(
+      build({
+        root: project.root,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: [sark({ apiDir: false, webDir: false })],
+        build: { write: false, lib: { entry: project.root + '/entry.ts', formats: ['es'] } },
+      }),
+    ).rejects.toThrow(/cannot import server module/)
+  } finally {
+    project.remove()
+  }
+})
 
 it('allows erased database types and the page declaration in a browser build', async () => {
   const project = createProject()
@@ -205,6 +213,27 @@ it('allows erased database types and the page declaration in a browser build', a
 import { definePage } from '@olivaw/sark/page'
 export const options: D1Config | null = null
 export const page = definePage({})`,
+  )
+  try {
+    await expect(
+      build({
+        root: project.root,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: [sark({ apiDir: false, webDir: false })],
+        build: { write: false, lib: { entry: project.root + '/entry.ts', formats: ['es'] } },
+      }),
+    ).resolves.toBeDefined()
+  } finally {
+    project.remove()
+  }
+})
+
+it('allows the WebAuthn browser helper in a real browser build', async () => {
+  const project = createProject()
+  project.write(
+    'entry.ts',
+    `import { startAuthentication } from '@olivaw/sark/auth/webauthn/browser'; export { startAuthentication }`,
   )
   try {
     await expect(

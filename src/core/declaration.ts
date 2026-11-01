@@ -53,7 +53,7 @@ export function evaluateDeclaration<T>(
 export type ResourceEnvironment<Resources> = [keyof Resources] extends [never]
   ? unknown
   : {
-        [K in keyof Resources]: (env: EnvOf<Resources[K]>) => void
+        [K in keyof Resources]-?: (env: EnvOf<Resources[K]>) => void
       }[keyof Resources] extends (env: infer E) => void
     ? E
     : unknown

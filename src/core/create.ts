@@ -4,6 +4,7 @@
  * @module
  */
 
+import { getLogger } from '@logtape/logtape'
 import type { Hono } from 'hono'
 
 import type { ResolvedHttpConfig } from '../http/config'
@@ -17,7 +18,7 @@ import type { EnvironmentArgs } from './declaration'
 import type { ApplicationDefinition } from './definition'
 import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { ensureBasicLogging } from './logging'
-import type { ServiceBindingFactory, ServicePreparation } from './service'
+import type { ServiceBindingFactory, ServiceCreateContext, ServicePreparation } from './service'
 import type { AppInstance } from './types'
 
 /** Resolved configuration supplied by a fixed-instance or event host. */
@@ -44,6 +45,13 @@ export async function assembleApp<D extends ApplicationDefinition>(
 ): Promise<AppInstance<D>> {
   ensureBasicLogging()
   const lifecycle = new LifecycleManager()
+  const logger = getLogger(['app', 'lifecycle'])
+  const trackStaticWork = (promise: Promise<unknown>) => {
+    lifecycle.beginRequest()
+    void promise
+      .catch((error) => logger.error('Background service work failed: {error}', { error }))
+      .finally(() => lifecycle.endRequest())
+  }
 
   try {
     const resolvePageConfig = definition.createPageConfigResolver?.()
@@ -116,8 +124,17 @@ export async function assembleApp<D extends ApplicationDefinition>(
       }
     }
 
+    const staticEnv = options.kind === 'static' ? options.env : undefined
     const staticServices = staticPlan
-      ? createServices(staticPlan.preparations, staticResources)
+      ? await createServices(staticPlan.preparations, staticResources, {
+          env: staticEnv,
+          target: 'node',
+          resourceDeclarations: definition.resources ?? {},
+          logger,
+          waitUntil: trackStaticWork,
+          signal: lifecycle.signal,
+          registerDispose: (name, dispose) => lifecycle.register({ name, dispose }),
+        })
       : undefined
 
     function currentConfig(): ResolvedHttpConfig {
@@ -144,6 +161,30 @@ export async function assembleApp<D extends ApplicationDefinition>(
         (executionCtx ? request.headers.get('cf-ray') : undefined) ||
         crypto.randomUUID()
       let effectiveConfig: ResolvedHttpConfig | undefined
+      const eventDisposals: Array<() => Promise<void> | void> = []
+      const eventWork = new Set<Promise<unknown>>()
+      const trackEventWork = (promise: Promise<unknown>) => {
+        const tracked = promise.catch((error) =>
+          logger.error('Background service work failed: {error}', { error }),
+        )
+        eventWork.add(tracked)
+        void tracked.finally(() => eventWork.delete(tracked))
+        ;(
+          executionCtx as { waitUntil?: (work: Promise<unknown>) => void } | undefined
+        )?.waitUntil?.(tracked)
+      }
+      const cleanupEventDisposals = async () => {
+        await Promise.all(eventWork)
+        const errors: unknown[] = []
+        while (eventDisposals.length) {
+          try {
+            await eventDisposals.pop()!()
+          } catch (error) {
+            errors.push(error)
+          }
+        }
+        if (errors.length) throw new AggregateError(errors, 'Event service disposal failed.')
+      }
 
       try {
         effectiveConfig = isInternal
@@ -198,7 +239,17 @@ export async function assembleApp<D extends ApplicationDefinition>(
         }
 
         const eventServices = eventPlan
-          ? createServices(eventPlan.preparations, currentResources)
+          ? await createServices(eventPlan.preparations, currentResources, {
+              env: requestEnv,
+              target: 'cloudflare',
+              resourceDeclarations: definition.resources ?? {},
+              logger,
+              waitUntil: trackEventWork,
+              signal: request.signal,
+              registerDispose: (_name, dispose) => {
+                eventDisposals.push(dispose)
+              },
+            })
           : undefined
         const currentServices = isInternal
           ? parent.services
@@ -207,7 +258,7 @@ export async function assembleApp<D extends ApplicationDefinition>(
           ? parent.serviceBindingFactories
           : (staticServices ?? eventServices)!.factories
 
-        return await runInScope(
+        const rawResponse = await runInScope(
           {
             ...parent,
             requestId,
@@ -224,7 +275,18 @@ export async function assembleApp<D extends ApplicationDefinition>(
           },
           () => activeApp!.fetch(request, requestEnv, executionCtx as any),
         )
-      } catch (err) {
+
+        if (eventDisposals.length > 0) {
+          return attachDisposal(rawResponse, cleanupEventDisposals, executionCtx)
+        }
+        return rawResponse
+      } catch (failure) {
+        let err = failure
+        try {
+          await cleanupEventDisposals()
+        } catch (cleanupError) {
+          err = new AggregateError([err, cleanupError], 'Event execution and disposal failed.')
+        }
         const errorConfig =
           effectiveConfig ?? (options.kind === 'static' ? options.config : options.errorConfig)
         const response = runInScope({ requestId, app: instance }, () =>
@@ -317,14 +379,64 @@ export async function assembleApp<D extends ApplicationDefinition>(
   }
 }
 
-function createServices(
+/** Retains event services until the response ends, fails, or is cancelled. */
+function attachDisposal(
+  response: Response,
+  cleanup: () => Promise<void>,
+  executionCtx?: unknown,
+): Response {
+  const host = executionCtx as { waitUntil?: (work: Promise<unknown>) => void } | undefined
+  let disposal: Promise<void> | undefined
+  const finish = () => {
+    if (disposal) return
+    disposal = cleanup()
+    if (host?.waitUntil) host.waitUntil(disposal)
+    else
+      void disposal.catch((error) =>
+        getLogger(['app', 'lifecycle']).error('Event disposal failed: {error}', { error }),
+      )
+  }
+  if (!response.body) {
+    finish()
+    return response
+  }
+  const reader = response.body.getReader()
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          reader.releaseLock()
+          finish()
+          controller.close()
+        } else controller.enqueue(chunk.value)
+      } catch (error) {
+        reader.releaseLock()
+        finish()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        reader.releaseLock()
+        finish()
+      }
+    },
+  })
+  return new Response(body, response)
+}
+
+async function createServices(
   preparations: Map<string, ServicePreparation<unknown>>,
   resources: Readonly<Record<string, unknown>>,
+  context: ServiceCreateContext,
 ) {
   const services: Record<string, unknown> = {}
   const factories: Record<string, ServiceBindingFactory> = {}
   for (const [name, preparation] of preparations) {
-    const result = preparation.create(resources)
+    const result = await preparation.create(resources, context)
     if (result.service !== undefined) services[name] = result.service
     if (result.createBinding) factories[name] = result.createBinding
   }

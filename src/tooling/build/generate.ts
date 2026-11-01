@@ -140,6 +140,15 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
     options
   const hasApp = appExports.exports.includes('app')
   const hasRuntime = appExports.exports.includes('runtime')
+  const hasMfa = appExports.exports.includes('mfa')
+  const hasTotp = appExports.exports.includes('totp')
+  const hasWebAuthn = appExports.exports.includes('webauthn')
+  const requiresMfaAssembly = hasMfa || hasTotp || hasWebAuthn
+  const hasAuth = appExports.exports.includes('auth')
+  if (requiresMfaAssembly && !hasAuth)
+    throw new Error('TOTP, WebAuthn and MFA require an auth session declaration.')
+  if (hasMfa && !hasTotp && !hasWebAuthn)
+    throw new Error('MFA requires at least one configured factor.')
   mkdirSync(generatedDir, { recursive: true })
   if (options.apiTypes && routes.length) {
     throw new Error('apiTypes cannot be combined with discovered local API routes.')
@@ -156,6 +165,11 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
 
   // Platform boundary validation
   if (target === 'cloudflare') {
+    if (requiresMfaAssembly && !hasMfa) {
+      throw new Error(
+        'Cloudflare Workers target requires explicit MFA configuration ("mfa") with a shared AuthStateStore declaration (such as sqlAuthState from @olivaw/sark/auth/state/d1).',
+      )
+    }
     if (hasRuntime) {
       throw new Error(
         'Cloudflare Workers target does not support Node runtime configuration ("runtime"). Use Wrangler configuration for Workers bindings.',
@@ -377,7 +391,6 @@ const page404Handler = createPage404Handler(
   const hasDatabase = appExports.exports.includes('database')
   const hasStorage = appExports.exports.includes('storage')
   const hasAssets = appExports.exports.includes('assets')
-  const hasAuth = appExports.exports.includes('auth')
   const hasOAuth = appExports.exports.includes('oauth')
   const hasVisitors = appExports.exports.includes('visitors')
 
@@ -392,13 +405,34 @@ const page404Handler = createPage404Handler(
   if (hasOAuth)
     serviceEntries.push(`oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)})`)
   if (hasVisitors) serviceEntries.push('visitors: createVisitorsAssembly(visitors)')
+  if (requiresMfaAssembly) {
+    const factors = [
+      hasTotp ? 'totpFactor' : '',
+      hasWebAuthn ? 'createWebAuthnFactor(webauthn)' : '',
+    ].filter(Boolean)
+    serviceEntries.push(
+      `mfa: createMfaAssembly({ ${hasMfa ? 'mfa, ' : ''}factors: [${factors.join(', ')}] })`,
+    )
+  }
+  if (hasTotp) serviceEntries.push('totp: totpFactor.maintenance')
   const servicesCode =
     serviceEntries.length > 0 ? `services: { ${serviceEntries.join(', ')} },` : ''
+
+  const declItems: string[] = []
+  if (hasRuntime) declItems.push('runtime')
+  if (hasTotp) declItems.push('totp')
+  if (hasWebAuthn) declItems.push('webauthn')
+  if (hasMfa) declItems.push('mfa')
+  const declarationsCode =
+    declItems.length > 0 ? `declarations: [${declItems.join(', ')}] as const,` : ''
 
   const appTsContent = `import { createDefinition${hasStorage ? ', createStorageAssembly' : ''} } from '@olivaw/sark/runtime/core'
 ${hasAuth ? "import { createAuthAssembly } from '@olivaw/sark/runtime/auth'" : ''}
 ${hasOAuth ? "import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'" : ''}
 ${hasVisitors ? "import { createVisitorsAssembly } from '@olivaw/sark/runtime/visitors'" : ''}
+${requiresMfaAssembly ? "import { createMfaAssembly } from '@olivaw/sark/runtime/mfa'" : ''}
+${hasTotp ? "import { createTotpFactor } from '@olivaw/sark/runtime/totp'" : ''}
+${hasWebAuthn ? "import { createWebAuthnFactor } from '@olivaw/sark/runtime/webauthn'" : ''}
 import type { EndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
 ${hasApp ? `import { app } from ${appImportPath}` : ''}
@@ -410,17 +444,21 @@ ${hasAssets ? `import { assets } from ${appImportPath}` : ''}
 ${hasAuth ? `import { auth } from ${appImportPath}` : ''}
 ${hasOAuth ? `import { oauth } from ${appImportPath}` : ''}
 ${hasVisitors ? `import { visitors } from ${appImportPath}` : ''}
+${hasMfa ? `import { mfa } from ${appImportPath}` : ''}
+${hasTotp ? `import { totp } from ${appImportPath}` : ''}
+${hasWebAuthn ? `import { webauthn } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
 ${hasPages || options.assets ? "import { pageAssets } from './page-assets'" : ''}
 
 ${pageHandlerCode}
+${hasTotp ? 'const totpFactor = createTotpFactor(totp)' : ''}
 
 export const definition = createDefinition({
   ${hasApp ? 'app,' : ''}
   ${appExports.exports.includes('page') ? 'page,' : ''}
-  ${hasRuntime ? 'declarations: [runtime] as const,' : ''}
+  ${declarationsCode}
   ${resourcesCode}
   ${target === 'node' && hasAssets ? 'assetMounts: assets,' : ''}
   ${servicesCode}
@@ -475,6 +513,27 @@ ${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: S
   if (hasVisitors) {
     serviceTypeImports.push("import type { RequestVisitor } from '@olivaw/sark/visitors'")
     serviceTypeFields.push('  readonly visitor: RequestVisitor')
+  }
+  if (requiresMfaAssembly) {
+    serviceTypeImports.push("import type { MfaService } from '@olivaw/sark/auth/mfa'")
+    if (hasWebAuthn)
+      serviceTypeImports.push(
+        "import type { AuthenticationResponseJSON } from '@olivaw/sark/auth/webauthn'",
+      )
+    const proofs = [
+      hasTotp ? "{ kind: 'totp'; code: string }" : '',
+      hasWebAuthn ? "{ kind: 'webauthn'; response: AuthenticationResponseJSON }" : '',
+      "{ kind: 'recovery'; code: string }",
+    ].filter(Boolean)
+    serviceTypeFields.push(`  readonly mfa: MfaService<${proofs.join(' | ')}>`)
+  }
+  if (hasTotp) {
+    serviceTypeImports.push("import type { TotpService } from '@olivaw/sark/auth/totp'")
+    serviceTypeFields.push('  readonly totp: TotpService')
+  }
+  if (hasWebAuthn) {
+    serviceTypeImports.push("import type { WebAuthnService } from '@olivaw/sark/auth/webauthn'")
+    serviceTypeFields.push('  readonly webauthn: WebAuthnService')
   }
 
   const servicesTypesContent = `// Generated services types

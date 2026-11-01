@@ -85,18 +85,24 @@ sark/
 │   ├── services/
 │   │   ├── auth/
 │   │   │   ├── contracts.ts            共享身份、认证结果及资源检查上下文
-│   │   │   ├── mfa.ts                  共同登录、再次认证与完成协调
-│   │   │   ├── challenge.ts            用途、期限、并发验证与尝试次数限制
-│   │   │   ├── state/                  memory、postgres、d1 短期状态实现
+│   │   │   ├── factor.ts               因素验证、请求绑定和创建契约
+│   │   │   ├── verification.ts         共同证明消费与会话完成
+│   │   │   ├── store.ts                专用存取的创建及释放约定
+│   │   │   ├── error.ts                因素认证错误分类
+│   │   │   ├── mfa/                    共同登录、再次认证、挑战策略与完成协调
+│   │   │   ├── state/                  memory、postgres、d1 短期状态及 SQL schema
 │   │   │   ├── session/                JWT、凭据选择、签发、验证与续期
 │   │   │   ├── oauth/                  openid-client、事务 Cookie 与厂商差异
 │   │   │   ├── totp/                   OTP 接入、因素管理、加密与存取
-│   │   │   │   └── db/                 SQLite、PostgreSQL、D1 适配及 schema
+│   │   │   │   ├── db/                 SQLite、PostgreSQL、D1 存取适配
+│   │   │   │   └── schema/             各后端的 Drizzle 表定义
 │   │   │   ├── webauthn/               注册、认证、凭据、浏览器接入与存取
-│   │   │   │   └── db/
+│   │   │   │   ├── db/
+│   │   │   │   └── schema/
 │   │   │   └── recovery/
 │   │   │       ├── service.ts          恢复码签发与单次消费
-│   │   │       └── db/                 SQLite、PostgreSQL、D1 适配及 schema
+│   │   │       ├── db/                 SQLite、PostgreSQL、D1 存取适配
+│   │   │       └── schema/             各后端的 Drizzle 表定义
 │   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
 │   │   ├── storage/                    local、r2、s3 后端及独立 presign 接入
 │   │   ├── visitors/                   声明、访客标识与初始化端点
@@ -119,7 +125,7 @@ sark/
 │   ├── adapter/
 │   │   ├── node/                       runtime 配置、监听、来源、升级、env 和基础探针
 │   │   └── cloudflare/                 Fetch、Scheduled、bindings、升级和事件执行期限
-│   └── entries/                        按公开子路径组织的薄导出
+│   └── entries/                        集中定义公开接口的薄导出
 ├── tests/
 │   ├── unit/
 │   ├── contract/                       内存协议、存取契约和生命周期
@@ -135,11 +141,13 @@ sark/
 
 文件按一项完整职责组织，可以包含多个协作函数。需要进一步分组时才建目录，不要求相邻模块深度一致。每项能力的配置、类型、运行代码和构建片段相邻维护；构建片段不由运行入口导出。
 
-services/db 负责数据库声明、连接及资源生命周期；认证模块内的 db 目录负责所属领域的数据库存取适配与 schema，借用已声明的数据库，不另建连接。内部目录名不决定公开包路径；auth/totp/sqlite 等入口仍按具体后端交付。
+services/db 负责数据库声明、连接及资源生命周期；认证模块内的 db 目录负责所属领域的存取适配，schema 目录保存相应表定义。适配借用已声明的数据库，不另建连接。SQLite/D1 共用相同的 SQLite 表定义，PG 使用独立定义；内部不为相同 schema 建复制或转发文件。
 
 ## 依赖方向
 
 生成的应用定义是组合根，显式引用所选核心、领域能力和宿主。核心使用这些装配结果，不维护包含所有能力的配置联合或运行时注册表。
+
+内部 ServiceAssembly 通过 requires 声明所需服务名称。createDefinition 只对本次选中的服务检查缺失与循环，并按依赖排序，随后才创建资源；不在每次请求重新排序。MFA 依赖 auth，TOTP 维护服务依赖本次因素初始化所属的 mfa。应用不通过配置导出顺序安排这些内部步骤。
 
 - 领域运行代码依赖必要的底层契约和上游库，不导入生成组合根
 - 页面只依赖 HTTP 客户端与协议；HTTP 不依赖页面
@@ -159,6 +167,8 @@ core/config 定义 AppConfig 与应用声明；http/config 维护 HTTP 默认值
 
 ## 公开包入口
 
+entries 按使用场景限定公开符号，不镜像实现目录。可选能力的加载隔离优先于入口数量：认证 SQL 入口按能力和数据库区分，同一入口交付该能力的适配及表定义，不聚合其他因素或恢复码。公开路径的层级不要求源码逐层建目录，入口文件采用扁平具名文件。只启用 TOTP 时，不加载 WebAuthn 的适配、表定义、SDK 或类型；原生 Node ESM 接入也必须成立，不依赖应用构建裁剪。
+
 一个 npm 包通过显式 exports 交付。源码分组、应用配置导出和包子路径不一一对应。以下按用途列出入口及主要运行时导出；选项、上下文、服务接口和协议类型由对应专项定义，不在这里重复全部类型清单。
 
 - `server`：defineApp、createApp、route、HttpError、z、dedup、getLogger，以及 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie；Context、MiddlewareHandler 类型保留本应用声明的资源与请求服务
@@ -170,7 +180,10 @@ core/config 定义 AppConfig 与应用声明；http/config 维护 HTTP 默认值
 - `storage/local`：defineStorage、saveUploadFile；`storage/r2`、`storage/s3`：各自的 defineStorage；`storage/presign`：definePresign
 - `auth/session`：defineAuth、signToken、verifyToken、requireStepUp 及会话类型
 - `auth/oauth`：defineOAuth；`auth/totp`：defineTotp；`auth/webauthn`：defineWebAuthn；`auth/mfa`：defineMfa、memoryState 及共同认证契约。WebAuthn 浏览器接入从 `auth/webauthn/browser` 导入，具体符号由 [webauthn.md](webauthn.md) 定义
-- `auth/state/postgres`、`auth/state/d1`：各自的 sqlAuthState
+- `auth/totp/sqlite`、`auth/totp/postgres`、`auth/totp/d1`：sqlTotp、totpFactors
+- `auth/webauthn/sqlite`、`auth/webauthn/postgres`、`auth/webauthn/d1`：sqlWebAuthn、webauthnSubjects、webauthnCredentials
+- `auth/recovery/sqlite`、`auth/recovery/postgres`、`auth/recovery/d1`：sqlRecovery、mfaRecovery
+- `auth/state/postgres`、`auth/state/d1`：sqlAuthState、mfaChallenges、mfaAttempts
 - `visitors`：defineVisitors；`visitors/browser`：ensureVisitor
 - `stats`：defineStats 与计数契约；`stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats
 - `jobs`：defineJobs；`logging`：defineLogging；`metrics`：defineMetrics；`health`：defineHealth，及各自的选项、服务和上下文类型
@@ -179,9 +192,9 @@ core/config 定义 AppConfig 与应用声明；http/config 维护 HTTP 默认值
 
 认证 SQL 适配与 schema 的精确路径分别由 [mfa.md](mfa.md)、[totp.md](totp.md)、[webauthn.md](webauthn.md) 定义；统计 schema 路径由 [stats.md](stats.md) 定义。这些路径在 package.json 中逐项枚举，不使用顶层通配符暴露内部文件。
 
-恢复码的运行代码和 SQL 实现集中在 services/auth/recovery，对外仍由共同 MFA 的 auth/mfa 子路径交付；应用不额外声明 recovery；这样分组也不会额外产生一个提前加载全部内容的聚合入口。
+恢复码的运行代码和 SQL 实现集中在 services/auth/recovery；恢复契约由 auth/mfa 交付，SQL 适配与表定义由独立 auth/recovery 后端入口交付。应用通过 mfa.recovery 选择它，不额外声明顶层 recovery。共同短期状态服务于绑定、第二步及无密码认证，不属于某一种因素。
 
-`runtime/core`、`runtime/auth`、`runtime/oauth`、`runtime/visitors`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/websocket`、`runtime/jobs-node`、`runtime/jobs-cloudflare` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
+`runtime/core`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/visitors`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/websocket`、`runtime/jobs-node`、`runtime/jobs-cloudflare` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
 
 ## 上游与框架承担的工作
 

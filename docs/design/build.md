@@ -107,7 +107,7 @@ OAuth 端点使用 [oauth.md](oauth.md) 的已解析 signInPath/callbackPath，�
 
 - 仅 Node：server/node、assets/node、db/sqlite、db/postgres、storage/local、storage/s3、health、metrics，以及 Node 文件 sink；在 Workers 中启用这些接入时报目标错误
 - 仅 Workers：db/d1、storage/r2 的平台 binding 接入；Node 不接受 D1/R2 binding 声明。通过 Node 的 storage/s3 访问 R2 S3 API 属于 S3 兼容后端，不是 R2 binding
-- 两目标共有：HTTP、页面、session、OAuth、visitors、stats 共同契约、TOTP/WebAuthn 与共同认证流程。官方领域 SQL 适配跟随所借数据库，sqlite/postgres 为 Node，d1 为 Workers；auth/state/postgres 为 Node，auth/state/d1 为 Workers
+- 两目标共有：HTTP、页面、session、OAuth、visitors、stats 共同契约、TOTP/WebAuthn 与共同认证流程。官方领域 SQL 适配按能力和所借数据库区分，sqlite/postgres 为 Node，d1 为 Workers；auth/state/postgres 的短期状态适配为 Node，auth/state/d1 的短期状态适配为 Workers
 - 平台分别接入：storage/presign 的 Node S3 签名/Workers R2 签名、jobs 的 Node 调度/Workers Scheduled、rateLimit 的 Node 窗口/Workers binding、日志的相应平台输出。完整限制由各专项定义
 
 本次 storage/s3 只交付 Node 接入，不据此宣称 S3 协议或 SDK 天然不能用于 Workers。纯类型导入、纯 schema 导入不算初始化相应驱动。

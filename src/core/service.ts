@@ -1,8 +1,10 @@
 /** Internal contracts for generated domain assembly and request bindings. */
+import type { Logger } from '@logtape/logtape'
 import type { Context } from 'hono'
 
 import type { ResolvedHttpConfig } from '../http/config'
 import type { RouteEntry } from '../http/server/types'
+import type { ResourceAssembly } from './resource'
 
 /** Request facilities shared with an optional domain. */
 export interface RequestBindingContext {
@@ -33,10 +35,25 @@ export interface ServiceInstanceResult<TService = unknown> {
   readonly createBinding?: ServiceBindingFactory
 }
 
+/** Context passed when creating resource-bound services. */
+export interface ServiceCreateContext {
+  readonly env?: unknown
+  readonly target: 'node' | 'cloudflare'
+  readonly resourceDeclarations: Readonly<Record<string, ResourceAssembly>>
+  readonly signal: AbortSignal
+  readonly registerDispose: (name: string, dispose: () => Promise<void> | void) => void
+  readonly logger: Logger
+  /** Tracks noncritical work until it settles before disposing its resources. */
+  readonly waitUntil: (promise: Promise<unknown>) => void
+}
+
 /** Validated configuration and routes prepared before resources are created. */
 export interface ServicePreparation<TService = unknown> {
   readonly routes?: readonly RouteEntry[]
-  readonly create: (resources: Readonly<Record<string, unknown>>) => ServiceInstanceResult<TService>
+  readonly create: (
+    resources: Readonly<Record<string, unknown>>,
+    context: ServiceCreateContext,
+  ) => ServiceInstanceResult<TService> | Promise<ServiceInstanceResult<TService>>
 }
 
 /** Instance-owned domain runtime, resolving configuration before creating resource-bound services. */
@@ -49,6 +66,8 @@ export interface ServiceRuntime<TService = unknown> {
 
 /** Internal assembly selected by generated application code. */
 export interface ServiceAssembly<TService = never> {
+  /** Names of selected services that must be prepared and created before this service. */
+  readonly requires?: readonly string[]
   /** Whether this domain exposes a public instance service. */
   readonly expose?: boolean
   /** Creates instance-owned caches without evaluating configuration factories. */

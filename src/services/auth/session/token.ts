@@ -250,14 +250,7 @@ export async function issueToken(
   input: SignInInput,
   config: TokenSigningConfig,
 ): Promise<IssuedToken> {
-  if (!input.sub || typeof input.sub !== 'string') {
-    throw new Error('Session sub is required and must be a non-empty string.')
-  }
-  for (const key of Object.keys(input.claims ?? {})) {
-    if (RESERVED_CLAIMS.has(key)) {
-      throw new Error(`Claim "${key}" cannot overwrite reserved session field.`)
-    }
-  }
+  validateSignInInput(input)
 
   const identity: Identity = {
     sub: input.sub,
@@ -279,6 +272,18 @@ export async function issueToken(
     audience: config.audience,
   })
   return { identity, token: await signWithKey(payload, config.activeKey), expiresAt }
+}
+
+/** Checks application issuance input before any authentication state is committed. */
+export function validateSignInInput(input: SignInInput): void {
+  if (!input.sub || typeof input.sub !== 'string') {
+    throw new Error('Session sub is required and must be a non-empty string.')
+  }
+  for (const key of Object.keys(input.claims ?? {})) {
+    if (RESERVED_CLAIMS.has(key)) {
+      throw new Error(`Claim "${key}" cannot overwrite reserved session field.`)
+    }
+  }
 }
 
 /** Internal token verification result retaining identity and expiration metadata. */

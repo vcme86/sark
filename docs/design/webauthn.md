@@ -118,14 +118,14 @@ auth/webauthn 导出 WebAuthnStore，操作包括：
 
 ## 默认 SQL 适配与迁移
 
-auth/webauthn/sqlite、auth/webauthn/postgres、auth/webauthn/d1 导出 sqlWebAuthn({ database, tables?: { subjects, credentials } })。对应 /schema 导出两张表：
+auth/webauthn/sqlite、auth/webauthn/postgres、auth/webauthn/d1 导出 sqlWebAuthn({ database, tables?: { subjects, credentials } })。同一入口仅包含 WebAuthn 适配及两张表：
 
-- subjects：sark_webauthn_subjects，主体唯一、稳定 handle 唯一
-- credentials：sark_webauthn_credentials，凭据 ID 唯一，索引支持主体列表，保存公钥字节及验证元数据
+- webauthnSubjects：sark_webauthn_subjects，主体唯一、稳定 handle 唯一
+- webauthnCredentials：sark_webauthn_credentials，凭据 ID 唯一，索引支持主体列表，保存公钥字节及验证元数据
 
 BLOB/BYTEA 与 Uint8Array 无损往返，使用上游前先转换 ORM 返回的原生字节视图；不把 JSON 数字数组或 Buffer 的序列化对象误当公钥。
 
-应用传兼容 Drizzle 表对象可改变物理名；不兼容模型实现 WebAuthnStore。默认表不要求框架用户表或特定用户主键，账户关联政策仍由应用维护。
+SQLite/D1 共用 SQLite 表定义，PG 使用独立定义。应用传兼容 Drizzle 表对象可改变物理名，须保留 subjects.sub、subjects.userHandle、credentials.credentialId 各自的唯一约束，并保留凭据主体查询索引；不兼容模型实现 WebAuthnStore。默认表不要求框架用户表或特定用户主键，账户关联政策仍由应用维护。
 
 默认 schema、适配、迁移接入和契约测试随 WebAuthn 一起交付，不把它们推给普通应用。迁移和资源规则沿 [database.md](database.md)。
 

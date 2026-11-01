@@ -102,11 +102,11 @@ expectedRevision=null 只在无记录时插入，以主体唯一约束保证。�
 
 ## 默认 SQL 与映射
 
-auth/totp/sqlite、auth/totp/postgres、auth/totp/d1 导出 sqlTotp({ database, tables?: { factors } })。它借用数据库声明，创建实际适配由装配负责。
+auth/totp/sqlite、auth/totp/postgres、auth/totp/d1 导出 sqlTotp({ database, tables?: { factors } })。同一入口仅包含 TOTP 适配和表定义，借用数据库声明，创建实际适配由装配负责。
 
-三个路径各自的 /schema 导出 factors，默认表 sark_totp_factors。主体是主键/唯一键，字段保存上述记录；密文用 BLOB/BYTEA 无损存储。revision 条件写入直接落实到 SQL，不先查后无条件覆盖。
+三个入口同时导出 totpFactors 表定义，默认表 sark_totp_factors。主体是主键/唯一键，字段保存上述记录；密文用 BLOB/BYTEA 无损存储。revision 条件写入直接落实到 SQL，不先查后无条件覆盖。
 
-SQLite/D1 用 SQLite 表定义，PG 用原生 PG 定义。应用可直接从 schema 入口再导出到自己的 Drizzle schema；更改物理表/列名时传自己的兼容表对象，不配置任意 SQL 字符串。不同逻辑模型实现 TotpStore。
+SQLite/D1 共用 SQLite 表定义，PG 用原生 PG 定义；PG 的 lastStep 使用 number 模式 bigint，与其他后端保持数值范围一致。period 是正整数秒。应用可从对应 TOTP 后端入口再导出自己的 Drizzle schema；更改物理表/列名时传兼容表对象，须保留 sub 单列唯一约束，不配置任意 SQL 字符串。不同逻辑模型实现 TotpStore。
 
 默认 schema、适配、迁移接入及契约验证随 TOTP 交付，不要求普通应用先写 read/commit。框架不建用户表、不自动改业务表；默认表的选择与资源归属沿 [database.md](database.md)。
 

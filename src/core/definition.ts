@@ -111,7 +111,7 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
     app: input.app,
     page: input.page,
     resources: input.resources,
-    services: input.services,
+    services: input.services ? orderServices(input.services) : undefined,
     apiPrefix: input.apiPrefix,
     webPrefix: input.webPrefix,
     routes: input.routes ?? [],
@@ -121,4 +121,22 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
     assetMounts: input.assetMounts,
     isDefinition: true,
   } as DefinitionFromInput<T>
+}
+
+/** Orders only selected dependencies, reporting missing or cyclic composition before resources open. */
+function orderServices(services: NonNullable<ApplicationDefinitionInput['services']>) {
+  const ordered: typeof services = {}
+  const visiting = new Set<string>()
+  function visit(name: string) {
+    if (Object.hasOwn(ordered, name)) return
+    if (visiting.has(name)) throw new Error(`Cyclic service dependency: ${name}.`)
+    const service = services[name]
+    if (!service) throw new Error(`Required service "${name}" is not declared.`)
+    visiting.add(name)
+    for (const dependency of service.requires ?? []) visit(dependency)
+    visiting.delete(name)
+    ordered[name] = service
+  }
+  for (const name of Object.keys(services)) visit(name)
+  return ordered
 }

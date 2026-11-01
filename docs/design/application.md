@@ -201,7 +201,9 @@ type EnvironmentArgs<D> =
 
 各能力的 StoreDeclaration 是延迟创建约定，工厂在资源就绪后由框架调用。自定义声明提供 create(context)，返回 { value: Store, dispose? } 或其 Promise；value 实现该领域的操作接口，dispose 只释放自己创建的资源。官方 sqlTotp/sqlStats 等也返回同类声明，不在配置时拿连接。
 
-context 的基础部分只给该声明所需的 Env、已声明资源（如 db）、logger 和创建期 signal，不给整份 AppInstance 或任意服务查找器。所属领域可追加自身初始化所需的有限信息，例如统计 store 的 requirements.unique；这些信息由该领域的类型与创建器拥有，不加入核心的全领域配置联合。借用 db 的适配通常没有 dispose。框架等待 create 完成，取得结果后立即登记其 dispose；后续创建失败时取消创建期工作并逆序回滚。正常关闭同样逆序释放，应用不手工调用 create 或排列顺序。Workers 根据所属事件或连接的真实生命周期释放，不在 Fetch 返回时提前关闭仍在使用的资源。
+认证 store 的 context 包含 env、resources、resourceDeclarations、target、logger、signal 和 waitUntil，不提供整份 AppInstance 或服务查找器。resources 提供已创建资源，例如 context.resources.db；resourceDeclarations 用于关联数据库声明，target 用于校验平台，waitUntil 跟踪非关键维护工作，并让资源释放等待其结束。signal 属于当前创建宿主或事件，操作期的请求上下文由对应服务另外提供。
+
+所属领域可追加自身初始化所需的有限信息，例如统计 store 的 requirements.unique；这些信息由该领域的类型与创建器拥有，不加入核心的全领域配置联合。借用 db 的适配通常没有 dispose。框架等待 create 完成，取得结果后立即登记其 dispose；后续创建失败时取消创建期工作并逆序回滚。正常关闭同样逆序释放，应用不手工调用 create 或排列顺序。Workers 根据所属事件或连接的真实生命周期释放，不在 Fetch 返回时提前关闭仍在使用的资源。
 
 各类 Store 共用创建与释放约定，保留各自的操作语义。StatsStore、TotpStore、WebAuthnStore、AuthStateStore 和 RecoveryStore 各自保留专用契约；不引入通用 Storage、插件安装或运行时注册中心。
 

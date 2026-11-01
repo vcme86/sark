@@ -20,6 +20,10 @@
       "types": "./dist/entries/server/node.d.mts",
       "import": "./dist/entries/server/node.mjs"
     },
+    "./middleware": {
+      "types": "./dist/entries/middleware.d.mts",
+      "import": "./dist/entries/middleware.mjs"
+    },
     "./http": {
       "types": "./dist/entries/http.d.mts",
       "import": "./dist/entries/http.mjs"
@@ -32,17 +36,9 @@
       "types": "./dist/entries/client.d.mts",
       "import": "./dist/entries/client.mjs"
     },
-    "./middleware": {
-      "types": "./dist/entries/middleware.d.mts",
-      "import": "./dist/entries/middleware.mjs"
-    },
     "./utils": {
       "types": "./dist/entries/utils.d.mts",
       "import": "./dist/entries/utils.mjs"
-    },
-    "./vite": {
-      "types": "./dist/entries/vite.d.mts",
-      "import": "./dist/entries/vite.mjs"
     },
     "./db/sqlite": {
       "types": "./dist/entries/db/sqlite.d.mts",
@@ -63,6 +59,66 @@
     "./auth/oauth": {
       "types": "./dist/entries/auth/oauth.d.mts",
       "import": "./dist/entries/auth/oauth.mjs"
+    },
+    "./auth/mfa": {
+      "types": "./dist/entries/auth/mfa.d.mts",
+      "import": "./dist/entries/auth/mfa.mjs"
+    },
+    "./auth/totp": {
+      "types": "./dist/entries/auth/totp.d.mts",
+      "import": "./dist/entries/auth/totp.mjs"
+    },
+    "./auth/totp/sqlite": {
+      "types": "./dist/entries/auth/totp-sqlite.d.mts",
+      "import": "./dist/entries/auth/totp-sqlite.mjs"
+    },
+    "./auth/totp/postgres": {
+      "types": "./dist/entries/auth/totp-postgres.d.mts",
+      "import": "./dist/entries/auth/totp-postgres.mjs"
+    },
+    "./auth/totp/d1": {
+      "types": "./dist/entries/auth/totp-d1.d.mts",
+      "import": "./dist/entries/auth/totp-d1.mjs"
+    },
+    "./auth/webauthn": {
+      "types": "./dist/entries/auth/webauthn.d.mts",
+      "import": "./dist/entries/auth/webauthn.mjs"
+    },
+    "./auth/webauthn/browser": {
+      "types": "./dist/entries/auth/webauthn-browser.d.mts",
+      "import": "./dist/entries/auth/webauthn-browser.mjs"
+    },
+    "./auth/webauthn/sqlite": {
+      "types": "./dist/entries/auth/webauthn-sqlite.d.mts",
+      "import": "./dist/entries/auth/webauthn-sqlite.mjs"
+    },
+    "./auth/webauthn/postgres": {
+      "types": "./dist/entries/auth/webauthn-postgres.d.mts",
+      "import": "./dist/entries/auth/webauthn-postgres.mjs"
+    },
+    "./auth/webauthn/d1": {
+      "types": "./dist/entries/auth/webauthn-d1.d.mts",
+      "import": "./dist/entries/auth/webauthn-d1.mjs"
+    },
+    "./auth/recovery/sqlite": {
+      "types": "./dist/entries/auth/recovery-sqlite.d.mts",
+      "import": "./dist/entries/auth/recovery-sqlite.mjs"
+    },
+    "./auth/recovery/postgres": {
+      "types": "./dist/entries/auth/recovery-postgres.d.mts",
+      "import": "./dist/entries/auth/recovery-postgres.mjs"
+    },
+    "./auth/recovery/d1": {
+      "types": "./dist/entries/auth/recovery-d1.d.mts",
+      "import": "./dist/entries/auth/recovery-d1.mjs"
+    },
+    "./auth/state/postgres": {
+      "types": "./dist/entries/auth/state-postgres.d.mts",
+      "import": "./dist/entries/auth/state-postgres.mjs"
+    },
+    "./auth/state/d1": {
+      "types": "./dist/entries/auth/state-d1.d.mts",
+      "import": "./dist/entries/auth/state-d1.mjs"
     },
     "./storage/local": {
       "types": "./dist/entries/storage/local.d.mts",
@@ -92,21 +148,13 @@
       "types": "./dist/entries/visitors/browser.d.mts",
       "import": "./dist/entries/visitors/browser.mjs"
     },
+    "./vite": {
+      "types": "./dist/entries/vite.d.mts",
+      "import": "./dist/entries/vite.mjs"
+    },
     "./runtime/core": {
       "types": "./dist/entries/runtime/core.d.mts",
       "import": "./dist/entries/runtime/core.mjs"
-    },
-    "./runtime/auth": {
-      "types": "./dist/entries/runtime/auth.d.mts",
-      "import": "./dist/entries/runtime/auth.mjs"
-    },
-    "./runtime/oauth": {
-      "types": "./dist/entries/runtime/oauth.d.mts",
-      "import": "./dist/entries/runtime/oauth.mjs"
-    },
-    "./runtime/visitors": {
-      "types": "./dist/entries/runtime/visitors.d.mts",
-      "import": "./dist/entries/runtime/visitors.mjs"
     },
     "./runtime/node": {
       "types": "./dist/entries/runtime/node.d.mts",
@@ -123,6 +171,30 @@
     "./runtime/page-browser": {
       "types": "./dist/entries/runtime/page-browser.d.mts",
       "import": "./dist/entries/runtime/page-browser.mjs"
+    },
+    "./runtime/auth": {
+      "types": "./dist/entries/runtime/auth.d.mts",
+      "import": "./dist/entries/runtime/auth.mjs"
+    },
+    "./runtime/oauth": {
+      "types": "./dist/entries/runtime/oauth.d.mts",
+      "import": "./dist/entries/runtime/oauth.mjs"
+    },
+    "./runtime/mfa": {
+      "types": "./dist/entries/runtime/mfa.d.mts",
+      "import": "./dist/entries/runtime/mfa.mjs"
+    },
+    "./runtime/totp": {
+      "types": "./dist/entries/runtime/totp.d.mts",
+      "import": "./dist/entries/runtime/totp.mjs"
+    },
+    "./runtime/webauthn": {
+      "types": "./dist/entries/runtime/webauthn.d.mts",
+      "import": "./dist/entries/runtime/webauthn.mjs"
+    },
+    "./runtime/visitors": {
+      "types": "./dist/entries/runtime/visitors.d.mts",
+      "import": "./dist/entries/runtime/visitors.mjs"
     }
   },
   "scripts": {
@@ -153,6 +225,13 @@
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/vite-plugin": "^1.65.0",
     "@cloudflare/workers-types": "^5.20261025.1",
+    "@otplib/core": "^13.5.0",
+    "@otplib/plugin-base32-scure": "^13.5.0",
+    "@otplib/plugin-crypto-web": "^13.5.0",
+    "@otplib/totp": "^13.5.0",
+    "@otplib/uri": "^13.5.0",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/negotiator": "^0.6.5",
     "@types/node": "^26.6.5",
@@ -178,6 +257,13 @@
     "@aws-sdk/lib-storage": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/workers-types": "^5.20261019.1",
+    "@otplib/core": "^13.5.0",
+    "@otplib/plugin-base32-scure": "^13.5.0",
+    "@otplib/plugin-crypto-web": "^13.5.0",
+    "@otplib/totp": "^13.5.0",
+    "@otplib/uri": "^13.5.0",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.0",
     "drizzle-orm": "^0.45.0",
@@ -200,6 +286,27 @@
       "optional": true
     },
     "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@otplib/core": {
+      "optional": true
+    },
+    "@otplib/plugin-base32-scure": {
+      "optional": true
+    },
+    "@otplib/plugin-crypto-web": {
+      "optional": true
+    },
+    "@otplib/totp": {
+      "optional": true
+    },
+    "@otplib/uri": {
+      "optional": true
+    },
+    "@simplewebauthn/browser": {
+      "optional": true
+    },
+    "@simplewebauthn/server": {
       "optional": true
     },
     "@types/better-sqlite3": {
