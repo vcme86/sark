@@ -3,8 +3,7 @@ import { join, relative } from 'node:path'
 
 import { type Manifest, normalizePath, parseSync, type ViteDevServer } from 'vite'
 
-import { assetUrl } from '../../http/assets'
-import type { PageAssets } from '../../page/assets'
+import { assetUrl, type BuildAssets } from '../../http/assets'
 import type { ResolvedProjectConfig } from '../config'
 import type { DiscoveredPageTree } from './discover/pages'
 
@@ -14,7 +13,7 @@ import type { DiscoveredPageTree } from './discover/pages'
  * @param publicDir - Vite's resolved public directory, or false when disabled.
  * @returns Sorted, slash-separated paths relative to publicDir; absent directories yield no files.
  */
-export function publicFiles(publicDir: string | false): string[] {
+export function listPublicFiles(publicDir: string | false): string[] {
   if (!publicDir || !existsSync(publicDir)) return []
   const root = publicDir
   const files: string[] = []
@@ -35,12 +34,12 @@ export function publicFiles(publicDir: string | false): string[] {
  * @param project - Resolved generation directory, already created by application generation.
  * @param assets - Resource mapping to embed in the generated module.
  */
-export function writePageAssets(
+export function writeBuildAssets(
   project: Pick<ResolvedProjectConfig, 'generatedDir'>,
-  assets: PageAssets,
+  assets: BuildAssets,
 ): void {
-  const path = join(project.generatedDir, 'page-assets.ts')
-  const code = `export const pageAssets = ${JSON.stringify(assets)}\n`
+  const path = join(project.generatedDir, 'build-assets.ts')
+  const code = `export const buildAssets = ${JSON.stringify(assets)}\n`
   if (!existsSync(path) || readFileSync(path, 'utf8') !== code) writeFileSync(path, code)
 }
 
@@ -52,11 +51,11 @@ export function writePageAssets(
  * @param generatedDir - Absolute directory containing the generated client.tsx entry.
  * @returns Entry metadata with empty file/style maps; page-free applications have no entry.
  */
-export function developmentAssets(
+export function createDevelopmentAssets(
   base: string,
   pages: DiscoveredPageTree | undefined,
   generatedDir: string,
-): PageAssets {
+): BuildAssets {
   return {
     base,
     entry: pages?.pages.length
@@ -78,13 +77,13 @@ export function developmentAssets(
  * @returns Host-specific public file mapping, browser entry URL, and per-route styles.
  * @throws {Error} If a public file conflicts with a build asset or the page entry is missing.
  */
-export function productionAssets(
+export function createProductionAssets(
   manifest: Manifest,
   project: ResolvedProjectConfig,
   pages: DiscoveredPageTree | undefined,
   base: string,
   publicPaths: readonly string[],
-): PageAssets {
+): BuildAssets {
   if (base === '' || base === './') base = '/'
   const files: Record<string, { path: string; hashed: boolean }> = {}
   for (const chunk of Object.values(manifest)) {
@@ -164,8 +163,8 @@ export async function collectDevelopmentAssets(
   server: ViteDevServer,
   pages: DiscoveredPageTree | undefined,
   project: ResolvedProjectConfig,
-): Promise<PageAssets> {
-  const assets = developmentAssets(server.config.base, pages, project.generatedDir)
+): Promise<BuildAssets> {
+  const assets = createDevelopmentAssets(server.config.base, pages, project.generatedDir)
   const styles: Record<string, string[]> = {}
   const files: Record<string, { path: string; hashed: boolean }> = {}
   const rootFiles = [
@@ -255,6 +254,6 @@ export async function collectDevelopmentAssets(
     await visit(clientUrl, new Set(), new Set())
     await visit('/@vite/client', new Set(), new Set())
   }
-  for (const path of publicFiles(server.config.publicDir)) files[path] = { path, hashed: false }
+  for (const path of listPublicFiles(server.config.publicDir)) files[path] = { path, hashed: false }
   return { ...assets, files, styles }
 }

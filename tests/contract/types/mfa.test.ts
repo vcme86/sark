@@ -27,7 +27,7 @@ export default route().handler(async c => {
   // @ts-expect-error An unselected WebAuthn factor is not a valid proof.
   c.var.mfa.complete('challenge', { kind: 'webauthn', response: {} })
   // @ts-expect-error The application has no WebAuthn request service.
-  c.var.webauthn.beginLogin()
+  c.var.webauthn.beginSignIn()
   // @ts-expect-error Request services do not expose maintenance methods.
   c.var.totp.reencrypt('alice')
   return c.var.totp.isEnabled('alice')
@@ -66,7 +66,7 @@ export default route().handler(async c => {
   c.var.mfa.complete('challenge', { kind: 'webauthn', response: { id: 'only-an-id' } })
   // @ts-expect-error TOTP is not selected.
   c.var.totp.beginEnrollment()
-  return c.var.webauthn.beginLogin()
+  return c.var.webauthn.beginSignIn()
 })`,
   })
   expect(result.status, result.output).toBe(0)

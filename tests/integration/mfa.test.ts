@@ -44,7 +44,7 @@ export const totp = defineTotp({
 })
 
 export const mfa = defineMfa({
-  login: 'if-enrolled',
+  signIn: 'if-enrolled',
 })
 `,
       )
@@ -55,7 +55,7 @@ export const mfa = defineMfa({
 
 export default route().handler(async ctx => {
   const body = await ctx.req.json()
-  const result = await ctx.var.mfa.beginLogin({ sub: body.sub })
+  const result = await ctx.var.mfa.beginSignIn({ sub: body.sub })
   return result
 })`,
       )
@@ -165,7 +165,7 @@ const { createApp } = await import('@olivaw/sark/server')
 const app = await createApp(definition)
 
 app.db.$client.exec(\`
-  CREATE TABLE IF NOT EXISTS sark_totp_factors (
+  CREATE TABLE IF NOT EXISTS totp_factors (
     sub TEXT PRIMARY KEY NOT NULL,
     factor_id TEXT NOT NULL,
     algorithm TEXT NOT NULL,
@@ -274,7 +274,7 @@ try {
 
   const authenticatedProfile = await app.fetch(new Request('http://localhost/api/profile', { headers: { Cookie: mfaCookieHeader } }))
   const verifiedProfile = await authenticatedProfile.json()
-  if (verifiedProfile.identity?.sub !== 'alice' || verifiedProfile.identity?.authentication?.method !== 'totp') throw new Error('The issued MFA cookie did not verify')
+  if (verifiedProfile.identity?.sub !== 'alice' || verifiedProfile.identity?.auth?.method !== 'totp') throw new Error('The issued MFA cookie did not verify')
 
   // 6. Step-Up flow
   const stepUpRes = await app.fetch(new Request('http://localhost/api/stepup', {
@@ -344,7 +344,7 @@ ${
   rpId: 'example.com', rpName: 'Test', origins: ['https://example.com'], user: sub => ({ userName: sub, displayName: sub }), store: sqlWebAuthn({ database }),
 })`
 }
-export const mfa = defineMfa({ login: 'if-enrolled' })
+export const mfa = defineMfa({ signIn: 'if-enrolled' })
 `,
         )
 

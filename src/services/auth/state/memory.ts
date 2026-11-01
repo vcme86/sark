@@ -5,30 +5,30 @@
  */
 
 import type { StoreDeclaration } from '../store'
-import type { AccountLimitParams, AuthFlow, AuthStateStore, ClaimResult } from './types'
+import type { AuthAttemptLimit, AuthFlow, AuthStateStore, ClaimResult } from './types'
 
 export interface MemoryAuthStateConfig {
   readonly maxChallenges?: number
-  readonly maxAccounts?: number
+  readonly maxAttemptWindows?: number
 }
 
-interface AccountRecord {
+interface AttemptWindow {
   count: number
   expiresAt: number
 }
 
 export class MemoryAuthStateStore implements AuthStateStore {
   private readonly challenges = new Map<string, AuthFlow>()
-  private readonly accounts = new Map<string, AccountRecord>()
+  private readonly attemptWindows = new Map<string, AttemptWindow>()
   private readonly maxChallenges: number
-  private readonly maxAccounts: number
+  private readonly maxAttemptWindows: number
 
   constructor(config?: MemoryAuthStateConfig) {
     this.maxChallenges = config?.maxChallenges ?? 1000
-    this.maxAccounts = config?.maxAccounts ?? 10000
+    this.maxAttemptWindows = config?.maxAttemptWindows ?? 10000
     for (const [name, capacity] of [
       ['maxChallenges', this.maxChallenges],
-      ['maxAccounts', this.maxAccounts],
+      ['maxAttemptWindows', this.maxAttemptWindows],
     ] as const) {
       if (!Number.isInteger(capacity) || capacity <= 0)
         throw new Error(`MFA ${name} must be a positive integer.`)
@@ -41,9 +41,9 @@ export class MemoryAuthStateStore implements AuthStateStore {
         this.challenges.delete(id)
       }
     }
-    for (const [key, acc] of this.accounts) {
-      if (now >= acc.expiresAt) {
-        this.accounts.delete(key)
+    for (const [key, window] of this.attemptWindows) {
+      if (now >= window.expiresAt) {
+        this.attemptWindows.delete(key)
       }
     }
   }
@@ -103,7 +103,7 @@ export class MemoryAuthStateStore implements AuthStateStore {
     id: string,
     claimId: string,
     now: number,
-    account?: AccountLimitParams,
+    account?: AuthAttemptLimit,
   ): Promise<ClaimResult> {
     const flow = this.challenges.get(id)
     if (!flow || now >= flow.expiresAt) {
@@ -116,8 +116,8 @@ export class MemoryAuthStateStore implements AuthStateStore {
 
     // Atomic account limit check and increment
     if (account) {
-      const accountKey = JSON.stringify([account.sub, account.purpose])
-      const existing = this.accounts.get(accountKey)
+      const windowKey = JSON.stringify([account.sub, account.purpose])
+      const existing = this.attemptWindows.get(windowKey)
 
       if (existing && now < existing.expiresAt) {
         if (existing.count >= account.maxAttempts) {
@@ -125,14 +125,14 @@ export class MemoryAuthStateStore implements AuthStateStore {
         }
         existing.count += 1
       } else {
-        if (this.accounts.size >= this.maxAccounts) {
+        if (this.attemptWindows.size >= this.maxAttemptWindows) {
           // If capacity reached, try to prune expired again
           this.sweepExpired(now)
-          if (this.accounts.size >= this.maxAccounts) {
+          if (this.attemptWindows.size >= this.maxAttemptWindows) {
             return { status: 'limited' }
           }
         }
-        this.accounts.set(accountKey, {
+        this.attemptWindows.set(windowKey, {
           count: 1,
           expiresAt: now + account.window,
         })

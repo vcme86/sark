@@ -215,7 +215,7 @@ export interface PageApiConfig {
 }
 
 /** Callback mapping request context to an initial display identity snapshot. */
-export type PageIdentityCallback<Api = DefaultApi> = (args: {
+export type PageIdentityResolver<Api = DefaultApi> = (args: {
   readonly client: HttpClient<Api>
   readonly signal: AbortSignal
 }) => Promise<IdentitySnapshot> | IdentitySnapshot
@@ -225,7 +225,7 @@ export interface PageConfig<Api = DefaultApi> {
   /** Remote API transport; omit for in-process dispatch without a network loopback. */
   readonly api?: PageApiConfig
   /** Custom identity snapshot mapper evaluated during SSR. */
-  readonly identity?: PageIdentityCallback<Api>
+  readonly identity?: PageIdentityResolver<Api>
 }
 
 /** Internal wrapper for application page declarations. */

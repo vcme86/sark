@@ -9,17 +9,17 @@ import {
   resolveTable,
 } from '../../database'
 import type { StoreContext, StoreDeclaration } from '../../store'
-import { credentials as credentialsTable, subjects as subjectsTable } from '../schema/postgres'
+import { webauthnCredentials, webauthnSubjects } from '../schema/postgres'
 import type { SqlWebAuthnOptions, WebAuthnRecord, WebAuthnStore } from '../store'
 
 export class PostgresWebAuthnStore implements WebAuthnStore {
   constructor(
     private readonly db: PostgresJsDatabase,
-    private readonly subjects = subjectsTable,
-    private readonly credentials = credentialsTable,
+    private readonly subjects = webauthnSubjects,
+    private readonly credentials = webauthnCredentials,
   ) {}
 
-  private record(row: typeof credentialsTable.$inferSelect): WebAuthnRecord {
+  private record(row: typeof webauthnCredentials.$inferSelect): WebAuthnRecord {
     return {
       credentialId: row.credentialId,
       sub: row.sub,
@@ -125,13 +125,13 @@ export class PostgresWebAuthnStore implements WebAuthnStore {
  */
 export function sqlWebAuthn(
   options: SqlWebAuthnOptions<
-    CompatibleTable<typeof subjectsTable>,
-    CompatibleTable<typeof credentialsTable>
+    CompatibleTable<typeof webauthnSubjects>,
+    CompatibleTable<typeof webauthnCredentials>
   >,
 ): StoreDeclaration<WebAuthnStore> {
   assertDatabaseDriver(options.database, 'postgres')
-  const subjects = resolveTable(options.tables?.subjects, subjectsTable)
-  const credentials = resolveTable(options.tables?.credentials, credentialsTable)
+  const subjects = resolveTable(options.tables?.subjects, webauthnSubjects)
+  const credentials = resolveTable(options.tables?.credentials, webauthnCredentials)
   return {
     target: 'node',
     create(context: StoreContext) {

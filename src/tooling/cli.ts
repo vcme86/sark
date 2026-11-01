@@ -11,10 +11,10 @@ import { fileURLToPath } from 'node:url'
 
 import type { Manifest, ResolvedConfig } from 'vite'
 
-import { productionAssets, publicFiles, writePageAssets } from './build/assets'
+import { createProductionAssets, listPublicFiles, writeBuildAssets } from './build/assets'
 import { discoverPages } from './build/discover/pages'
-import { type ResolvedProjectConfig, resolveProjectConfig, resolveSarkOptions } from './config'
-import type { SarkPluginApi } from './vite'
+import { type ResolvedProjectConfig, resolvePluginOptions, resolveProjectConfig } from './config'
+import type { PluginApi } from './vite'
 
 /** Expected command-line usage failures, reported without an internal stack. */
 class UsageError extends Error {}
@@ -42,7 +42,7 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
       const { generateConfiguredProject } = await import('./build/project')
       await generateConfiguredProject(
         config,
-        resolveProjectConfig(config.root, resolveSarkOptions()),
+        resolveProjectConfig(config.root, resolvePluginOptions()),
       )
     }
     console.log('✨ Sark build artifacts generated successfully.')
@@ -90,7 +90,7 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
       const hasPages = existsSync(clientEntry)
       const plugin = builder.config.plugins.find((entry) => entry.name === '@olivaw/sark')
       const pages = plugin
-        ? (plugin.api as SarkPluginApi).pages
+        ? (plugin.api as PluginApi).pages
         : project.webDir === false
           ? undefined
           : discoverPages(project.webDir, project.webPrefix)
@@ -126,14 +126,14 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
         rmSync(manifestPath)
       }
 
-      const publicPaths = publicFiles(builder.config.publicDir)
+      const publicPaths = listPublicFiles(builder.config.publicDir)
       if (builder.config.publicDir && existsSync(builder.config.publicDir)) {
         mkdirSync(absOutDir, { recursive: true })
         cpSync(builder.config.publicDir, resolve(absOutDir, 'public'), { recursive: true })
       }
-      writePageAssets(
+      writeBuildAssets(
         project,
-        productionAssets(manifest, project, pages, builder.config.base, publicPaths),
+        createProductionAssets(manifest, project, pages, builder.config.base, publicPaths),
       )
 
       // Reuse Vite's resolved configuration and public environment merging; do not load it again.
@@ -174,9 +174,9 @@ Commands:
 async function projectFromConfig(config: ResolvedConfig): Promise<ResolvedProjectConfig> {
   const plugin = config.plugins.find((entry) => entry.name === '@olivaw/sark')
   if (plugin) {
-    return (plugin.api as SarkPluginApi).project
+    return (plugin.api as PluginApi).project
   }
-  const project = resolveProjectConfig(config.root, resolveSarkOptions())
+  const project = resolveProjectConfig(config.root, resolvePluginOptions())
   const { generateConfiguredProject } = await import('./build/project')
   await generateConfiguredProject(config, project)
   return project

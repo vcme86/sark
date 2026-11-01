@@ -20,8 +20,8 @@ import {
   type FileBody,
   type FileStore,
   type GetOptions,
-  type PresignedResult,
   type PresignOptions,
+  type PresignResult,
   type PutOptions,
   StorageError,
   type StoredContent,
@@ -51,7 +51,7 @@ export interface R2FileStore extends FileStore {
 /** R2 FileStore with presign capability. */
 export interface R2PresignedFileStore extends R2FileStore {
   /** Signs a direct URL for client upload or download via S3-compatible API. */
-  presign(options: PresignOptions): Promise<PresignedResult>
+  presign(options: PresignOptions): Promise<PresignResult>
 }
 
 /** Declaration representing an R2 storage configuration. */
@@ -280,18 +280,18 @@ class R2FileStoreBase implements R2FileStore {
 
 /** R2 FileStore with presign capability. */
 class R2PresignedFileStoreImpl extends R2FileStoreBase implements R2PresignedFileStore {
-  private readonly signer: (options: PresignOptions) => Promise<PresignedResult>
+  private readonly signer: (options: PresignOptions) => Promise<PresignResult>
 
   constructor(
     bucket: R2Bucket,
     publicUrl: string | undefined,
-    signer: (options: PresignOptions) => Promise<PresignedResult>,
+    signer: (options: PresignOptions) => Promise<PresignResult>,
   ) {
     super(bucket, publicUrl)
     this.signer = signer
   }
 
-  async presign(options: PresignOptions): Promise<PresignedResult> {
+  async presign(options: PresignOptions): Promise<PresignResult> {
     return this.signer(options)
   }
 }

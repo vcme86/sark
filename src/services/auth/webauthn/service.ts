@@ -1,5 +1,5 @@
 /**
- * WebAuthn factor service implementing registration, authentication, passkeys, and counter tracking.
+ * WebAuthn factor service implementing registration, auth, passkeys, and counter tracking.
  *
  * @module
  */
@@ -17,7 +17,7 @@ import {
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 
 import type { AuthCheckContext, Identity } from '../contracts'
-import { MfaError } from '../error'
+import { AuthError } from '../error'
 import type { FactorPolicy } from '../factor'
 import type { SessionOptions } from '../session/types'
 import {
@@ -29,9 +29,9 @@ import {
 import type { AuthFlow, AuthStateStore } from '../state/types'
 import type {
   CredentialSummary,
+  RequestWebAuthn,
   ResolvedWebAuthnConfig,
   WebAuthnRecord,
-  WebAuthnService,
   WebAuthnStore,
 } from './types'
 
@@ -46,13 +46,13 @@ interface WebAuthnServiceDependencies {
   readonly context: AuthCheckContext
 }
 
-export class WebAuthnServiceImpl implements WebAuthnService {
+export class WebAuthnService implements RequestWebAuthn {
   constructor(private readonly deps: WebAuthnServiceDependencies) {}
 
   private requireCurrentIdentity(): Identity {
     const identity = this.deps.getCurrentIdentity?.()
     if (!identity || !identity.sub) {
-      throw new MfaError('step_up_required', 'WebAuthn operations require an authenticated user.')
+      throw new AuthError('step_up_required', 'WebAuthn operations require an authenticated user.')
     }
     return identity
   }
@@ -126,13 +126,13 @@ export class WebAuthnServiceImpl implements WebAuthnService {
     const identity = this.requireCurrentIdentity()
     const flow = await this.deps.stateStore.read(challenge)
     if (!flow || flow.purpose !== 'enroll-webauthn' || flow.sub !== identity.sub) {
-      throw new MfaError('challenge_invalid', 'Invalid or expired enrollment challenge.')
+      throw new AuthError('challenge_invalid', 'Invalid or expired enrollment challenge.')
     }
 
     const claimId = crypto.randomUUID()
     const claimRes = await this.deps.stateStore.claim(challenge, claimId, Date.now())
     if (claimRes.status !== 'claimed') {
-      throw new MfaError('challenge_invalid', 'Enrollment challenge cannot be claimed.')
+      throw new AuthError('challenge_invalid', 'Enrollment challenge cannot be claimed.')
     }
 
     const expectedChallenge = flow.data.expectedChallenge as string
@@ -148,12 +148,12 @@ export class WebAuthnServiceImpl implements WebAuthnService {
       })
     } catch {
       await this.deps.stateStore.release(challenge, claimId, Date.now())
-      throw new MfaError('invalid_code', 'WebAuthn registration verification failed.')
+      throw new AuthError('invalid_code', 'WebAuthn registration verification failed.')
     }
 
     if (!verification.verified || !verification.registrationInfo) {
       await this.deps.stateStore.release(challenge, claimId, Date.now())
-      throw new MfaError('invalid_code', 'WebAuthn registration was not verified.')
+      throw new AuthError('invalid_code', 'WebAuthn registration was not verified.')
     }
 
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo
@@ -175,7 +175,7 @@ export class WebAuthnServiceImpl implements WebAuthnService {
     assertActive(this.deps.context, claimRes.flow)
     const inserted = await this.deps.webauthnStore.insertCredential(record)
     if (!inserted) {
-      throw new MfaError('conflict', 'WebAuthn credential already exists.')
+      throw new AuthError('conflict', 'WebAuthn credential already exists.')
     }
 
     await consumeChallenge(this.deps.stateStore, claimRes.flow, claimId, this.deps.context)
@@ -188,10 +188,10 @@ export class WebAuthnServiceImpl implements WebAuthnService {
     const flow = await this.deps.stateStore.read(challenge)
     if (
       !flow ||
-      !['login', 'step-up', 'webauthn-login'].includes(flow.purpose) ||
+      !['sign-in', 'step-up', 'webauthn-sign-in'].includes(flow.purpose) ||
       flow.status !== 'pending'
     ) {
-      throw new MfaError('challenge_invalid', 'Authentication challenge not found.')
+      throw new AuthError('challenge_invalid', 'Authentication challenge not found.')
     }
     assertActive(this.deps.context, flow)
 
@@ -231,13 +231,13 @@ export class WebAuthnServiceImpl implements WebAuthnService {
       return bound.protocol.options as PublicKeyCredentialRequestOptionsJSON
     }
 
-    throw new MfaError(
+    throw new AuthError(
       'challenge_invalid',
       'Authentication challenge changed before options were bound.',
     )
   }
 
-  async beginLogin(options?: SessionOptions): Promise<{
+  async beginSignIn(options?: SessionOptions): Promise<{
     challenge: string
     options: PublicKeyCredentialRequestOptionsJSON
   }> {
@@ -251,7 +251,7 @@ export class WebAuthnServiceImpl implements WebAuthnService {
     const flowId = await createChallenge(
       this.deps.stateStore,
       this.deps.policy.challenge,
-      'webauthn-login',
+      'webauthn-sign-in',
       { sessionOptions: options },
       undefined,
       {
@@ -295,7 +295,7 @@ export class WebAuthnServiceImpl implements WebAuthnService {
     assertActive(this.deps.context)
     const removed = await this.deps.webauthnStore.removeCredential(id, identity.sub, cred.revision)
     if (!removed) {
-      throw new MfaError(
+      throw new AuthError(
         'conflict',
         'Failed to remove WebAuthn credential due to revision conflict.',
       )
@@ -355,7 +355,7 @@ export class WebAuthnServiceImpl implements WebAuthnService {
         return { verified: false }
       }
       if (decoded !== cred.userHandle) return { verified: false }
-    } else if (flow.purpose === 'webauthn-login') return { verified: false }
+    } else if (flow.purpose === 'webauthn-sign-in') return { verified: false }
     assertActive(context, flow)
 
     const nextRecord: WebAuthnRecord = {
@@ -373,7 +373,8 @@ export class WebAuthnServiceImpl implements WebAuthnService {
       nextRecord,
     )
 
-    if (!updated) throw new MfaError('conflict', 'WebAuthn credential changed during verification.')
+    if (!updated)
+      throw new AuthError('conflict', 'WebAuthn credential changed during verification.')
 
     return {
       verified: true,
@@ -392,6 +393,6 @@ export function authenticationCredentialId(response: unknown): string {
     typeof response.id !== 'string' ||
     !response.id
   )
-    throw new MfaError('invalid_code', 'Invalid WebAuthn authentication response.')
+    throw new AuthError('invalid_code', 'Invalid WebAuthn authentication response.')
   return response.id
 }

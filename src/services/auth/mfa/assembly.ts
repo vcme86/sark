@@ -8,7 +8,7 @@ import { memoryState } from '../state/memory'
 import { initializeStore, type StoreContext } from '../store'
 import { resolveMfaConfig } from './config'
 import type { MfaDeclaration } from './declaration'
-import { MfaServiceImpl } from './service'
+import { MfaService } from './service'
 
 interface MfaAssemblyOptions {
   readonly mfa?: MfaDeclaration
@@ -99,7 +99,7 @@ export function createMfaAssembly(options: MfaAssemblyOptions): ServiceAssembly<
                 }
                 binding.ctx.set(
                   'mfa',
-                  new MfaServiceImpl({
+                  new MfaService({
                     config: policy,
                     stateStore: state,
                     recoveryStore: recovery,

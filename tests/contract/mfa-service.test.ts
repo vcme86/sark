@@ -4,21 +4,21 @@ import { WebCryptoPlugin } from '@otplib/plugin-crypto-web'
 import { TOTP } from '@otplib/totp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MfaError } from '../../src/services/auth/error'
-import type { FactorVerifier, MfaProof } from '../../src/services/auth/factor'
+import { AuthError } from '../../src/services/auth/error'
+import type { FactorProof, FactorVerifier } from '../../src/services/auth/factor'
 import { resolveMfaConfig } from '../../src/services/auth/mfa/config'
-import { MfaServiceImpl } from '../../src/services/auth/mfa/service'
+import { MfaService } from '../../src/services/auth/mfa/service'
 import {
   generateRecoveryCodes,
   hashRecoveryCode,
   verifyRecoveryCode,
 } from '../../src/services/auth/recovery/service'
-import type { RecoveryRecord, RecoveryStore } from '../../src/services/auth/recovery/types'
+import type { RecoveryCodeSet, RecoveryStore } from '../../src/services/auth/recovery/types'
 import type { SessionOptions, SignInInput } from '../../src/services/auth/session/types'
 import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
 import { resolveTotpConfig } from '../../src/services/auth/totp/config'
 import { encryptTotpSecret } from '../../src/services/auth/totp/crypto'
-import { TotpServiceImpl } from '../../src/services/auth/totp/service'
+import { TotpService } from '../../src/services/auth/totp/service'
 import type { TotpRecord, TotpStore } from '../../src/services/auth/totp/types'
 
 afterEach(() => {
@@ -104,7 +104,7 @@ describe('MFA Complete Service State Machine Contract', () => {
           amr: input.amr,
           authTime: input.authTime,
           roles: input.roles,
-          authentication: input.authentication,
+          auth: input.auth,
           claims: input.claims ?? {},
         },
         token: `mock.jwt.token.${input.sub}`,
@@ -113,7 +113,7 @@ describe('MFA Complete Service State Machine Contract', () => {
   }
 
   it('handles login policies correctly', async () => {
-    const totpService = new TotpServiceImpl({
+    const totpService = new TotpService({
       context: { logger: getLogger(['test']) },
       config: totpConfig,
       totpStore,
@@ -131,9 +131,9 @@ describe('MFA Complete Service State Machine Contract', () => {
       },
     }
 
-    const mfaService = new MfaServiceImpl({
+    const mfaService = new MfaService({
       context: { logger: getLogger(['test']) },
-      config: resolveMfaConfig({ login: 'if-enrolled' }),
+      config: resolveMfaConfig({ signIn: 'if-enrolled' }),
       stateStore,
       sessionService: mockSessionService,
       recoveryStore,
@@ -141,21 +141,21 @@ describe('MFA Complete Service State Machine Contract', () => {
     })
 
     // Unenrolled user with 'if-enrolled' logs in immediately
-    const res1 = await mfaService.beginLogin({ sub: 'user_unenrolled' })
+    const res1 = await mfaService.beginSignIn({ sub: 'user_unenrolled' })
     expect(res1.status).toBe('authenticated')
 
     // Unenrolled user with 'required' policy throws factor_unavailable
-    const mfaRequiredService = new MfaServiceImpl({
+    const mfaRequiredService = new MfaService({
       context: { logger: getLogger(['test']) },
-      config: resolveMfaConfig({ login: 'required' }),
+      config: resolveMfaConfig({ signIn: 'required' }),
       stateStore,
       sessionService: mockSessionService,
       recoveryStore,
       factors: [totpFactor],
     })
 
-    await expect(mfaRequiredService.beginLogin({ sub: 'user_unenrolled' })).rejects.toThrow(
-      MfaError,
+    await expect(mfaRequiredService.beginSignIn({ sub: 'user_unenrolled' })).rejects.toThrow(
+      AuthError,
     )
   })
 
@@ -177,7 +177,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     }
     await totpStore.commit(sub, null, record, { logger: getLogger(['test']) })
 
-    const totpService = new TotpServiceImpl({
+    const totpService = new TotpService({
       context: { logger: getLogger(['test']) },
       config: totpConfig,
       totpStore,
@@ -195,15 +195,15 @@ describe('MFA Complete Service State Machine Contract', () => {
       },
     }
 
-    const mfaService = new MfaServiceImpl({
+    const mfaService = new MfaService({
       context: { logger: getLogger(['test']) },
-      config: resolveMfaConfig({ login: 'if-enrolled' }),
+      config: resolveMfaConfig({ signIn: 'if-enrolled' }),
       stateStore,
       sessionService: mockSessionService,
       factors: [totpFactor],
     })
 
-    const loginRes = await mfaService.beginLogin({ sub })
+    const loginRes = await mfaService.beginSignIn({ sub })
     expect(loginRes.status).toBe('challenge')
     if (loginRes.status !== 'challenge') return
 
@@ -212,7 +212,7 @@ describe('MFA Complete Service State Machine Contract', () => {
 
     // Wrong code fails and leaves challenge available for retry
     await expect(mfaService.complete(challenge, { kind: 'totp', code: '000000' })).rejects.toThrow(
-      MfaError,
+      AuthError,
     )
 
     // Valid code succeeds and issues session
@@ -222,19 +222,19 @@ describe('MFA Complete Service State Machine Contract', () => {
     })
     expect(session.identity.sub).toBe(sub)
     expect(session.identity.amr).toContain('otp')
-    expect(session.identity.authentication).toEqual({ method: 'totp' })
+    expect(session.identity.auth).toEqual({ method: 'totp' })
 
     // Replay on already-consumed challenge throws error
     await expect(mfaService.complete(challenge, { kind: 'totp', code: validCode })).rejects.toThrow(
-      MfaError,
+      AuthError,
     )
 
     // Anti-replay on new challenge with the same time-step code fails!
-    const loginRes2 = await mfaService.beginLogin({ sub })
+    const loginRes2 = await mfaService.beginSignIn({ sub })
     if (loginRes2.status === 'challenge') {
       await expect(
         mfaService.complete(loginRes2.challenge, { kind: 'totp', code: validCode }),
-      ).rejects.toThrow(MfaError)
+      ).rejects.toThrow(AuthError)
     }
   })
 
@@ -262,7 +262,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         context,
       )
       commit.mockClear()
-      const factor = new TotpServiceImpl({
+      const factor = new TotpService({
         config: totpConfig,
         totpStore,
         stateStore: state,
@@ -277,7 +277,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         }),
       })
       const sessionService = { signIn: vi.fn(mockSessionService.signIn) }
-      const service = new MfaServiceImpl({
+      const service = new MfaService({
         config: resolveMfaConfig({}),
         stateStore: state,
         sessionService,
@@ -291,10 +291,10 @@ describe('MFA Complete Service State Machine Contract', () => {
           },
         ],
       })
-      const login = await service.beginLogin({ sub })
+      const login = await service.beginSignIn({ sub })
       if (login.status !== 'challenge') throw new Error('Expected a TOTP challenge')
       await expect(
-        service.complete(login.challenge, { kind: 'totp', code: invalidCode } as MfaProof),
+        service.complete(login.challenge, { kind: 'totp', code: invalidCode } as FactorProof),
       ).rejects.toMatchObject({ code: 'invalid_code' })
       expect(await state.read(login.challenge)).toMatchObject({ status: 'pending', attempts: 1 })
       expect(commit).not.toHaveBeenCalled()
@@ -326,16 +326,16 @@ describe('MFA Complete Service State Machine Contract', () => {
     async (proof) => {
       const state = new MemoryAuthStateStore()
       const verifyProof = vi.fn()
-      const service = new MfaServiceImpl({
+      const service = new MfaService({
         context: { logger: getLogger(['test']) },
         config: resolveMfaConfig({}),
         stateStore: state,
         sessionService: mockSessionService,
         factors: [{ kind: 'totp', isEnabled: async () => true, verifyProof }],
       })
-      const login = await service.beginLogin({ sub: 'alice' })
+      const login = await service.beginSignIn({ sub: 'alice' })
       if (login.status !== 'challenge') throw new Error('Expected a challenge')
-      await expect(service.complete(login.challenge, proof as MfaProof)).rejects.toMatchObject({
+      await expect(service.complete(login.challenge, proof as FactorProof)).rejects.toMatchObject({
         code: 'invalid_code',
       })
       expect(await state.read(login.challenge)).toMatchObject({ status: 'pending', attempts: 0 })
@@ -353,7 +353,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         revision: 'initial',
         hashes: [await hashRecoveryCode(validCode)],
       })
-      const service = new MfaServiceImpl({
+      const service = new MfaService({
         context: { logger: getLogger(['test']) },
         config: resolveMfaConfig({}),
         stateStore: state,
@@ -361,25 +361,25 @@ describe('MFA Complete Service State Machine Contract', () => {
         recoveryStore,
         factors: [],
       })
-      const login = await service.beginLogin({ sub })
+      const login = await service.beginSignIn({ sub })
       if (login.status !== 'challenge') throw new Error('Expected a recovery challenge')
       await expect(
-        service.complete(login.challenge, { kind: 'recovery', code } as MfaProof),
+        service.complete(login.challenge, { kind: 'recovery', code } as FactorProof),
       ).rejects.toMatchObject({ code: 'invalid_code' })
       expect(await state.read(login.challenge)).toMatchObject({ status: 'pending', attempts: 1 })
       expect((await recoveryStore.read(sub))?.hashes).toHaveLength(1)
       await expect(
         service.complete(login.challenge, { kind: 'recovery', code: validCode }),
-      ).resolves.toMatchObject({ identity: { sub, authentication: { method: 'recovery' } } })
+      ).resolves.toMatchObject({ identity: { sub, auth: { method: 'recovery' } } })
     },
   )
 
   it.each(['skip', 'if-enrolled'] as const)(
     'preserves server-verified first-step facts under %s policy',
-    async (login) => {
-      const service = new MfaServiceImpl({
+    async (signIn) => {
+      const service = new MfaService({
         context: { logger: getLogger(['test']) },
-        config: resolveMfaConfig({ login }),
+        config: resolveMfaConfig({ signIn }),
         stateStore: new MemoryAuthStateStore(),
         sessionService: mockSessionService,
         factors: [],
@@ -388,9 +388,9 @@ describe('MFA Complete Service State Machine Contract', () => {
         sub: 'alice',
         amr: ['pop'],
         authTime: 1234,
-        authentication: { method: 'webauthn', userVerified: true },
+        auth: { method: 'webauthn', userVerified: true },
       }
-      const result = await service.beginLogin(input)
+      const result = await service.beginSignIn(input)
       if (result.status !== 'authenticated') throw new Error('Expected first-step authentication')
       expect(result.session.identity).toMatchObject(input)
     },
@@ -417,7 +417,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       { logger: getLogger(['test']) },
     )
 
-    const totpService = new TotpServiceImpl({
+    const totpService = new TotpService({
       context: { logger: getLogger(['test']) },
       config: totpConfig,
       totpStore,
@@ -444,7 +444,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       authTime: Math.floor(Date.now() / 1000),
     }
 
-    const mfaService = new MfaServiceImpl({
+    const mfaService = new MfaService({
       context: { logger: getLogger(['test']) },
       config: resolveMfaConfig(),
       stateStore,
@@ -463,7 +463,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     expect(session.identity.roles).toEqual(['admin'])
     expect(session.identity.claims).toEqual({ orgId: 'org_42' })
     expect(session.identity.amr).toEqual(['pwd', 'otp'])
-    expect(session.identity.authentication).toEqual({ method: 'totp' })
+    expect(session.identity.auth).toEqual({ method: 'totp' })
   })
 
   it('completes Recovery code flow and records otp AMR', async () => {
@@ -472,10 +472,10 @@ describe('MFA Complete Service State Machine Contract', () => {
     const hashes = await Promise.all(codes.map((c: string) => hashRecoveryCode(c)))
     await recoveryStore.commit(sub, null, { revision: 'rev-rec', hashes })
 
-    const mfaService = new MfaServiceImpl({
+    const mfaService = new MfaService({
       context: { logger: getLogger(['test']) },
       config: resolveMfaConfig({
-        login: 'if-enrolled',
+        signIn: 'if-enrolled',
         recovery: { store: { create: () => ({ value: recoveryStore }) } },
       }),
       stateStore,
@@ -484,7 +484,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       factors: [],
     })
 
-    const loginRes = await mfaService.beginLogin({ sub })
+    const loginRes = await mfaService.beginSignIn({ sub })
     expect(loginRes.status).toBe('challenge')
     if (loginRes.status !== 'challenge') return
 
@@ -494,14 +494,14 @@ describe('MFA Complete Service State Machine Contract', () => {
     })
     expect(session.identity.sub).toBe(sub)
     expect(session.identity.amr).toContain('otp')
-    expect(session.identity.authentication).toEqual({ method: 'recovery' })
+    expect(session.identity.auth).toEqual({ method: 'recovery' })
 
     // Code is now consumed, second attempt with consumed code fails
-    const loginRes2 = await mfaService.beginLogin({ sub })
+    const loginRes2 = await mfaService.beginSignIn({ sub })
     if (loginRes2.status === 'challenge') {
       await expect(
         mfaService.complete(loginRes2.challenge, { kind: 'recovery', code: codes[0] }),
-      ).rejects.toThrow(MfaError)
+      ).rejects.toThrow(AuthError)
     }
   })
   it.each(['cancelled', 'expired'] as const)(
@@ -513,10 +513,10 @@ describe('MFA Complete Service State Machine Contract', () => {
       const context = { logger: getLogger(['test']), signal: abort.signal }
       const state = new MemoryAuthStateStore()
       const [code] = generateRecoveryCodes(1)
-      const record: RecoveryRecord = { revision: 'r', hashes: [await hashRecoveryCode(code)] }
+      const record: RecoveryCodeSet = { revision: 'r', hashes: [await hashRecoveryCode(code)] }
       const store = { read: vi.fn(async () => record), commit: vi.fn(async () => true) }
       const signIn = vi.fn(mockSessionService.signIn)
-      const service = new MfaServiceImpl({
+      const service = new MfaService({
         context,
         config: resolveMfaConfig({ challenge: { ttl: 1000 } }),
         stateStore: state,
@@ -524,10 +524,10 @@ describe('MFA Complete Service State Machine Contract', () => {
         recoveryStore: store,
         factors: [],
       })
-      const login = await service.beginLogin({ sub: 'alice' })
+      const login = await service.beginSignIn({ sub: 'alice' })
       if (login.status !== 'challenge') throw new Error('Expected a recovery challenge')
       const started = Promise.withResolvers<void>()
-      const reading = Promise.withResolvers<RecoveryRecord>()
+      const reading = Promise.withResolvers<RecoveryCodeSet>()
       store.read.mockImplementationOnce(() => {
         started.resolve()
         return reading.promise
@@ -554,7 +554,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     const [code] = generateRecoveryCodes(1)
     const previous = { revision: 'r', hashes: [await hashRecoveryCode(code)] }
     const started = Promise.withResolvers<void>()
-    const reading = Promise.withResolvers<RecoveryRecord>()
+    const reading = Promise.withResolvers<RecoveryCodeSet>()
     const store = {
       read: async () => {
         started.resolve()
@@ -562,7 +562,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       },
       commit: vi.fn(async () => true),
     }
-    const service = new MfaServiceImpl({
+    const service = new MfaService({
       context: { logger: getLogger(['test']), signal: abort.signal },
       config: resolveMfaConfig({ recovery: { store: { create: () => ({ value: store }) } } }),
       stateStore: new MemoryAuthStateStore(),
@@ -575,7 +575,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         jti: 'j',
         claims: {},
         authTime: Math.floor(Date.now() / 1000),
-        authentication: { method: 'totp' },
+        auth: { method: 'totp' },
       }),
     })
     const replacing = service.regenerateRecoveryCodes()
@@ -609,7 +609,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         enabledAt: Date.now(),
       }
       const store = { read: vi.fn(async () => record), commit: vi.fn(async () => true) }
-      const totp = new TotpServiceImpl({
+      const totp = new TotpService({
         config: totpConfig,
         totpStore: store,
         stateStore: state,
@@ -617,7 +617,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         context,
       })
       const signIn = vi.fn(mockSessionService.signIn)
-      const service = new MfaServiceImpl({
+      const service = new MfaService({
         context,
         config: resolveMfaConfig({ challenge: { ttl: 1000 } }),
         stateStore: state,
@@ -631,7 +631,7 @@ describe('MFA Complete Service State Machine Contract', () => {
           },
         ],
       })
-      const login = await service.beginLogin({ sub })
+      const login = await service.beginSignIn({ sub })
       if (login.status !== 'challenge') throw new Error('Expected a TOTP challenge')
       const code = await otplib.generate({ secret: rawSecret })
       const started = Promise.withResolvers<void>()
@@ -680,7 +680,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     }
     const abort = new AbortController()
     const cancelled = new Error('request cancelled')
-    const service = new TotpServiceImpl({
+    const service = new TotpService({
       config: totpConfig,
       totpStore: store,
       stateStore: new MemoryAuthStateStore(),
@@ -692,7 +692,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         jti: 'j',
         claims: {},
         authTime: Math.floor(Date.now() / 1000),
-        authentication: { method: 'totp' },
+        auth: { method: 'totp' },
       }),
     })
     const disabling = service.disable()
@@ -709,7 +709,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     const identity = { sub, ver: 0, jti: 'j', claims: {}, authTime: Math.floor(Date.now() / 1000) }
     const context = { logger: getLogger(['test']) }
     const policy = resolveMfaConfig({})
-    const before = new TotpServiceImpl({
+    const before = new TotpService({
       config: resolveTotpConfig({ ...totpConfig, algorithm: 'SHA256', digits: 8, period: 60 }),
       totpStore,
       stateStore,
@@ -727,7 +727,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       digits: 8,
       period: 60,
     }).generate({ secret })
-    const after = new TotpServiceImpl({
+    const after = new TotpService({
       config: totpConfig,
       totpStore,
       stateStore,
@@ -752,13 +752,13 @@ describe('MFA Complete Service State Machine Contract', () => {
       code: 'conflict',
     })
     await expect(after.disable()).rejects.toMatchObject({ code: 'step_up_required' })
-    const authorized = new TotpServiceImpl({
+    const authorized = new TotpService({
       config: totpConfig,
       totpStore,
       stateStore,
       policy,
       context,
-      getCurrentIdentity: () => ({ ...identity, authentication: { method: 'totp' } }),
+      getCurrentIdentity: () => ({ ...identity, auth: { method: 'totp' } }),
     })
     await authorized.disable()
     expect(await totpStore.read(sub, context)).toBeNull()
@@ -768,7 +768,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     const state = new MemoryAuthStateStore()
     vi.spyOn(state, 'consume').mockResolvedValue(false)
     const marked = vi.fn()
-    const service = new TotpServiceImpl({
+    const service = new TotpService({
       config: totpConfig,
       totpStore,
       stateStore: state,
@@ -797,15 +797,15 @@ describe('MFA Complete Service State Machine Contract', () => {
     const issue = vi.spyOn(mockSessionService, 'signIn')
     try {
       const invalidPolicy: unknown = 'bogus'
-      const invalid = new MfaServiceImpl({
-        config: resolveMfaConfig({ login: () => invalidPolicy as 'required' }),
+      const invalid = new MfaService({
+        config: resolveMfaConfig({ signIn: () => invalidPolicy as 'required' }),
         stateStore: state,
         sessionService: mockSessionService,
         factors: [],
         context: { logger: getLogger(['test']) },
       })
-      await expect(invalid.beginLogin({ sub: 'alice' })).rejects.toThrow('MFA login policy')
-      const service = new MfaServiceImpl({
+      await expect(invalid.beginSignIn({ sub: 'alice' })).rejects.toThrow('MFA sign-in policy')
+      const service = new MfaService({
         config: resolveMfaConfig({}),
         stateStore: state,
         sessionService: mockSessionService,
@@ -818,7 +818,7 @@ describe('MFA Complete Service State Machine Contract', () => {
         ],
         context: { logger: getLogger(['test']) },
       })
-      await expect(service.beginLogin({ sub: 'alice', claims: { amr: ['otp'] } })).rejects.toThrow(
+      await expect(service.beginSignIn({ sub: 'alice', claims: { amr: ['otp'] } })).rejects.toThrow(
         'reserved',
       )
       expect(create).not.toHaveBeenCalled()
@@ -830,14 +830,14 @@ describe('MFA Complete Service State Machine Contract', () => {
   it('authorizes recovery replacement from real same-request enrollment and conditionally replaces concurrent sets', async () => {
     const sub = 'recovery-management'
     const context = { logger: getLogger(['test']) }
-    let authentication: { method: 'totp' } | undefined
+    let auth: { method: 'totp' } | undefined
     const getIdentity = () => ({
       sub,
       ver: 0,
       jti: 'j',
       claims: {},
       authTime: Math.floor(Date.now() / 1000),
-      authentication,
+      auth,
     })
     const enrolled = new Set<string>()
     const config = resolveMfaConfig({
@@ -850,7 +850,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       getCurrentIdentity: getIdentity,
       factors: [],
     }
-    const mfa = new MfaServiceImpl({
+    const mfa = new MfaService({
       ...base,
       config,
       recoveryStore,
@@ -858,9 +858,9 @@ describe('MFA Complete Service State Machine Contract', () => {
     })
     await expect(mfa.regenerateRecoveryCodes()).rejects.toMatchObject({ code: 'step_up_required' })
     await expect(
-      new MfaServiceImpl({ ...base, config: resolveMfaConfig({}) }).regenerateRecoveryCodes(),
+      new MfaService({ ...base, config: resolveMfaConfig({}) }).regenerateRecoveryCodes(),
     ).rejects.toMatchObject({ code: 'factor_missing' })
-    const totp = new TotpServiceImpl({
+    const totp = new TotpService({
       config: totpConfig,
       totpStore,
       stateStore,
@@ -876,7 +876,7 @@ describe('MFA Complete Service State Machine Contract', () => {
     expect(first.recoveryCodes).toHaveLength(2)
     enrolled.clear()
     await expect(mfa.regenerateRecoveryCodes()).rejects.toMatchObject({ code: 'step_up_required' })
-    authentication = { method: 'totp' }
+    auth = { method: 'totp' }
     const second = await mfa.regenerateRecoveryCodes()
     expect(second.recoveryCodes).not.toEqual(first.recoveryCodes)
     expect(
@@ -893,7 +893,7 @@ describe('MFA Complete Service State Machine Contract', () => {
       },
       commit: recoveryStore.commit,
     }
-    const replacing = new MfaServiceImpl({ ...base, config, recoveryStore: concurrent })
+    const replacing = new MfaService({ ...base, config, recoveryStore: concurrent })
     const results = await Promise.allSettled([
       replacing.regenerateRecoveryCodes(),
       replacing.regenerateRecoveryCodes(),

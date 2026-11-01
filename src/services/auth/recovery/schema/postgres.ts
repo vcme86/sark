@@ -6,7 +6,7 @@
 
 import { pgTable, text } from 'drizzle-orm/pg-core'
 
-export const recovery = pgTable('sark_mfa_recovery', {
+export const recoveryCodeSets = pgTable('recovery_code_sets', {
   sub: text('sub').primaryKey(),
   hashes: text('hashes').notNull(),
   revision: text('revision').notNull(),

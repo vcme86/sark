@@ -24,7 +24,7 @@ export interface AssetMountAssembly {
 }
 
 /** Raw input parameters used to construct an application definition. */
-export interface ApplicationDefinitionInput {
+export interface AppDefinitionInput {
   /** Root application declaration created via `defineApp`. */
   app?: AppDeclaration
   /** Optional page declaration created via `definePage`. */
@@ -52,7 +52,7 @@ export interface ApplicationDefinitionInput {
 }
 
 /** Application declarations and routes assembled for runtime creation. */
-export type ApplicationDefinition<
+export type AppDefinition<
   TApp = AppDeclaration | undefined,
   Declarations extends readonly unknown[] = [],
   TPage = unknown,
@@ -88,7 +88,7 @@ export type ApplicationDefinition<
   (TResources extends undefined ? {} : TResources) & (TServices extends undefined ? {} : TServices)
 >
 
-type DefinitionFromInput<T extends ApplicationDefinitionInput> = ApplicationDefinition<
+type DefinitionFromInput<T extends AppDefinitionInput> = AppDefinition<
   T extends { app: infer A } ? A : undefined,
   T extends { declarations: infer D extends readonly unknown[] } ? D : [],
   T extends { page: infer P } ? P : undefined,
@@ -104,7 +104,7 @@ type DefinitionFromInput<T extends ApplicationDefinitionInput> = ApplicationDefi
  * @param input - Configuration, route entries, and supplementary declarations.
  * @returns An application definition retaining its factory environment requirements.
  */
-export function createDefinition<const T extends ApplicationDefinitionInput>(
+export function createDefinition<const T extends AppDefinitionInput>(
   input: T = {} as T,
 ): DefinitionFromInput<T> {
   return {
@@ -124,7 +124,7 @@ export function createDefinition<const T extends ApplicationDefinitionInput>(
 }
 
 /** Orders only selected dependencies, reporting missing or cyclic composition before resources open. */
-function orderServices(services: NonNullable<ApplicationDefinitionInput['services']>) {
+function orderServices(services: NonNullable<AppDefinitionInput['services']>) {
   const ordered: typeof services = {}
   const visiting = new Set<string>()
   function visit(name: string) {

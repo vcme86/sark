@@ -6,7 +6,7 @@
 
 import { blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const factors = sqliteTable('sark_totp_factors', {
+export const totpFactors = sqliteTable('totp_factors', {
   sub: text('sub').primaryKey(),
   revision: text('revision').notNull(),
   factorId: text('factor_id').notNull(),

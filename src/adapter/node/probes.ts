@@ -7,7 +7,7 @@
 import type { Hono } from 'hono'
 
 import { getApplicationRoutes } from '../../core/context'
-import type { ApplicationDefinition } from '../../core/definition'
+import type { AppDefinition } from '../../core/definition'
 import type { AppInstance } from '../../core/types'
 import { requestContext } from '../../http/server/request-context'
 
@@ -26,7 +26,7 @@ import { requestContext } from '../../http/server/request-context'
  */
 export function mountNodeProbes(
   hono: Hono<any>,
-  instance: AppInstance<ApplicationDefinition>,
+  instance: AppInstance<AppDefinition>,
   probesConfig: false | { liveness: string; readiness: string },
 ): void {
   if (probesConfig === false) {

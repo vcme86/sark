@@ -1,5 +1,5 @@
 /**
- * Contracts and types for MFA ephemeral challenge state and account throttling.
+ * Contracts for authentication challenges and account attempt limits.
  *
  * @module
  */
@@ -7,15 +7,15 @@ import type { ResourceAssembly } from '../../../core/resource'
 import type { StoreDeclaration } from '../store'
 
 export type AuthFlowPurpose =
-  | 'login'
+  | 'sign-in'
   | 'step-up'
   | 'enroll-totp'
   | 'enroll-webauthn'
-  | 'webauthn-login'
+  | 'webauthn-sign-in'
 
 export type AuthFlowStatus = 'pending' | 'verifying' | 'consumed'
 
-/** Ephemeral challenge flow tracking MFA progress. */
+/** Ephemeral authentication flow shared by enrollment, sign-in, and step-up. */
 export interface AuthFlow {
   readonly id: string
   readonly revision: string
@@ -33,7 +33,7 @@ export interface AuthFlow {
 }
 
 /** Account-level throttling parameters. */
-export interface AccountLimitParams {
+export interface AuthAttemptLimit {
   readonly sub: string
   readonly purpose: string
   readonly window: number
@@ -72,7 +72,7 @@ export interface AuthStateStore {
     id: string,
     claimId: string,
     now: number,
-    account?: AccountLimitParams,
+    account?: AuthAttemptLimit,
   ) => Promise<ClaimResult>
   /** Releases a claimed flow back to pending if attempts < maxAttempts. Does not reset attempts. */
   release: (id: string, claimId: string, now: number) => Promise<boolean>
@@ -82,10 +82,10 @@ export interface AuthStateStore {
 
 export type AuthStateStoreDeclaration<Env = unknown> = StoreDeclaration<AuthStateStore, Env>
 
-export interface SqlAuthStateOptions<Challenges = unknown, Attempts = unknown> {
+export interface SqlAuthStateOptions<Challenges = unknown, AttemptWindows = unknown> {
   readonly database: ResourceAssembly
   readonly tables?: {
     readonly challenges?: Challenges
-    readonly attempts?: Attempts
+    readonly attemptWindows?: AttemptWindows
   }
 }

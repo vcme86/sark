@@ -14,20 +14,22 @@ export interface SessionService {
   signIn: (input: SignInInput, options?: SessionOptions) => Promise<IssuedSession>
 }
 
-export type MfaProof =
+export type FactorProof =
   | { readonly kind: 'totp'; readonly code: string }
   | { readonly kind: 'recovery'; readonly code: string }
   | { readonly kind: 'webauthn'; readonly response: unknown }
 
+export type FactorKind = FactorProof['kind']
+
 export interface FactorVerifier {
-  readonly kind: 'totp' | 'webauthn'
+  readonly kind: Exclude<FactorKind, 'recovery'>
   readonly isEnabled: (sub: string, context: AuthCheckContext) => Promise<boolean>
   readonly binding?: (sub: string, context: AuthCheckContext) => Promise<string | null>
-  readonly findSubject?: (proof: MfaProof, context: AuthCheckContext) => Promise<string | null>
+  readonly findSubject?: (proof: FactorProof, context: AuthCheckContext) => Promise<string | null>
   readonly identity?: (sub: string, context: AuthCheckContext) => SignInInput | Promise<SignInInput>
   readonly verifyProof: (
     flow: AuthFlow,
-    proof: MfaProof,
+    proof: FactorProof,
     context: AuthCheckContext,
   ) => Promise<{ verified: boolean; sub?: string; userVerified?: boolean }>
 }
@@ -46,7 +48,7 @@ export interface FactorInstance {
 
 /** Selected at build time; unselected factors never enter the module graph. */
 export interface FactorAssembly {
-  readonly kind: 'totp' | 'webauthn'
+  readonly kind: Exclude<FactorKind, 'recovery'>
   readonly prepare: (env: unknown) => {
     readonly create: (
       context: StoreContext,

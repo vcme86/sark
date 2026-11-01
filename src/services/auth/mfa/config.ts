@@ -5,14 +5,14 @@
  */
 
 import { validateStoreDeclaration } from '../store'
-import type { LoginPolicy, MfaConfig, ResolvedMfaConfig } from './types'
+import type { MfaConfig, ResolvedMfaConfig, SignInPolicy } from './types'
 
 export function resolveMfaConfig(config?: MfaConfig): ResolvedMfaConfig {
   const raw = config ?? {}
   if (raw.state !== undefined) validateStoreDeclaration(raw.state, 'MFA state')
 
-  const login =
-    typeof raw.login === 'function' ? raw.login : resolveLoginPolicy(raw.login ?? 'if-enrolled')
+  const signIn =
+    typeof raw.signIn === 'function' ? raw.signIn : resolveSignInPolicy(raw.signIn ?? 'if-enrolled')
 
   const ttl = raw.challenge?.ttl ?? 300_000
   if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) {
@@ -58,7 +58,7 @@ export function resolveMfaConfig(config?: MfaConfig): ResolvedMfaConfig {
 
   return {
     state: raw.state,
-    login,
+    signIn,
     challenge: {
       ttl,
       maxAttempts: challengeMaxAttempts,
@@ -73,7 +73,7 @@ export function resolveMfaConfig(config?: MfaConfig): ResolvedMfaConfig {
 }
 
 /** Validates a dynamic application policy at the callback result boundary. */
-export function resolveLoginPolicy(value: unknown): LoginPolicy {
+export function resolveSignInPolicy(value: unknown): SignInPolicy {
   if (value === 'required' || value === 'if-enrolled' || value === 'skip') return value
-  throw new Error('MFA login policy must be "required", "if-enrolled", or "skip".')
+  throw new Error('MFA sign-in policy must be "required", "if-enrolled", or "skip".')
 }

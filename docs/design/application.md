@@ -134,7 +134,7 @@ try {
 
 这是测试或主动嵌入现有宿主时的用法，普通应用由生成入口完成创建。createApp 使用同版本生成的 definition，不提供手写装配 DSL。框架自身测试从源码调用同一个内部 createDefinition，避免复制创建流程。
 
-公开类型关系为 `createApp<D extends ApplicationDefinition>(definition: D, ...options: EnvironmentArgs<D>): Promise<AppInstance<D>>`。EnvironmentArgs 在定义需要 Env 时要求 env，否则允许省略；资源与服务保留定义的具体类型。定义含静态路由、模块和装配引用，不保存某次请求、身份或首次 env。
+公开类型关系为 `createApp<D extends AppDefinition>(definition: D, ...options: EnvironmentArgs<D>): Promise<AppInstance<D>>`。EnvironmentArgs 在定义需要 Env 时要求 env，否则允许省略；资源与服务保留定义的具体类型。定义含静态路由、模块和装配引用，不保存某次请求、身份或首次 env。
 
 ### 环境要求的类型合成
 

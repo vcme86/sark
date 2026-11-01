@@ -1,5 +1,5 @@
 /** Public session contracts shared with application code and optional authentication factors. */
-import type { AuthenticationFacts, Identity } from '../contracts'
+import type { AuthFacts, Identity } from '../contracts'
 
 /** Input required to issue a new session token. */
 export interface SignInInput {
@@ -13,8 +13,8 @@ export interface SignInInput {
   readonly authTime?: number
   /** Application roles granted to this identity. */
   readonly roles?: readonly string[]
-  /** Specific multi-factor authentication facts. */
-  readonly authentication?: AuthenticationFacts
+  /** Specific factor authentication facts. */
+  readonly auth?: AuthFacts
   /** Custom unreserved claims to attach to the token. */
   readonly claims?: Readonly<Record<string, unknown>>
 }

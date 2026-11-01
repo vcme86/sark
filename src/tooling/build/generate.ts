@@ -7,9 +7,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
+import type { BuildAssets } from '../../http/assets'
 import { routeShape } from '../../http/path'
-import type { PageAssets } from '../../page/assets'
-import { writePageAssets } from './assets'
+import { writeBuildAssets } from './assets'
 import type { DiscoveredAppExports } from './discover/app'
 import type { DiscoveredPageTree } from './discover/pages'
 import type { DiscoveredRouteFile } from './discover/routes'
@@ -49,7 +49,7 @@ interface GenerateOptions {
   /** Resolved target platform for Node or Workers startup generation. */
   target: 'node' | 'cloudflare'
   /** Asset metadata available from the current engineering resolution phase. */
-  assets?: PageAssets
+  assets?: BuildAssets
   /** Module exporting an external Api type, already relative to generated code when local. */
   apiTypes?: string
 }
@@ -368,7 +368,7 @@ ${scopesCode.join(',\n')}
       source: ${JSON.stringify(page.relativePath)},
       routePath: ${JSON.stringify(routePath)},
       scopes: pageRoutes[${index}].httpScopes,
-      pageHandler: createPageHandler(pageRoutes[${index}], () => resolveClientAssets(pageAssets, pageRoutes[${index}].pattern)),
+      pageHandler: createPageHandler(pageRoutes[${index}], () => resolveClientAssets(buildAssets, pageRoutes[${index}].pattern)),
     },`)
     })
     const rootError = pages.errors.get('')
@@ -383,7 +383,7 @@ ${pageRoutesCode.join(',\n')}
 const page404Handler = createPage404Handler(
   ${rootComponentCode},
   ${errorCode},
-  () => resolveClientAssets(pageAssets, '/*'),
+  () => resolveClientAssets(buildAssets, '/*'),
 )
 `
   }
@@ -450,7 +450,7 @@ ${hasWebAuthn ? `import { webauthn } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
-${hasPages || options.assets ? "import { pageAssets } from './page-assets'" : ''}
+${hasPages || options.assets ? "import { buildAssets } from './build-assets'" : ''}
 
 ${pageHandlerCode}
 ${hasTotp ? 'const totpFactor = createTotpFactor(totp)' : ''}
@@ -470,7 +470,7 @@ ${pageEntriesCode.join('\n')}
   ],
   ${hasPages ? 'page404Handler,' : ''}
   ${hasPages ? `createPageConfigResolver: () => createPageConfigResolver(${appExports.exports.includes('page') ? 'page' : 'undefined'}, ${JSON.stringify(apiPrefix)}),` : ''}
-  ${options.assets ? 'assets: pageAssets,' : ''}
+  ${options.assets ? 'assets: buildAssets,' : ''}
 })
 
 ${hasRuntime ? `export { runtime } from ${appImportPath}` : 'export const runtime = undefined'}
@@ -486,7 +486,7 @@ ${routeApiEntries.join('\n')}
 `
   writeFileIfChanged(join(generatedDir, 'app.ts'), appTsContent)
   if (options.assets) {
-    writePageAssets({ generatedDir }, options.assets)
+    writeBuildAssets({ generatedDir }, options.assets)
   }
 
   // 2. Generate resources-types.ts
@@ -515,7 +515,7 @@ ${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: S
     serviceTypeFields.push('  readonly visitor: RequestVisitor')
   }
   if (requiresMfaAssembly) {
-    serviceTypeImports.push("import type { MfaService } from '@olivaw/sark/auth/mfa'")
+    serviceTypeImports.push("import type { RequestMfa } from '@olivaw/sark/auth/mfa'")
     if (hasWebAuthn)
       serviceTypeImports.push(
         "import type { AuthenticationResponseJSON } from '@olivaw/sark/auth/webauthn'",
@@ -525,15 +525,15 @@ ${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: S
       hasWebAuthn ? "{ kind: 'webauthn'; response: AuthenticationResponseJSON }" : '',
       "{ kind: 'recovery'; code: string }",
     ].filter(Boolean)
-    serviceTypeFields.push(`  readonly mfa: MfaService<${proofs.join(' | ')}>`)
+    serviceTypeFields.push(`  readonly mfa: RequestMfa<${proofs.join(' | ')}>`)
   }
   if (hasTotp) {
-    serviceTypeImports.push("import type { TotpService } from '@olivaw/sark/auth/totp'")
-    serviceTypeFields.push('  readonly totp: TotpService')
+    serviceTypeImports.push("import type { RequestTotp } from '@olivaw/sark/auth/totp'")
+    serviceTypeFields.push('  readonly totp: RequestTotp')
   }
   if (hasWebAuthn) {
-    serviceTypeImports.push("import type { WebAuthnService } from '@olivaw/sark/auth/webauthn'")
-    serviceTypeFields.push('  readonly webauthn: WebAuthnService')
+    serviceTypeImports.push("import type { RequestWebAuthn } from '@olivaw/sark/auth/webauthn'")
+    serviceTypeFields.push('  readonly webauthn: RequestWebAuthn')
   }
 
   const servicesTypesContent = `// Generated services types

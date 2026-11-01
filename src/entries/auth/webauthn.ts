@@ -13,7 +13,7 @@ export type {
   WebAuthnIdentity,
   WebAuthnIdentityResolver,
   WebAuthnRecord,
-  WebAuthnService,
+  RequestWebAuthn,
   WebAuthnStore,
   WebAuthnStoreDeclaration,
   WebAuthnUserLabel,

@@ -12,7 +12,7 @@ import { defineDatabase } from '../../src/services/db/sqlite'
 describe('MFA configuration', () => {
   it('applies defaults when empty configuration object is passed', () => {
     const resolved = resolveMfaConfig({})
-    expect(resolved.login).toBe('if-enrolled')
+    expect(resolved.signIn).toBe('if-enrolled')
     expect(resolved.challenge.ttl).toBe(300_000)
     expect(resolved.challenge.maxAttempts).toBe(5)
     expect(resolved.accountLimit.window).toBe(600_000)

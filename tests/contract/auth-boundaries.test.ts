@@ -360,8 +360,8 @@ it('reuses event configuration and domain routes during concurrent internal Work
   const responses = await Promise.all([first, second])
   expect(await responses[0].json()).toEqual({ client: 'one', status: 302 })
   expect(await responses[1].json()).toEqual({ client: 'two', status: 302 })
-  expect(responses[0].headers.getSetCookie()[0]).toMatch(/^__sark_oauth_first=/)
-  expect(responses[1].headers.getSetCookie()[0]).toMatch(/^__sark_oauth_second=/)
+  expect(responses[0].headers.getSetCookie()[0]).toMatch(/^oauth_state_first=/)
+  expect(responses[1].headers.getSetCookie()[0]).toMatch(/^oauth_state_second=/)
   expect(factory).toHaveBeenCalledTimes(2)
 })
 

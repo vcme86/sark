@@ -10,7 +10,7 @@ import { defineStorage as defineLocalStorage } from '../../../src/services/stora
 import { definePresign } from '../../../src/services/storage/presign'
 import { defineStorage as defineR2Storage } from '../../../src/services/storage/r2'
 import { defineStorage as defineS3Storage } from '../../../src/services/storage/s3'
-import type { FileStore, PresignedResult } from '../../../src/services/storage/types'
+import type { FileStore, PresignResult } from '../../../src/services/storage/types'
 
 describe('Storage Type Contracts', () => {
   it('infers exact native backend types for S3 and R2 while local has no native', () => {
@@ -54,7 +54,7 @@ describe('Storage Type Contracts', () => {
     expectTypeOf<S3WithPresignStore['presign']>().toBeFunction()
     expectTypeOf<
       ReturnType<S3WithPresignStore['presign']>
-    >().resolves.toEqualTypeOf<PresignedResult>()
+    >().resolves.toEqualTypeOf<PresignResult>()
 
     // R2 without presign
     const r2NoPresign = defineR2Storage({ binding: {} as R2Bucket })

@@ -12,7 +12,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   },
 })
 
-export const factors = pgTable('sark_totp_factors', {
+export const totpFactors = pgTable('totp_factors', {
   sub: text('sub').primaryKey(),
   revision: text('revision').notNull(),
   factorId: text('factor_id').notNull(),

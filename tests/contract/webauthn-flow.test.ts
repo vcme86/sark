@@ -3,15 +3,15 @@ import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { AuthenticationFacts } from '../../src/services/auth/contracts'
+import type { AuthFacts } from '../../src/services/auth/contracts'
 import { resolveMfaConfig } from '../../src/services/auth/mfa/config'
-import { MfaServiceImpl } from '../../src/services/auth/mfa/service'
+import { MfaService } from '../../src/services/auth/mfa/service'
 import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
 import { resolveWebAuthnConfig } from '../../src/services/auth/webauthn/config'
 import { SqliteWebAuthnStore } from '../../src/services/auth/webauthn/db/sqlite'
 import {
   authenticationCredentialId,
-  WebAuthnServiceImpl,
+  WebAuthnService,
 } from '../../src/services/auth/webauthn/service'
 import { createCredential } from '../helpers/webauthn'
 
@@ -24,8 +24,8 @@ afterEach(() => {
 async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string }>) {
   const sqlite = new Database(':memory:')
   close.push(() => sqlite.close())
-  sqlite.exec(`CREATE TABLE sark_webauthn_subjects (sub TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL);
-    CREATE TABLE sark_webauthn_credentials (credential_id TEXT PRIMARY KEY, sub TEXT NOT NULL, user_handle TEXT NOT NULL, public_key BLOB NOT NULL, counter INTEGER NOT NULL, transports TEXT, device_type TEXT, backed_up INTEGER NOT NULL, revision TEXT NOT NULL, created_at INTEGER NOT NULL);`)
+  sqlite.exec(`CREATE TABLE webauthn_subjects (sub TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL);
+    CREATE TABLE webauthn_credentials (credential_id TEXT PRIMARY KEY, sub TEXT NOT NULL, user_handle TEXT NOT NULL, public_key BLOB NOT NULL, counter INTEGER NOT NULL, transports TEXT, device_type TEXT, backed_up INTEGER NOT NULL, revision TEXT NOT NULL, created_at INTEGER NOT NULL);`)
   const store = new SqliteWebAuthnStore(drizzle(sqlite))
   const state = new MemoryAuthStateStore()
   const config = resolveWebAuthnConfig({
@@ -40,7 +40,7 @@ async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string
   const abort = new AbortController()
   const context = { logger: getLogger(['test']), signal: abort.signal }
   const identity = {
-    authentication: undefined as AuthenticationFacts | undefined,
+    auth: undefined as AuthFacts | undefined,
     sub: 'alice',
     ver: 7,
     jti: 'j',
@@ -49,7 +49,7 @@ async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string
     roles: ['reader'],
     amr: ['pwd'],
   }
-  const webauthn = new WebAuthnServiceImpl({
+  const webauthn = new WebAuthnService({
     config,
     webauthnStore: store,
     stateStore: state,
@@ -67,7 +67,7 @@ async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string
     identity: { ...input, jti: 'issued', ver: input.ver ?? 0, claims: input.claims ?? {} },
     token: 'coordinator-test',
   }))
-  const mfa = new MfaServiceImpl({
+  const mfa = new MfaService({
     config: policy,
     stateStore: state,
     sessionService: { signIn: issue },
@@ -97,7 +97,7 @@ async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string
 describe('WebAuthn signed protocol and shared MFA completion', () => {
   it('keeps protocol expectations stable when the application changes returned browser options', async () => {
     const f = await fixture()
-    const login = await f.webauthn.beginLogin()
+    const login = await f.webauthn.beginSignIn()
     const expected = structuredClone(login.options)
     login.options.challenge = 'application-mutated-options'
     expect((await f.webauthn.beginAuthentication(login.challenge)).challenge).toBe(
@@ -119,7 +119,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
       claims: { current: true },
     }))
     expect((await f.store.findCredential(f.credential.id))!.publicKey.length).toBeGreaterThan(60)
-    const login = await f.mfa.beginLogin({ sub: 'alice', amr: ['pwd'] })
+    const login = await f.mfa.beginSignIn({ sub: 'alice', amr: ['pwd'] })
     if (login.status !== 'challenge') throw new Error('Expected an enrolled-account challenge')
     const [first, second] = await Promise.all([
       f.webauthn.beginAuthentication(login.challenge),
@@ -131,14 +131,14 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
       response: f.credential.authentication(first),
     })
     expect(session.identity.amr).toEqual(['pwd', 'pop'])
-    expect(session.identity.authentication).toEqual({ method: 'webauthn', userVerified: true })
+    expect(session.identity.auth).toEqual({ method: 'webauthn', userVerified: true })
     await expect(
       f.mfa.complete(login.challenge, {
         kind: 'webauthn',
         response: f.credential.authentication(first),
       }),
     ).rejects.toThrow()
-    const passwordless = await f.webauthn.beginLogin()
+    const passwordless = await f.webauthn.beginSignIn()
     const resolved = await f.mfa.complete(passwordless.challenge, {
       kind: 'webauthn',
       response: f.credential.authentication(passwordless.options, { counter: 2 }),
@@ -162,7 +162,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
     'rejects a signed response with incorrect %s against a valid registration baseline',
     async (_name, overrides) => {
       const f = await fixture()
-      const login = await f.webauthn.beginLogin()
+      const login = await f.webauthn.beginSignIn()
       await expect(
         f.mfa.complete(login.challenge, {
           kind: 'webauthn',
@@ -183,7 +183,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
       await waiting
       return { sub }
     })
-    const login = await f.webauthn.beginLogin()
+    const login = await f.webauthn.beginSignIn()
     const completing = f.mfa.complete(login.challenge, {
       kind: 'webauthn',
       response: f.credential.authentication(login.options),
@@ -205,7 +205,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
         if (mode === 'reject') throw new Error('account disabled')
         return { sub: 'someone-else' }
       })
-      const login = await f.webauthn.beginLogin()
+      const login = await f.webauthn.beginSignIn()
       await expect(
         f.mfa.complete(login.challenge, {
           kind: 'webauthn',
@@ -240,9 +240,9 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
     const f = await fixture()
     const lookup = vi.spyOn(f.store, 'findCredential')
     let challenge: string
-    if (mode === 'passwordless') challenge = (await f.webauthn.beginLogin()).challenge
+    if (mode === 'passwordless') challenge = (await f.webauthn.beginSignIn()).challenge
     else {
-      const login = await f.mfa.beginLogin({ sub: 'alice' })
+      const login = await f.mfa.beginSignIn({ sub: 'alice' })
       if (login.status !== 'challenge') throw new Error('Expected factor challenge')
       challenge = login.challenge
       await f.webauthn.beginAuthentication(challenge)
@@ -258,12 +258,12 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
     })
   })
 
-  it('enforces credential management authentication, ownership and revision conflicts', async () => {
+  it('enforces credential management auth, ownership and revision conflicts', async () => {
     const f = await fixture()
     await expect(f.webauthn.removeCredential(f.credential.id)).rejects.toMatchObject({
       code: 'step_up_required',
     })
-    f.identity.authentication = { method: 'webauthn', userVerified: true }
+    f.identity.auth = { method: 'webauthn', userVerified: true }
     const original = (await f.store.findCredential(f.credential.id))!
     await f.store.insertCredential({
       ...original,
@@ -283,7 +283,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
 
   it('does not delete a credential when cancellation arrives during its lookup', async () => {
     const f = await fixture()
-    f.identity.authentication = { method: 'webauthn', userVerified: true }
+    f.identity.auth = { method: 'webauthn', userVerified: true }
     const original = (await f.store.findCredential(f.credential.id))!
     const started = Promise.withResolvers<void>()
     const reading = Promise.withResolvers<typeof original>()
@@ -308,7 +308,7 @@ describe('WebAuthn signed protocol and shared MFA completion', () => {
     'rejects a passwordless user handle that does not identify the stored owner',
     async (handle) => {
       const f = await fixture()
-      const login = await f.webauthn.beginLogin()
+      const login = await f.webauthn.beginSignIn()
       const response = f.credential.authentication(login.options)
       response.response.userHandle = Buffer.from(handle).toString('base64url')
       await expect(

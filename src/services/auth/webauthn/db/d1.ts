@@ -9,17 +9,17 @@ import {
   resolveTable,
 } from '../../database'
 import type { StoreContext, StoreDeclaration } from '../../store'
-import { credentials as credentialsTable, subjects as subjectsTable } from '../schema/sqlite'
+import { webauthnCredentials, webauthnSubjects } from '../schema/sqlite'
 import type { SqlWebAuthnOptions, WebAuthnRecord, WebAuthnStore } from '../store'
 
 export class D1WebAuthnStore implements WebAuthnStore {
   constructor(
     private readonly db: DrizzleD1Database,
-    private readonly subjects = subjectsTable,
-    private readonly credentials = credentialsTable,
+    private readonly subjects = webauthnSubjects,
+    private readonly credentials = webauthnCredentials,
   ) {}
 
-  private record(row: typeof credentialsTable.$inferSelect): WebAuthnRecord {
+  private record(row: typeof webauthnCredentials.$inferSelect): WebAuthnRecord {
     return {
       credentialId: row.credentialId,
       sub: row.sub,
@@ -125,13 +125,13 @@ export class D1WebAuthnStore implements WebAuthnStore {
  */
 export function sqlWebAuthn(
   options: SqlWebAuthnOptions<
-    CompatibleTable<typeof subjectsTable>,
-    CompatibleTable<typeof credentialsTable>
+    CompatibleTable<typeof webauthnSubjects>,
+    CompatibleTable<typeof webauthnCredentials>
   >,
 ): StoreDeclaration<WebAuthnStore> {
   assertDatabaseDriver(options.database, 'd1')
-  const subjects = resolveTable(options.tables?.subjects, subjectsTable)
-  const credentials = resolveTable(options.tables?.credentials, credentialsTable)
+  const subjects = resolveTable(options.tables?.subjects, webauthnSubjects)
+  const credentials = resolveTable(options.tables?.credentials, webauthnCredentials)
   return {
     target: 'cloudflare',
     create(context: StoreContext) {

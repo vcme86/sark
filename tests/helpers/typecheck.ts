@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 import { resolveConfig } from 'vite'
 
-import type { SarkOptions } from '../../src/tooling/config'
+import type { PluginOptions } from '../../src/tooling/config'
 import { sark } from '../../src/tooling/vite'
 import { createProject, projectRoot } from './project'
 
@@ -28,7 +28,7 @@ export function checkTypes(root: string) {
 /** Generates and checks only the files supplied by one integration scenario. */
 export async function checkGeneratedTypes(
   files: Readonly<Record<string, string>>,
-  options: Pick<SarkOptions, 'target' | 'apiPrefix'> & {
+  options: Pick<PluginOptions, 'target' | 'apiPrefix'> & {
     customHost?: boolean
   } = {},
 ) {

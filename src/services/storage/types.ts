@@ -72,7 +72,7 @@ export interface PresignOptions {
 }
 
 /** Result of a successful presign operation. */
-export interface PresignedResult {
+export interface PresignResult {
   /** Fully qualified URL to send the direct request to. */
   readonly url: string
   /** Required HTTP method. */

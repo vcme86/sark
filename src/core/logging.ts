@@ -69,7 +69,7 @@ export interface Logger {
   debug(message: string, ...args: unknown[]): void
 }
 
-class SarkLogger implements Logger {
+class RequestLogger implements Logger {
   private readonly logger: ReturnType<typeof getLogtapeLogger>
 
   constructor(category: string) {
@@ -102,5 +102,5 @@ class SarkLogger implements Logger {
  * @returns Logger instance configured for contextual output.
  */
 export function getLogger(category = 'app'): Logger {
-  return new SarkLogger(category)
+  return new RequestLogger(category)
 }

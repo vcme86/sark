@@ -47,7 +47,7 @@ RP ID 为域名范围，origins 为实际浏览器来源，二者按 WebAuthn �
 ## 服务端操作
 
 ```ts
-interface WebAuthnService {
+interface RequestWebAuthn {
   beginEnrollment(): Promise<{
     challenge: string
     options: PublicKeyCredentialCreationOptionsJSON
@@ -57,7 +57,7 @@ interface WebAuthnService {
     response: RegistrationResponseJSON,
   ): Promise<{ credentialId: string }>
   beginAuthentication(challenge: string): Promise<PublicKeyCredentialRequestOptionsJSON>
-  beginLogin(options?: SessionOptions): Promise<{
+  beginSignIn(options?: SessionOptions): Promise<{
     challenge: string
     options: PublicKeyCredentialRequestOptionsJSON
   }>
@@ -70,9 +70,9 @@ interface WebAuthnService {
 
 注册先检查共同近期认证策略，取得稳定 user handle，生成并保存本次 options 预期值；确认时校验注册响应、条件插入唯一凭据，再结束绑定挑战。已有凭据作为排除项；并发首次 user handle 创建由唯一约束解决。
 
-第二步先由 mfa.beginLogin/beginStepUp 建共同挑战，再 beginAuthentication(challenge) 取 options，最后把浏览器 response 交给 mfa.complete。
+第二步先由 mfa.beginSignIn/beginStepUp 建共同挑战，再 beginAuthentication(challenge) 取 options，最后把浏览器 response 交给 mfa.complete。
 
-无密码 beginLogin 不要求预先提供账户，使用可发现凭据。通过共同创建器建立 purpose=webauthn-login 的无主体 AuthFlow，沿同一 AuthStateStore 保存会话选项与协议预期。complete 只接受该用途的 WebAuthn 证明，查找服务端凭据，落实账户窗口并验证 userHandle、challenge、origin、RP、用户验证及归属。不能拿客户端的 sub 直接当已认证主体。
+无密码 beginSignIn 不要求预先提供账户，使用可发现凭据。通过共同创建器建立 purpose=webauthn-sign-in 的无主体 AuthFlow，沿同一 AuthStateStore 保存会话选项与协议预期。complete 只接受该用途的 WebAuthn 证明，查找服务端凭据，落实账户窗口并验证 userHandle、challenge、origin、RP、用户验证及归属。不能拿客户端的 sub 直接当已认证主体。
 
 list/remove 只操作当前主体，移除要求近期因素认证，SQL 同时约束 ID、主体和 revision。恢复码由共同 MFA 服务提供，新增一个 Passkey 不自动重置它。
 
@@ -80,11 +80,11 @@ list/remove 只操作当前主体，移除要求近期因素认证，SQL 同时�
 
 协议验证成功、长期凭据条件更新成功、共同挑战条件消费成功后，才调用 identity(sub, context)，再检查取消、期限及返回资料并签发。未配置时只使用 { sub }，ver/roles/claims 沿 session 默认。应用需要当前账户版本、角色或业务声明时由该回调提供，也可检查账户是否允许登录；框架不猜用户表或角色规则。
 
-返回 sub 必须等于已验证主体，不符时报配置错误并拒绝签发。框架只选取 sub/ver/roles/claims；amr、authTime、authentication 由本次验证结果生成，不受运行时多余字段或保留 claims 覆盖。
+返回 sub 必须等于已验证主体，不符时报配置错误并拒绝签发。框架只选取 sub/ver/roles/claims；amr、authTime、auth 由本次验证结果生成，不受运行时多余字段或保留 claims 覆盖。
 
 identity 抛 HttpError 时保留应用错误语义，其他异常沿共同未知错误处理，内部信息不发给客户端。失败或取消不签发，不退回 pending，不恢复已提交的计数器或重放同一挑战。长期 Passkey 凭据仍保留可用；重新登录从新挑战开始。若回调查询应用数据库，瞬时失败会要求用户重新完成一次 WebAuthn 流程，不保留已消费挑战等待重试。
 
-该回调仅用于无密码 WebAuthn。TOTP、恢复码或 WebAuthn 第二步继续使用 mfa.beginLogin 已保存的 SignInInput；step-up 沿已有身份。它不是全局账户查询钩子，不为每次业务 JWT 验证或其他因素登录增加查询。
+该回调仅用于无密码 WebAuthn。TOTP、恢复码或 WebAuthn 第二步继续使用 mfa.beginSignIn 已保存的 SignInInput；step-up 沿已有身份。它不是全局账户查询钩子，不为每次业务 JWT 验证或其他因素登录增加查询。
 
 ## 浏览器接入
 
@@ -120,8 +120,8 @@ auth/webauthn 导出 WebAuthnStore，操作包括：
 
 auth/webauthn/sqlite、auth/webauthn/postgres、auth/webauthn/d1 导出 sqlWebAuthn({ database, tables?: { subjects, credentials } })。同一入口仅包含 WebAuthn 适配及两张表：
 
-- webauthnSubjects：sark_webauthn_subjects，主体唯一、稳定 handle 唯一
-- webauthnCredentials：sark_webauthn_credentials，凭据 ID 唯一，索引支持主体列表，保存公钥字节及验证元数据
+- webauthnSubjects：webauthn_subjects，主体唯一、稳定 handle 唯一
+- webauthnCredentials：webauthn_credentials，凭据 ID 唯一，索引支持主体列表，保存公钥字节及验证元数据
 
 BLOB/BYTEA 与 Uint8Array 无损往返，使用上游前先转换 ORM 返回的原生字节视图；不把 JSON 数字数组或 Buffer 的序列化对象误当公钥。
 

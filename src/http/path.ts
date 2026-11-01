@@ -247,7 +247,7 @@ export function createRouteCanonicalizer(
   routes: Array<{ readonly routePath: ParsedRoutePath }>,
 ): RouteCanonicalizer {
   const router = new TrieRouter<string[]>()
-  const pathIndex = '__SARK_CANONICAL_PATH__'
+  const pathIndex = '__PATH__'
   for (const entry of routes) {
     const { urlPath, method } = entry.routePath
     const segments = urlPath.split('/')

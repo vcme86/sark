@@ -5,9 +5,9 @@ export type {
   TotpConfig,
   TotpKey,
   TotpKeyConfig,
-  TotpPublicInstance,
+  TotpMaintenance,
   TotpRecord,
-  TotpService,
+  RequestTotp,
   TotpStore,
   TotpStoreDeclaration,
 } from '../../services/auth/totp/types'

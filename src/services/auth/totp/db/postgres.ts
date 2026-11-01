@@ -9,13 +9,13 @@ import {
   resolveTable,
 } from '../../database'
 import type { StoreContext, StoreDeclaration } from '../../store'
-import { factors as factorsTable } from '../schema/postgres'
+import { totpFactors } from '../schema/postgres'
 import type { SqlTotpOptions, TotpRecord, TotpStore } from '../types'
 
 export class PostgresTotpStore implements TotpStore {
   constructor(
     private readonly db: PostgresJsDatabase,
-    private readonly factors = factorsTable,
+    private readonly factors = totpFactors,
   ) {}
 
   async read(sub: string): Promise<TotpRecord | null> {
@@ -90,10 +90,10 @@ export class PostgresTotpStore implements TotpStore {
  * @throws If the database driver or mapped columns are incompatible.
  */
 export function sqlTotp(
-  options: SqlTotpOptions<CompatibleTable<typeof factorsTable>>,
+  options: SqlTotpOptions<CompatibleTable<typeof totpFactors>>,
 ): StoreDeclaration<TotpStore> {
   assertDatabaseDriver(options.database, 'postgres')
-  const factors = resolveTable(options.tables?.factors, factorsTable)
+  const factors = resolveTable(options.tables?.factors, totpFactors)
   return {
     target: 'node',
     create(context: StoreContext) {

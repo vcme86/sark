@@ -87,7 +87,7 @@ export interface ResolvedTotpConfig {
 }
 
 /** Request-level TOTP handle exposed on `ctx.var.totp`. */
-export interface TotpService {
+export interface RequestTotp {
   /** Creates a pending encrypted factor for the current subject after the management checks. */
   beginEnrollment(): Promise<{ challenge: string; uri: string }>
   /**
@@ -104,7 +104,7 @@ export interface TotpService {
 }
 
 /** Application-level instance maintenance methods exposed on `instance.totp`. */
-export interface TotpPublicInstance {
+export interface TotpMaintenance {
   /**
    * Re-encrypts one subject's factor using the current key, preserving replay state.
    * @param sub - Subject selected by application maintenance code.

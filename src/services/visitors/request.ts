@@ -20,7 +20,7 @@ export interface RequestVisitorState {
 }
 
 /** Execution context supplied to initialize per-request visitor identity. */
-export interface RequestVisitorInitParams {
+export interface RequestVisitorContext {
   readonly ctx: Context
   readonly parentState?: RequestVisitorState
   readonly appendCookie: (cookie: string) => void
@@ -34,14 +34,14 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
  * Internal calls inherit the same state without repeating verification.
  *
  * @param config - Resolved visitors configuration.
- * @param params - Execution context and cookie forwarders.
+ * @param context - Execution context and cookie forwarders.
  * @returns State and visitor service instance bound to the request.
  */
 export async function initRequestVisitor(
   config: ResolvedVisitorsConfig,
-  params: RequestVisitorInitParams,
+  context: RequestVisitorContext,
 ): Promise<{ state: RequestVisitorState; visitor: RequestVisitor }> {
-  const { ctx, parentState, appendCookie, isHeadersCommitted } = params
+  const { ctx, parentState, appendCookie, isHeadersCommitted } = context
 
   let state: RequestVisitorState
   if (parentState) {

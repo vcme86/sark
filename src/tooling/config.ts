@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path'
 import { DEFAULT_API_PREFIX } from '../http/defaults'
 
 /** Configuration options for the Sark Vite plugin. */
-export interface SarkOptions {
+export interface PluginOptions {
   /**
    * Deployment target platform.
    * @default 'node'
@@ -44,8 +44,8 @@ export interface SarkOptions {
   apiTypes?: string
 }
 
-/** Parsed Sark options before their paths are bound to a project root. */
-interface ResolvedSarkOptions {
+/** Parsed plugin options before their paths are bound to a project root. */
+interface ResolvedPluginOptions {
   readonly target: 'node' | 'cloudflare'
   readonly appEntry: string
   readonly apiDir: string | false
@@ -68,7 +68,7 @@ export interface ResolvedProjectConfig {
   readonly apiTypes?: string
 }
 
-const DEFAULT_SARK_OPTIONS: ResolvedSarkOptions = {
+const DEFAULT_PLUGIN_OPTIONS: ResolvedPluginOptions = {
   target: 'node',
   appEntry: 'app.ts',
   apiDir: 'api',
@@ -91,23 +91,23 @@ function normalizePrefix(value: string, field: string): string {
 }
 
 /**
- * Applies Sark defaults and validates engineering options without executing declarations.
+ * Applies plugin defaults and validates engineering options without executing declarations.
  *
  * @param input - Public plugin or standalone generation options.
  * @returns Complete options with canonical URL prefixes.
  * @throws If an option has an invalid target, empty path, or malformed prefix.
  */
-export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions {
+export function resolvePluginOptions(input: PluginOptions = {}): ResolvedPluginOptions {
   for (const [field, value] of Object.entries(input)) {
     if (value === null) throw new Error(`sark.${field} does not accept null.`)
   }
-  const result: ResolvedSarkOptions = {
-    target: input.target ?? DEFAULT_SARK_OPTIONS.target,
-    appEntry: input.appEntry ?? DEFAULT_SARK_OPTIONS.appEntry,
-    apiDir: input.apiDir ?? DEFAULT_SARK_OPTIONS.apiDir,
-    apiPrefix: normalizePrefix(input.apiPrefix ?? DEFAULT_SARK_OPTIONS.apiPrefix, 'apiPrefix'),
-    webDir: input.webDir ?? DEFAULT_SARK_OPTIONS.webDir,
-    webPrefix: normalizePrefix(input.webPrefix ?? DEFAULT_SARK_OPTIONS.webPrefix, 'webPrefix'),
+  const result: ResolvedPluginOptions = {
+    target: input.target ?? DEFAULT_PLUGIN_OPTIONS.target,
+    appEntry: input.appEntry ?? DEFAULT_PLUGIN_OPTIONS.appEntry,
+    apiDir: input.apiDir ?? DEFAULT_PLUGIN_OPTIONS.apiDir,
+    apiPrefix: normalizePrefix(input.apiPrefix ?? DEFAULT_PLUGIN_OPTIONS.apiPrefix, 'apiPrefix'),
+    webDir: input.webDir ?? DEFAULT_PLUGIN_OPTIONS.webDir,
+    webPrefix: normalizePrefix(input.webPrefix ?? DEFAULT_PLUGIN_OPTIONS.webPrefix, 'webPrefix'),
     apiTypes: input.apiTypes,
   }
   if (result.target !== 'node' && result.target !== 'cloudflare') {
@@ -127,15 +127,15 @@ export function resolveSarkOptions(input: SarkOptions = {}): ResolvedSarkOptions
 }
 
 /**
- * Binds already resolved Sark options to the host's project root.
+ * Binds already resolved plugin options to the host's project root.
  *
  * @param projectRoot - Project root supplied by Vite or the standalone generation caller.
- * @param options - Complete Sark options.
+ * @param options - Complete plugin options.
  * @returns Absolute paths for the shared discovery and generation flow.
  */
 export function resolveProjectConfig(
   projectRoot: string,
-  options: ResolvedSarkOptions,
+  options: ResolvedPluginOptions,
 ): ResolvedProjectConfig {
   const root = resolve(projectRoot)
   const generatedDir = resolve(root, '.build')

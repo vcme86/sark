@@ -112,7 +112,7 @@ store 声明使用 [application.md](application.md) 的延迟 create(context) �
 
 ## 官方 SQL 与 schema
 
-stats/sqlite、stats/postgres、stats/d1 导出 sqlStats({ database, tables?: { counters, subjects? } })。对应 /schema 导出默认 counters 与 subjects，物理名分别为 sark_stats_counters、sark_stats_subjects。
+stats/sqlite、stats/postgres、stats/d1 导出 sqlStats({ database, tables?: { counters, subjects? } })。对应 /schema 导出默认 statsCounters 与 statsSubjects，物理名分别为 stats_counters、stats_subjects。
 
 未传 tables 时使用默认 counters，requirements.unique=true 时再使用默认 subjects。显式 tables 表示整组自定义映射：counters 必需；unique=true 时 subjects 也必需，遗漏在服务创建阶段报配置错误，不静默混用默认 subjects。unique=false 不要求或查询 subjects。
 

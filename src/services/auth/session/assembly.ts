@@ -4,7 +4,7 @@ import type {
   RequestBindingContext,
   ServiceAssembly,
   ServiceBinding,
-  ServiceInstanceResult,
+  ServiceInitResult,
   ServiceRuntime,
 } from '../../../core/service'
 import { type AuthDeclaration, resolveAuthConfig, type ResolvedAuthConfig } from './config'
@@ -44,7 +44,7 @@ function bindAuthService(
   config: ResolvedAuthConfig,
   resources: Readonly<Record<string, unknown>>,
   cache: AuthCacheStore,
-): ServiceInstanceResult<AuthService> {
+): ServiceInitResult<AuthService> {
   const service = createAuthService(config, resources, cache)
   return {
     service: { verify: service.verify, authenticate: service.authenticate },

@@ -6,7 +6,7 @@ import { createDefinition } from '../../src/core/definition'
 import type { ServiceAssembly } from '../../src/core/service'
 import { parseApiFilePath } from '../../src/http/path'
 import { route } from '../../src/http/server/route'
-import { MfaError } from '../../src/services/auth/error'
+import { AuthError } from '../../src/services/auth/error'
 import { createMfaAssembly } from '../../src/services/auth/mfa/assembly'
 import { defineMfa } from '../../src/services/auth/mfa/declaration'
 import { createAuthAssembly } from '../../src/services/auth/session/assembly'
@@ -15,7 +15,7 @@ import type { RequestAuth } from '../../src/services/auth/session/types'
 import { memoryState } from '../../src/services/auth/state/memory'
 import { createTotpFactor } from '../../src/services/auth/totp/assembly'
 import { defineTotp } from '../../src/services/auth/totp/declaration'
-import type { TotpService } from '../../src/services/auth/totp/types'
+import type { RequestTotp } from '../../src/services/auth/totp/types'
 
 const serviceAssembly = (requires: string[]): ServiceAssembly<never> => ({
   requires,
@@ -298,7 +298,7 @@ it('requires recent factor authentication when recovery codes are the remaining 
         {
           routePath: parseApiFilePath('enroll.get.ts', '/api')!,
           declaration: route().handler(async (ctx) => {
-            const services = ctx.var as unknown as { auth: RequestAuth; totp: TotpService }
+            const services = ctx.var as unknown as { auth: RequestAuth; totp: RequestTotp }
             await services.auth.signIn({
               sub: 'alice',
               amr: ['pwd'],
@@ -308,7 +308,7 @@ it('requires recent factor authentication when recovery codes are the remaining 
               await services.totp.beginEnrollment()
               return { enrolled: true }
             } catch (error) {
-              if (error instanceof MfaError) return { code: error.code }
+              if (error instanceof AuthError) return { code: error.code }
               throw error
             }
           }),

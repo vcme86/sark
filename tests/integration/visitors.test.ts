@@ -60,7 +60,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
 
       const setCookie = initRes.headers.get('set-cookie')
       expect(setCookie).toBeTruthy()
-      expect(setCookie).toContain('sark_visitor=')
+      expect(setCookie).toContain('visitor_id=')
       expect(setCookie).toContain('Path=/')
       expect(setCookie).toContain('HttpOnly')
       expect(setCookie).toContain('SameSite=Lax')
@@ -129,7 +129,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
         headers: { Origin: baseUrl },
       })
       expect(customRes.status).toBe(204)
-      expect(customRes.headers.get('set-cookie')).toContain('sark_visitor=')
+      expect(customRes.headers.get('set-cookie')).toContain('visitor_id=')
     } finally {
       await server.close()
       project.remove()
@@ -170,7 +170,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark()] }
 
       const visitorId = crypto.randomUUID()
       const cookie = await generateSignedCookie(
-        'sark_visitor',
+        'visitor_id',
         `v1:${visitorId}:${Date.now() + 60_000}`,
         VISITOR_SECRET,
       )
@@ -340,7 +340,7 @@ export default {
 
         const setCookie = initRes.headers.get('set-cookie')
         expect(setCookie).toBeTruthy()
-        expect(setCookie).toContain('sark_visitor=')
+        expect(setCookie).toContain('visitor_id=')
         const cookieVal = setCookie!.split(';')[0]
 
         // 3. Read visitor identity in workerd using the established cookie

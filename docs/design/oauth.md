@@ -90,7 +90,7 @@ Node 按实例、Workers 按当前外部事件使用真实 Env 解析配置，�
 
 发起入口生成 state，适用提供方生成 PKCE verifier，OIDC 同时生成 nonce；Apple 沿其支持的 nonce/state 与 form_post 流程，不发送 PKCE 参数。授权 URL 由上游构造。事务值保存在服务端签名的短期 Cookie，内容绑定提供方、用途、创建/过期时间与完整注册回调。密钥来自显式 app.cookie.secret，不复用 JWT 密钥；启用却缺密钥在资源创建前拒绝。
 
-状态 Cookie 默认十分钟、HttpOnly，每个提供方独立命名；重新发起同一提供方登录替换其未完成事务。Cookie Path 取公开 redirectUri 的 pathname，并去除非根路径的尾斜线，使其同时匹配 HTTP 规范化前后的回调地址；设置与清除使用同一 Path，不使用代理改写后的本地 callbackPath。登记的 redirectUri 保持不变。标准 GET 回调采用 Lax；跨站 form_post 的提供方采用 SameSite=None; Secure。属性不同不影响第一方会话 Cookie。
+状态 Cookie 使用 oauth_state_<id> 命名，默认十分钟、HttpOnly，每个提供方独立；重新发起同一提供方登录替换其未完成事务。Cookie Path 取公开 redirectUri 的 pathname，并去除非根路径的尾斜线，使其同时匹配 HTTP 规范化前后的回调地址；设置与清除使用同一 Path，不使用代理改写后的本地 callbackPath。登记的 redirectUri 保持不变。标准 GET 回调采用 Lax；跨站 form_post 的提供方采用 SameSite=None; Secure。属性不同不影响第一方会话 Cookie。
 
 回调先验证 Cookie 完整性、期限、提供方和适用方法，再将 state/nonce/verifier 交给 openid-client 完成回调与换码，处理后清理事务 Cookie。请求中的协议错误也交给 onError 处理。
 
@@ -132,7 +132,7 @@ expiresAt 为 Unix 秒；缺 refreshToken 就保持缺失，不伪造。tokens �
 
 Node 和 Workers 使用相同协议与 Cookie 行为，资源和秘密来自所属环境，外部请求传递取消信号。openid-client 沿用其默认 30 秒 HTTP 操作时限；GitHub/WeChat 原生适配使用相同的单次操作时限，覆盖响应正文读取。该时限不是整个登录事务的期限，不限制用户在提供方页面的停留时间。可选 GitHub 邮箱补充超时只放弃该补充，当前请求取消仍中止整个流程，不自动重试。多实例只需正确共享配置/密钥与应用所用数据，不依赖某个实例内的 OAuth 事务 Map。
 
-应用可在映射账户后调用 ctx.var.mfa.beginLogin，而不是先签发完整 session 再要求第二步。OAuth 成功不自动证明完成本地 TOTP；是否采信第三方提供的认证方式和验证结果，由应用按其信任策略决定。
+应用可在映射账户后调用 ctx.var.mfa.beginSignIn，而不是先签发完整 session 再要求第二步。OAuth 成功不自动证明完成本地 TOTP；是否采信第三方提供的认证方式和验证结果，由应用按其信任策略决定。
 
 本模块是第三方认证的客户端，不提供 OIDC Provider。远期站点身份联邦不改变当前模块职责，也不提前创建供应方服务。
 

@@ -32,8 +32,8 @@ import {
   type FileBody,
   type FileStore,
   type GetOptions,
-  type PresignedResult,
   type PresignOptions,
+  type PresignResult,
   type PutOptions,
   StorageError,
   type StoredContent,
@@ -75,7 +75,7 @@ export interface S3FileStore extends FileStore {
 /** S3 FileStore with presign capability. */
 export interface S3PresignedFileStore extends S3FileStore {
   /** Signs a direct URL for client upload or download. */
-  presign(options: PresignOptions): Promise<PresignedResult>
+  presign(options: PresignOptions): Promise<PresignResult>
 }
 
 /** Declaration representing an S3 storage configuration. */
@@ -372,7 +372,7 @@ class S3PresignedFileStoreImpl extends S3FileStoreBase implements S3PresignedFil
     this.presignMaxExpires = presignMaxExpires
   }
 
-  async presign(options: PresignOptions): Promise<PresignedResult> {
+  async presign(options: PresignOptions): Promise<PresignResult> {
     const {
       key: validKey,
       expiresIn: requestedExpires,

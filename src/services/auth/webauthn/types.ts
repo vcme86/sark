@@ -78,7 +78,7 @@ export interface ResolvedWebAuthnConfig {
   readonly timeout: number
 }
 
-export interface WebAuthnService {
+export interface RequestWebAuthn {
   /** Begins registration for the authenticated subject after the common management checks. */
   beginEnrollment(): Promise<{
     challenge: string
@@ -96,9 +96,9 @@ export interface WebAuthnService {
   ): Promise<{ credentialId: string }>
   /**
    * Obtains protocol options without replacing expectations already bound to a pending challenge.
-   * @param challenge - Handle from MFA beginLogin/beginStepUp or WebAuthn beginLogin.
+   * @param challenge - Handle from MFA beginSignIn/beginStepUp or WebAuthn beginSignIn.
    * @returns Browser options detached from the stored protocol snapshot.
-   * @throws MfaError if the challenge is expired, unavailable, or changed concurrently.
+   * @throws AuthError if the challenge is expired, unavailable, or changed concurrently.
    */
   beginAuthentication(challenge: string): Promise<PublicKeyCredentialRequestOptionsJSON>
   /**
@@ -106,13 +106,13 @@ export interface WebAuthnService {
    * @param options - Session delivery options retained until successful completion.
    * @returns A handle and browser options; submit the signed response through mfa.complete.
    */
-  beginLogin(options?: SessionOptions): Promise<{
+  beginSignIn(options?: SessionOptions): Promise<{
     challenge: string
     options: PublicKeyCredentialRequestOptionsJSON
   }>
   /** Lists only the current authenticated subject's credentials, without public-key material. */
   listCredentials(): Promise<CredentialSummary[]>
-  /** Removes an owned credential after recent factor authentication, checking its revision. */
+  /** Removes an owned credential after recent factor auth, checking its revision. */
   removeCredential(id: string): Promise<void>
 }
 

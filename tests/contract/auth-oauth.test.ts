@@ -366,13 +366,13 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
 
     const setCookie = res.headers.get('set-cookie')
     expect(setCookie).toBeTruthy()
-    expect(setCookie).toContain('__sark_oauth_github=')
+    expect(setCookie).toContain('oauth_state_github=')
     expect(setCookie).toContain('Path=/api/auth/github/callback')
     expect(setCookie).toContain('HttpOnly')
     expect(setCookie).toContain('SameSite=Lax')
 
-    const parsed = await parseSigned(setCookie!, COOKIE_SECRET, '__sark_oauth_github')
-    const rawVal = parsed['__sark_oauth_github']
+    const parsed = await parseSigned(setCookie!, COOKIE_SECRET, 'oauth_state_github')
+    const rawVal = parsed['oauth_state_github']
     expect(typeof rawVal).toBe('string')
     const tx = JSON.parse(rawVal as string)
     expect(tx.id).toBe('github')
@@ -459,7 +459,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
     const res2 = await instance.fetch(
       new Request('http://localhost/api/auth/github/callback?code=abc&state=xyz', {
         headers: {
-          Cookie: '__sark_oauth_github=tampered_value.invalid_sig',
+          Cookie: 'oauth_state_github=tampered_value.invalid_sig',
         },
       }),
     )
@@ -1196,7 +1196,7 @@ it('returns the common error envelope and clears the transaction on callback fai
     expect(await response.json()).toEqual({
       error: { code: 'oauth_failed', message: 'OAuth authorization failed' },
     })
-    expect(response.headers.getSetCookie().join(';')).toContain('__sark_oauth_github=')
+    expect(response.headers.getSetCookie().join(';')).toContain('oauth_state_github=')
     expect(response.headers.getSetCookie().join(';')).toContain('Max-Age=0')
     expect(onSuccess).not.toHaveBeenCalled()
   } finally {

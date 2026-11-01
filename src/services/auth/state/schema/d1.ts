@@ -6,8 +6,8 @@
 
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const challenges = sqliteTable(
-  'sark_mfa_challenges',
+export const authChallenges = sqliteTable(
+  'auth_challenges',
   {
     id: text('id').primaryKey(),
     revision: text('revision').notNull(),
@@ -21,15 +21,15 @@ export const challenges = sqliteTable(
     claimId: text('claim_id'),
     data: text('data').notNull(),
   },
-  (table) => [index('sark_mfa_challenges_expires_at_idx').on(table.expiresAt)],
+  (table) => [index('auth_challenges_expires_at_idx').on(table.expiresAt)],
 )
 
-export const attempts = sqliteTable(
-  'sark_mfa_attempts',
+export const authAttemptWindows = sqliteTable(
+  'auth_attempt_windows',
   {
-    accountId: text('account_id').primaryKey(),
+    windowKey: text('window_key').primaryKey(),
     count: integer('count').notNull(),
     expiresAt: integer('expires_at').notNull(),
   },
-  (table) => [index('sark_mfa_attempts_expires_at_idx').on(table.expiresAt)],
+  (table) => [index('auth_attempt_windows_expires_at_idx').on(table.expiresAt)],
 )

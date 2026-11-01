@@ -6,8 +6,8 @@
 
 import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
 
-export const challenges = pgTable(
-  'sark_mfa_challenges',
+export const authChallenges = pgTable(
+  'auth_challenges',
   {
     id: text('id').primaryKey(),
     revision: text('revision').notNull(),
@@ -21,15 +21,15 @@ export const challenges = pgTable(
     claimId: text('claim_id'),
     data: text('data').notNull(),
   },
-  (table) => [index('sark_mfa_challenges_expires_at_idx').on(table.expiresAt)],
+  (table) => [index('auth_challenges_expires_at_idx').on(table.expiresAt)],
 )
 
-export const attempts = pgTable(
-  'sark_mfa_attempts',
+export const authAttemptWindows = pgTable(
+  'auth_attempt_windows',
   {
-    accountId: text('account_id').primaryKey(),
+    windowKey: text('window_key').primaryKey(),
     count: integer('count').notNull(),
     expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
   },
-  (table) => [index('sark_mfa_attempts_expires_at_idx').on(table.expiresAt)],
+  (table) => [index('auth_attempt_windows_expires_at_idx').on(table.expiresAt)],
 )

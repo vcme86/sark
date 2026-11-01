@@ -11,7 +11,7 @@ import { OAuthAuthorizationError } from './error'
 import type { ResolvedOAuthProvider } from './types'
 
 /** Prefix applied to transaction state cookies. */
-const STATE_COOKIE_PREFIX = '__sark_oauth_'
+const STATE_COOKIE_PREFIX = 'oauth_state_'
 
 /** Lifetime of transaction state cookie in seconds (10 minutes). */
 const STATE_MAX_AGE_SECONDS = 600

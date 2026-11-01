@@ -8,19 +8,19 @@ import { createApp } from '../../src/core/create'
 import { createDefinition } from '../../src/core/definition'
 import { createMfaAssembly } from '../../src/services/auth/mfa/assembly'
 import { SqliteRecoveryStore } from '../../src/services/auth/recovery/db/sqlite'
-import { recovery as defaultRecoveryTable } from '../../src/services/auth/recovery/schema/sqlite'
+import { recoveryCodeSets as defaultRecoveryTable } from '../../src/services/auth/recovery/schema/sqlite'
 import { createAuthAssembly } from '../../src/services/auth/session/assembly'
 import { defineAuth } from '../../src/services/auth/session/config'
 import { createTotpFactor } from '../../src/services/auth/totp/assembly'
 import { decryptTotpSecret, encryptTotpSecret } from '../../src/services/auth/totp/crypto'
 import { SqliteTotpStore, sqlTotp } from '../../src/services/auth/totp/db/sqlite'
 import { defineTotp } from '../../src/services/auth/totp/declaration'
-import { factors as defaultFactorsTable } from '../../src/services/auth/totp/schema/sqlite'
+import { totpFactors as defaultFactorsTable } from '../../src/services/auth/totp/schema/sqlite'
 import type { TotpRecord } from '../../src/services/auth/totp/types'
 import { SqliteWebAuthnStore } from '../../src/services/auth/webauthn/db/sqlite'
 import {
-  credentials as defaultCredentialsTable,
-  subjects as defaultSubjectsTable,
+  webauthnCredentials as defaultCredentialsTable,
+  webauthnSubjects as defaultSubjectsTable,
 } from '../../src/services/auth/webauthn/schema/sqlite'
 import type { WebAuthnRecord } from '../../src/services/auth/webauthn/types'
 import { defineDatabase as definePostgres } from '../../src/services/db/postgres'
@@ -36,12 +36,12 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
 
   // Initialize SQLite DDL tables matching schemas
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS sark_mfa_recovery (
+    CREATE TABLE IF NOT EXISTS recovery_code_sets (
       sub TEXT PRIMARY KEY NOT NULL,
       hashes TEXT NOT NULL,
       revision TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS sark_totp_factors (
+    CREATE TABLE IF NOT EXISTS totp_factors (
       sub TEXT PRIMARY KEY NOT NULL,
       factor_id TEXT NOT NULL,
       algorithm TEXT NOT NULL,
@@ -52,11 +52,11 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
       revision TEXT NOT NULL,
       enabled_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS sark_webauthn_subjects (
+    CREATE TABLE IF NOT EXISTS webauthn_subjects (
       sub TEXT PRIMARY KEY NOT NULL,
       user_handle TEXT UNIQUE NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS sark_webauthn_credentials (
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
       credential_id TEXT PRIMARY KEY NOT NULL,
       sub TEXT NOT NULL,
       user_handle TEXT NOT NULL,
@@ -68,7 +68,7 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
       revision TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS sark_webauthn_credentials_sub_idx ON sark_webauthn_credentials(sub);
+    CREATE INDEX IF NOT EXISTS webauthn_credentials_sub_idx ON webauthn_credentials(sub);
   `)
 
   describe('SqliteTotpStore', () => {

@@ -11,8 +11,8 @@ import type { Register } from '../../core/types'
 /** Registered resources extracted from module augmentation. */
 type RegisteredResources = Register extends { resources: infer R } ? R : {}
 
-/** Specific multi-factor authentication facts recorded during sign-in. */
-export type AuthenticationFacts =
+/** Specific factor authentication facts recorded during sign-in. */
+export type AuthFacts =
   | { readonly method: 'totp' | 'recovery' }
   | { readonly method: 'webauthn'; readonly userVerified: boolean }
 
@@ -30,8 +30,8 @@ export interface Identity {
   readonly authTime?: number
   /** Application role names assigned to this identity. */
   readonly roles?: readonly string[]
-  /** Multi-factor authentication facts recorded during sign-in. */
-  readonly authentication?: AuthenticationFacts
+  /** Factor authentication facts recorded during sign-in. */
+  readonly auth?: AuthFacts
   /** Custom claims extracted from unreserved JWT payload properties. */
   readonly claims: Readonly<Record<string, unknown>>
 }

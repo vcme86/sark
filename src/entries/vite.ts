@@ -4,4 +4,4 @@
  * @module
  */
 
-export { sark, type SarkOptions } from '../tooling/vite'
+export { sark, type PluginOptions } from '../tooling/vite'

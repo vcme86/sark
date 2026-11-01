@@ -20,7 +20,7 @@ export interface VisitorCookieConfig {
 export interface VisitorsConfig {
   /** Independent high-entropy signing secret containing at least 32 UTF-8 bytes. */
   readonly secret: string | undefined
-  /** Cookie name used to persist the visitor identifier; defaults to `'sark_visitor'`. */
+  /** Cookie name used to persist the visitor identifier; defaults to `'visitor_id'`. */
   readonly cookieName?: string
   /** Lifetime of 1,000–34,560,000,000 milliseconds; defaults to 180 days (15,552,000,000 ms). */
   readonly expiresIn?: number

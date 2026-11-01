@@ -19,7 +19,7 @@ export default defineConfig({
 Sark 工程选项：
 
 ```ts
-interface SarkOptions {
+interface PluginOptions {
   target?: 'node' | 'cloudflare'
   appEntry?: string
   apiDir?: string | false

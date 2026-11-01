@@ -1,7 +1,7 @@
 /** Proof consumption and session issuance shared by second-step and passwordless authentication. */
-import type { AuthCheckContext, AuthenticationFacts, Identity } from './contracts'
-import { MfaError } from './error'
-import type { FactorVerifier, MfaProof, SessionService } from './factor'
+import type { AuthCheckContext, AuthFacts, Identity } from './contracts'
+import { AuthError } from './error'
+import type { FactorProof, FactorVerifier, SessionService } from './factor'
 import { verifyRecoveryCode } from './recovery/service'
 import type { RecoveryStore } from './recovery/types'
 import type { IssuedSession, SessionOptions, SignInInput } from './session/types'
@@ -22,26 +22,30 @@ interface CompletionOptions {
 export async function completeAuthentication(
   options: CompletionOptions,
   challenge: string,
-  proof: MfaProof,
+  proof: FactorProof,
 ): Promise<IssuedSession> {
   assertActive(options.context)
   if (!proof || typeof proof !== 'object' || !['totp', 'webauthn', 'recovery'].includes(proof.kind))
-    throw new MfaError('invalid_code', 'Invalid authentication proof.')
+    throw new AuthError('invalid_code', 'Invalid authentication proof.')
   const flow = await options.stateStore.read(challenge)
-  if (!flow || !['login', 'step-up', 'webauthn-login'].includes(flow.purpose))
-    throw new MfaError('challenge_invalid', 'Invalid authentication challenge.')
+  if (!flow || !['sign-in', 'step-up', 'webauthn-sign-in'].includes(flow.purpose))
+    throw new AuthError('challenge_invalid', 'Invalid authentication challenge.')
   assertActive(options.context, flow)
   if (flow.purpose === 'step-up') requireIdentity(options.getCurrentIdentity, flow.sub)
-  if (flow.purpose !== 'webauthn-login' && !(flow.data.methods as string[]).includes(proof.kind))
-    throw new MfaError('factor_missing', 'This factor was not available when authentication began.')
+  if (flow.purpose !== 'webauthn-sign-in' && !(flow.data.methods as string[]).includes(proof.kind))
+    throw new AuthError(
+      'factor_missing',
+      'This factor was not available when authentication began.',
+    )
   let sub = flow.sub
   const factor = options.factors.find((candidate) => candidate.kind === proof.kind)
-  if (flow.purpose === 'webauthn-login') {
+  if (flow.purpose === 'webauthn-sign-in') {
     if (proof.kind !== 'webauthn' || !factor?.findSubject)
-      throw new MfaError('challenge_invalid', 'Passwordless login requires a WebAuthn proof.')
+      throw new AuthError('challenge_invalid', 'Passwordless login requires a WebAuthn proof.')
     sub = (await factor.findSubject(proof, options.context)) ?? undefined
   }
-  if (!sub) throw new MfaError('challenge_invalid', 'Authentication subject could not be resolved.')
+  if (!sub)
+    throw new AuthError('challenge_invalid', 'Authentication subject could not be resolved.')
   const claimId = crypto.randomUUID()
   const claim = await options.stateStore.claim(challenge, claimId, Date.now(), {
     sub,
@@ -49,18 +53,18 @@ export async function completeAuthentication(
     ...options.accountLimit,
   })
   if (claim.status === 'limited')
-    throw new MfaError('too_many_attempts', 'Account authentication attempt limit exceeded.')
+    throw new AuthError('too_many_attempts', 'Account authentication attempt limit exceeded.')
   if (claim.status !== 'claimed')
-    throw new MfaError('challenge_invalid', 'Authentication challenge is unavailable.')
-  let authentication: AuthenticationFacts
+    throw new AuthError('challenge_invalid', 'Authentication challenge is unavailable.')
+  let auth: AuthFacts
   try {
     if (proof.kind === 'recovery') {
       if (!options.recoveryStore)
-        throw new MfaError('factor_missing', 'Recovery codes are not configured.')
+        throw new AuthError('factor_missing', 'Recovery codes are not configured.')
       const record = await options.recoveryStore.read(sub)
-      if (!record) throw new MfaError('invalid_code', 'Invalid recovery code.')
+      if (!record) throw new AuthError('invalid_code', 'Invalid recovery code.')
       const checked = await verifyRecoveryCode(proof.code, record.hashes)
-      if (!checked.valid) throw new MfaError('invalid_code', 'Invalid recovery code.')
+      if (!checked.valid) throw new AuthError('invalid_code', 'Invalid recovery code.')
       assertActive(options.context, claim.flow)
       if (
         !(await options.recoveryStore.commit(sub, record.revision, {
@@ -68,21 +72,21 @@ export async function completeAuthentication(
           hashes: record.hashes.filter((_, index) => index !== checked.matchedIndex),
         }))
       )
-        throw new MfaError('conflict', 'Recovery code was consumed concurrently.')
-      authentication = { method: 'recovery' }
+        throw new AuthError('conflict', 'Recovery code was consumed concurrently.')
+      auth = { method: 'recovery' }
     } else {
-      if (!factor) throw new MfaError('factor_missing', 'Authentication factor is not configured.')
+      if (!factor) throw new AuthError('factor_missing', 'Authentication factor is not configured.')
       const verified = await factor.verifyProof(claim.flow, proof, options.context)
-      if (!verified.verified) throw new MfaError('invalid_code', 'Invalid factor proof.')
+      if (!verified.verified) throw new AuthError('invalid_code', 'Invalid factor proof.')
       if (verified.sub !== undefined && verified.sub !== sub)
-        throw new MfaError('conflict', 'Authentication factor owner changed.')
-      authentication =
+        throw new AuthError('conflict', 'Authentication factor owner changed.')
+      auth =
         proof.kind === 'webauthn'
           ? { method: 'webauthn', userVerified: verified.userVerified === true }
           : { method: 'totp' }
     }
   } catch (error) {
-    if (error instanceof MfaError && error.code === 'invalid_code')
+    if (error instanceof AuthError && error.code === 'invalid_code')
       await options.stateStore.release(challenge, claimId, Date.now())
     throw error
   }
@@ -97,7 +101,7 @@ export async function completeAuthentication(
       claims: identity.claims,
       amr: identity.amr,
     }
-  } else if (flow.purpose === 'webauthn-login') {
+  } else if (flow.purpose === 'webauthn-sign-in') {
     const resolved = factor?.identity ? await factor.identity(sub, options.context) : { sub }
     if (resolved.sub !== sub)
       throw new Error('WebAuthn identity resolver returned a different subject.')
@@ -110,7 +114,7 @@ export async function completeAuthentication(
       ...input,
       amr: [...new Set([...(input.amr ?? []), amr])],
       authTime: Math.floor(Date.now() / 1000),
-      authentication,
+      auth,
     },
     flow.data.sessionOptions as SessionOptions | undefined,
   )

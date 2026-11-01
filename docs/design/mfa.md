@@ -18,7 +18,7 @@ import { sqlAuthState } from '@olivaw/sark/auth/state/d1'
 export const mfa = defineMfa({
   state: sqlAuthState({ database }),
   recovery: { store: sqlRecovery({ database }), count: 10 },
-  login: 'if-enrolled',
+  signIn: 'if-enrolled',
 })
 ```
 
@@ -26,12 +26,12 @@ database 是应用已有声明。Node 单进程启用因素后可省略 mfa，�
 
 ```ts
 interface MfaConfig {
-  state?: AuthStateDeclaration
-  login?:
+  state?: AuthStateStoreDeclaration
+  signIn?:
     | 'required'
     | 'if-enrolled'
     | 'skip'
-    | ((identity: SignInInput, context: AuthCheckContext) => LoginPolicy | Promise<LoginPolicy>)
+    | ((identity: SignInInput, context: AuthCheckContext) => SignInPolicy | Promise<SignInPolicy>)
   challenge?: { ttl?: number; maxAttempts?: number }
   accountLimit?: { window?: number; maxAttempts?: number }
   recentAuthMaxAge?: number
@@ -39,41 +39,41 @@ interface MfaConfig {
 }
 ```
 
-LoginPolicy 为上述三个字符串。默认 login=if-enrolled；challenge.ttl=300000 毫秒，maxAttempts=5；accountLimit.window=600000 毫秒，maxAttempts=10；recentAuthMaxAge=300000 毫秒。所有期限有限正数，次数正整数。
+SignInPolicy 为上述三个字符串。默认 signIn=if-enrolled；challenge.ttl=300000 毫秒，maxAttempts=5；accountLimit.window=600000 毫秒，maxAttempts=10；recentAuthMaxAge=300000 毫秒。所有期限有限正数，次数正整数。
 
-内存状态默认最多 1000 个挑战和 10000 个账户/用途窗口。需要调整时从 auth/mfa 取得 memoryState({ maxChallenges?, maxAccounts? }) 并作为 state；该实现仅支持 Node 单实例。容量满时拒绝新流程，不通过驱逐有效账户窗口重置限制。
+内存状态默认最多 1000 个挑战和 10000 个账户/用途窗口。需要调整时从 auth/mfa 取得 memoryState({ maxChallenges?, maxAttemptWindows? }) 并作为 state；该实现仅支持 Node 单实例。容量满时拒绝新流程，不通过驱逐有效账户窗口重置限制。
 
 恢复码 count 默认 10。只有显式配置 recovery 才启用，默认 schema 和适配随能力交付，不强迫应用手写持久化。
 
 ## 请求服务与完整登录链路
 
 ```ts
-type MfaProof =
+type FactorProof =
   | { kind: 'totp'; code: string }
   | { kind: 'recovery'; code: string }
   | { kind: 'webauthn'; response: AuthenticationResponseJSON }
 
-type LoginResult =
+type SignInResult =
   | { status: 'authenticated'; session: IssuedSession }
   | { status: 'challenge'; challenge: string; methods: Array<'totp' | 'webauthn' | 'recovery'> }
 
-interface MfaService {
-  beginLogin(input: SignInInput, options?: SessionOptions): Promise<LoginResult>
-  beginStepUp(options?: SessionOptions): Promise<{ challenge: string; methods: LoginResultMethods }>
-  complete(challenge: string, proof: MfaProof): Promise<IssuedSession>
+interface RequestMfa {
+  beginSignIn(input: SignInInput, options?: SessionOptions): Promise<SignInResult>
+  beginStepUp(options?: SessionOptions): Promise<{ challenge: string; methods: FactorKind[] }>
+  complete(challenge: string, proof: FactorProof): Promise<IssuedSession>
   regenerateRecoveryCodes(): Promise<{ recoveryCodes: string[] }>
 }
 ```
 
-LoginResultMethods 是同一 methods 数组类型。上例展示同时启用两种因素时的完整服务形态；实际 `MfaService<Proof>` 由所选因素的类型合成，MFA 底层契约只接收泛型证明，不直接导入 WebAuthn SDK。未配置 WebAuthn 不要求安装其类型/SDK。
+FactorKind 为所启用的因素种类及 recovery。上例展示同时启用两种因素时的完整服务形态；实际 `RequestMfa<Proof>` 由所选因素的类型合成，MFA 底层契约只接收泛型证明，不直接导入 WebAuthn SDK。未配置 WebAuthn 不要求安装其类型/SDK。
 
-应用验证密码或外部账户后调用 beginLogin。required 没有可用方式时报明确错误；if-enrolled 在已绑定时要求完成一个可用因素，否则直接签发；skip 按应用已验证的第一步签发，框架不凭空补写因素验证结果。SignInInput 是可信服务端签发资料，authTime、amr、authentication 均由应用根据实际验证结果构造；skip/无已绑定因素时保留这些事实，完成共同挑战后以本次因素结果更新。不得将请求正文或未经再次验证的旧会话字段直接展开为 SignInInput。需要 MFA 时不提前交付完整 session。
+应用验证密码或外部账户后调用 beginSignIn。required 没有可用方式时报明确错误；if-enrolled 在已绑定时要求完成一个可用因素，否则直接签发；skip 按应用已验证的第一步签发，框架不凭空补写因素验证结果。SignInInput 是可信服务端签发资料，authTime、amr、auth 均由应用根据实际验证结果构造；skip/无已绑定因素时保留这些事实，完成共同挑战后以本次因素结果更新。不得将请求正文或未经再次验证的旧会话字段直接展开为 SignInInput。需要 MFA 时不提前交付完整 session。
 
 页面选择 TOTP 直接提交 code；选择 WebAuthn 先取得 options、调用浏览器 SDK，再把 response 交给 complete。恢复码只在已配置且账户有可用恢复材料时出现，不把恢复码存在说成绑定了 TOTP。
 
 beginStepUp 从当前已认证上下文取得主体，不能接受浏览器另传 sub。共同挑战绑定用途和第一步认证结果；绑定挑战不能用于登录，登录挑战不能用于更改他人因素。
 
-无密码 WebAuthn 从其 beginLogin 开始，通过注入的共同流程创建器建立 purpose=webauthn-login、尚无 sub 的 AuthFlow，绑定 SessionOptions 与协议预期，保存到同一 AuthStateStore，不另建挑战表。该流程只接受 WebAuthn 证明；未知账户时不列出 TOTP/恢复码。
+无密码 WebAuthn 从其 beginSignIn 开始，通过注入的共同流程创建器建立 purpose=webauthn-sign-in、尚无 sub 的 AuthFlow，绑定 SessionOptions 与协议预期，保存到同一 AuthStateStore，不另建挑战表。该流程只接受 WebAuthn 证明；未知账户时不列出 TOTP/恢复码。
 
 已验证凭据确定账户后，经共同 complete 完成账户窗口、因素版本及挑战消费，再按 [webauthn.md](webauthn.md) 的可选 identity 映射签发。不伪造先前密码步骤，也不在一次成功用户验证后默认再要求相同第二步。
 
@@ -81,7 +81,7 @@ beginStepUp 从当前已认证上下文取得主体，不能接受浏览器另�
 
 成功后记录具体认证方式以及 WebAuthn 是否完成用户验证。JWT 的 amr 按实际认证方式填写：TOTP/恢复码记 otp；WebAuthn 记 pop，表达已完成的密钥持有证明，不从 Passkey 名称断言硬件、指纹或 PIN。
 
-具体方式通过 JWT 私有声明 sark_auth 保存在 session 中，映射为 Identity.authentication；authTime 是本次主动认证时间。恢复码不冒充 TOTP，普通续期不刷新这些认证结果。
+具体方式通过 JWT 私有声明 auth 保存在 session 中，映射为 Identity.auth；authTime 是本次主动认证时间。恢复码不冒充 TOTP，普通续期不刷新这些认证结果。
 
 首次绑定需要近期第一方认证；账户仍有 TOTP、WebAuthn 凭据或可用恢复码时，新增、重绑、移除、关闭及恢复码重置需要近期已完成因素认证。框架统一执行这些要求，不把保护敏感操作留给应用记忆。应用可以提出更严格的业务授权，但框架不代它判断角色。
 
@@ -114,7 +114,7 @@ identity 映射或签发失败同样不退回 pending，不撤销已提交的因
 
 auth/mfa 导出 AuthStateStore 与其数据类型。核心操作为：
 
-AuthFlow 包含 id、revision、purpose、可选 sub、createdAt/expiresAt、attempts/maxAttempts、status、可选 claimId、data，以及可选 protocol。purpose 为 login/step-up/enroll-totp/enroll-webauthn/webauthn-login；status 为 pending/verifying/consumed。时间戳使用 Unix 毫秒。data 保存第一步/签发选项、因素绑定及待绑定材料；protocol 保存一次性绑定的协议预期。两者都是框架构造、适配原样保存的 JSON 对象，适配不解释协议私有字段或业务 claims。字节按框架格式编码，待绑定 TOTP 只保存密文。
+AuthFlow 包含 id、revision、purpose、可选 sub、createdAt/expiresAt、attempts/maxAttempts、status、可选 claimId、data，以及可选 protocol。purpose 为 sign-in/step-up/enroll-totp/enroll-webauthn/webauthn-sign-in；status 为 pending/verifying/consumed。时间戳使用 Unix 毫秒。data 保存第一步/签发选项、因素绑定及待绑定材料；protocol 保存一次性绑定的协议预期。两者都是框架构造、适配原样保存的 JSON 对象，适配不解释协议私有字段或业务 claims。字节按框架格式编码，待绑定 TOTP 只保存密文。
 
 - create(flow)：仅当 ID 不存在时建立 pending；存储失败和正常冲突分开
 - read(id)：返回所属流程或 null
@@ -140,30 +140,30 @@ now 与过期时间为 Unix 毫秒，claimId 由框架随机生成；flow/protoc
 摘要解码后按相同固定长度字节比较：Node 使用 node:crypto 的 timingSafeEqual，Workers 优先使用平台扩展 crypto.subtle.timingSafeEqual，不引入另一套密码学依赖。共同运行包保留 Node 原生比较函数导入及 Buffer 字节转换，Workers 沿框架既定 nodejs_compat 基线运行。常量时间比较不替代 revision 条件消费。[Workers timingSafeEqual](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/#timingsafeequal)
 
 ```ts
-interface RecoveryRecord {
+interface RecoveryCodeSet {
   revision: string
   hashes: string[]
 }
 
 interface RecoveryStore {
-  read(sub: string): Promise<RecoveryRecord | null>
+  read(sub: string): Promise<RecoveryCodeSet | null>
   commit(
     sub: string,
     expectedRevision: string | null,
-    next: RecoveryRecord | null,
+    next: RecoveryCodeSet | null,
   ): Promise<boolean>
 }
 ```
 
 null 期望值只允许首次唯一插入；非空值执行条件替换/删除，false 表示冲突，故障抛错。只保存摘要和主体关联，不建立用户表。
 
-默认恢复适配从 auth/recovery/sqlite、auth/recovery/postgres、auth/recovery/d1 导入 sqlRecovery。同一入口导出 mfaRecovery 表定义，物理名 sark_mfa_recovery。参数为 { database, tables?: { recovery } }。
+默认恢复适配从 auth/recovery/sqlite、auth/recovery/postgres、auth/recovery/d1 导入 sqlRecovery。同一入口导出 recoveryCodeSets 表定义，物理名 recovery_code_sets。参数为 { database, tables?: { codeSets } }。
 
-短期 PG/D1 的 schema 分别从 auth/state/postgres、auth/state/d1 导入，导出 mfaChallenges、mfaAttempts，物理名 sark_mfa_challenges、sark_mfa_attempts；sqlAuthState 接受 { database, tables?: { challenges, attempts } }。
+短期 PG/D1 的 schema 分别从 auth/state/postgres、auth/state/d1 导入，导出 authChallenges、authAttemptWindows，物理名 auth_challenges、auth_attempt_windows；sqlAuthState 接受 { database, tables?: { challenges, attemptWindows } }。
 
-默认前缀固定，传入兼容 Drizzle 表对象可改物理名；不传字符串拼表名。SQLite/D1 与 PG 分别提供对应列类型及必要唯一/期限索引。表定义可由应用 schema 入口再导出给 drizzle-kit，迁移执行归正常部署，不在启动时 DDL。
+默认表名固定，传入兼容 Drizzle 表对象可改物理名；不传字符串拼表名。SQLite/D1 与 PG 分别提供对应列类型及必要唯一/期限索引。表定义可由应用 schema 入口再导出给 drizzle-kit，迁移执行归正常部署，不在启动时 DDL。
 
-自定义表还须保留条件写入所依赖的唯一约束：恢复表 sub、挑战表 id、账户窗口表 accountId 必须分别唯一。列形状校验不代替数据库约束；复合唯一键不能代替这些单列唯一键。不兼容的逻辑模型实现专用 Store，不向默认适配传入缺少约束的表。
+自定义表还须保留条件写入所依赖的唯一约束：恢复表 sub、挑战表 id、账户窗口表 windowKey 必须分别唯一。windowKey 编码账户主体与用途，不是账户 ID。列形状校验不代替数据库约束；复合唯一键不能代替这些单列唯一键。不兼容的逻辑模型实现专用 Store，不向默认适配传入缺少约束的表。
 
 ## 验证
 

@@ -1,5 +1,5 @@
 import { assembleApp } from '../../src/core/create'
-import { type ApplicationDefinitionInput, createDefinition } from '../../src/core/definition'
+import { type AppDefinitionInput, createDefinition } from '../../src/core/definition'
 import { resolveHttpConfig } from '../../src/http/config'
 import { parseApiFilePath } from '../../src/http/path'
 import type { RouteEntry } from '../../src/http/server/types'
@@ -18,7 +18,7 @@ export async function withPage(
     page?: PageDeclaration
     layouts?: readonly ServerPageScope[]
     routes?: RouteEntry[]
-    services?: ApplicationDefinitionInput['services']
+    services?: AppDefinitionInput['services']
   } = {},
 ) {
   const definition = createDefinition({

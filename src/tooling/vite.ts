@@ -22,28 +22,28 @@ import { type ResolvedNodeRuntimeConfig, resolveNodeRuntime } from '../adapter/n
 import { createNodeStaticHandler } from '../adapter/node/static'
 import { getApplicationRoutes } from '../core/context'
 import { createApp } from '../core/create'
-import type { ApplicationDefinition } from '../core/definition'
+import type { AppDefinition } from '../core/definition'
 import { applicationLifecycles } from '../core/lifecycle'
 import type { AppInstance } from '../core/types'
 import type { PageRequestHandler } from '../http/server/types'
 import {
   collectDevelopmentAssets,
-  productionAssets,
-  publicFiles,
-  writePageAssets,
+  createProductionAssets,
+  listPublicFiles,
+  writeBuildAssets,
 } from './build/assets'
 import type { DiscoveredPageTree } from './build/discover/pages'
 import { generateConfiguredProject, generateResolvedProject } from './build/project'
 import {
+  type PluginOptions,
   type ResolvedProjectConfig,
+  resolvePluginOptions,
   resolveProjectConfig,
-  resolveSarkOptions,
-  type SarkOptions,
 } from './config'
-export type { SarkOptions } from './config'
+export type { PluginOptions } from './config'
 
 /** Resolved engineering configuration exposed to the Sark CLI. */
-export interface SarkPluginApi {
+export interface PluginApi {
   /** Final project paths; available after Vite resolves its configuration. */
   readonly project: ResolvedProjectConfig
   readonly pages: DiscoveredPageTree | undefined
@@ -56,8 +56,8 @@ export interface SarkPluginApi {
  * @param options - Project entry paths, discovery settings, URL prefixes, and target.
  * @returns A Vite plugin managing generation and development request handling.
  */
-export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi } {
-  const resolved = resolveSarkOptions(options)
+export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
+  const resolved = resolvePluginOptions(options)
   let project: ResolvedProjectConfig | undefined
   let pages: DiscoveredPageTree | undefined
   let viteConfig: ResolvedConfig
@@ -117,9 +117,15 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       project = resolveProjectConfig(config.root, resolved)
       pages = await generateConfiguredProject(config, project)
       if (resolved.target === 'cloudflare' && config.command === 'build' && !pages?.pages.length) {
-        writePageAssets(
+        writeBuildAssets(
           project,
-          productionAssets({}, project, pages, config.base, publicFiles(config.publicDir)),
+          createProductionAssets(
+            {},
+            project,
+            pages,
+            config.base,
+            listPublicFiles(config.publicDir),
+          ),
         )
       }
     },
@@ -137,14 +143,14 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         typeof manifest.source === 'string'
           ? manifest.source
           : new TextDecoder().decode(manifest.source)
-      writePageAssets(
+      writeBuildAssets(
         getProject(),
-        productionAssets(
+        createProductionAssets(
           JSON.parse(source) as Manifest,
           getProject(),
           pages,
           viteConfig.base,
-          publicFiles(viteConfig.publicDir),
+          listPublicFiles(viteConfig.publicDir),
         ),
       )
     },
@@ -224,7 +230,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         resolved.target === 'node'
           ? loadEnv(server.config.mode, server.config.envDir, '')
           : undefined
-      let publicPaths = new Set(publicFiles(server.config.publicDir))
+      let publicPaths = new Set(listPublicFiles(server.config.publicDir))
       function publicHandler() {
         return server.config.publicDir && publicPaths.size
           ? createNodeStaticHandler({
@@ -262,7 +268,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
           server.config.publicDir &&
           normalizePath(file).startsWith(normalizePath(server.config.publicDir) + '/')
         ) {
-          publicPaths = new Set(publicFiles(server.config.publicDir))
+          publicPaths = new Set(listPublicFiles(server.config.publicDir))
           servePublic = publicHandler()
           developmentAssetsReady = undefined
         }
@@ -273,10 +279,10 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       const prepareAssets = () =>
         (developmentAssetsReady ??= collectDevelopmentAssets(server, pages, projectConfig)
           .then((assets) => {
-            writePageAssets(projectConfig, assets)
+            writeBuildAssets(projectConfig, assets)
             developmentFiles = assets.files
             server.environments.ssr.moduleGraph.onFileChange(
-              normalizePath(resolve(projectConfig.generatedDir, 'page-assets.ts')),
+              normalizePath(resolve(projectConfig.generatedDir, 'build-assets.ts')),
             )
           })
           .catch((error) => {
@@ -332,7 +338,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
       let page404: PageRequestHandler | undefined
       let pageUpdateError: unknown
 
-      function updatePageBindings(definition: ApplicationDefinition): void {
+      function updatePageBindings(definition: AppDefinition): void {
         pageHandlers = new Map(
           definition.routes
             .filter((entry) => entry.kind === 'page')
@@ -342,7 +348,7 @@ export function sark(options: SarkOptions = {}): Plugin & { api: SarkPluginApi }
         pageUpdateError = undefined
       }
 
-      function bindDevelopmentPages(definition: ApplicationDefinition): ApplicationDefinition {
+      function bindDevelopmentPages(definition: AppDefinition): AppDefinition {
         updatePageBindings(definition)
         return {
           ...definition,
@@ -641,7 +647,7 @@ function matchesStaticRoute(instance: AppInstance, pathname: string): boolean {
 
 /** Matches declared runtime asset mount URL prefixes for development request forwarding. */
 function matchesAssetMount(instance: AppInstance, pathname: string): boolean {
-  const definition = instance.definition as ApplicationDefinition | undefined
+  const definition = instance.definition as AppDefinition | undefined
   const prefixes = definition?.assetMounts?.prefixes
   if (!prefixes || prefixes.length === 0) return false
   return prefixes.some(

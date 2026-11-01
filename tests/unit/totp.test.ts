@@ -3,7 +3,7 @@ import { WebCryptoPlugin } from '@otplib/plugin-crypto-web'
 import { TOTP } from '@otplib/totp'
 import { describe, expect, it } from 'vitest'
 
-import { MfaError } from '../../src/services/auth/error'
+import { AuthError } from '../../src/services/auth/error'
 import { decryptTotpSecret, encryptTotpSecret } from '../../src/services/auth/totp/crypto'
 
 describe('TOTP Cryptography and AAD Binding', () => {
@@ -36,14 +36,14 @@ describe('TOTP Cryptography and AAD Binding', () => {
   it('fails decryption if sub is modified (AAD bound check)', async () => {
     const encrypted = await encryptTotpSecret(secret, currentKey, sub, factorId)
     await expect(decryptTotpSecret(encrypted, allKeys, 'attacker_sub', factorId)).rejects.toThrow(
-      MfaError,
+      AuthError,
     )
   })
 
   it('fails decryption if factorId is modified (AAD bound check)', async () => {
     const encrypted = await encryptTotpSecret(secret, currentKey, sub, factorId)
     await expect(decryptTotpSecret(encrypted, allKeys, sub, 'other_factor')).rejects.toThrow(
-      MfaError,
+      AuthError,
     )
   })
 
@@ -51,7 +51,7 @@ describe('TOTP Cryptography and AAD Binding', () => {
     const encrypted = await encryptTotpSecret(secret, currentKey, sub, factorId)
     encrypted[encrypted.length - 1] ^= 0xff // flip last bit in auth tag
 
-    await expect(decryptTotpSecret(encrypted, allKeys, sub, factorId)).rejects.toThrow(MfaError)
+    await expect(decryptTotpSecret(encrypted, allKeys, sub, factorId)).rejects.toThrow(AuthError)
   })
 
   it('can decrypt using retired key when currentKey rotated', async () => {

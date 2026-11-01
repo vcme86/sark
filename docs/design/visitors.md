@@ -35,7 +35,7 @@ interface VisitorsConfig {
 
 声明示例使用 Node ProcessEnv，必填值由配置入口校验；Workers 使用 Wrangler Env，见 [application.md](application.md)。
 
-secret 显式提供，使用独立的随机高熵秘密，至少 32 个 UTF-8 字节，不隐式借用 JWT/通用 Cookie 密钥。默认 Cookie 名 sark_visitor，可通过 cookieName 自定义；同域多个应用可分别设置名称及范围。名称、属性和 __Host-/__Secure- 前缀的组合约束在配置入口复用 Hono 序列化器校验。
+secret 显式提供，使用独立的随机高熵秘密，至少 32 个 UTF-8 字节，不隐式借用 JWT/通用 Cookie 密钥。默认 Cookie 名 visitor_id，可通过 cookieName 自定义；同域多个应用可分别设置名称及范围。名称、属性和 __Host-/__Secure- 前缀的组合约束在配置入口复用 Hono 序列化器校验。
 
 expiresIn 默认 15552000000 毫秒（180 天），接受 1000–34560000000 毫秒（1 秒至 400 天）的安全整数，越界在配置入口报错，不静默截断。Cookie Max-Age 以秒向下取整，服务端也验证签名中的到期时间，不只依赖浏览器期限。
 

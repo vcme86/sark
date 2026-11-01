@@ -6,13 +6,13 @@
 
 import { blob, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const subjects = sqliteTable('sark_webauthn_subjects', {
+export const webauthnSubjects = sqliteTable('webauthn_subjects', {
   sub: text('sub').primaryKey(),
   userHandle: text('user_handle').notNull().unique(),
 })
 
-export const credentials = sqliteTable(
-  'sark_webauthn_credentials',
+export const webauthnCredentials = sqliteTable(
+  'webauthn_credentials',
   {
     credentialId: text('credential_id').primaryKey(),
     sub: text('sub').notNull(),
@@ -25,5 +25,5 @@ export const credentials = sqliteTable(
     revision: text('revision').notNull(),
     createdAt: integer('created_at').notNull(),
   },
-  (table) => [index('sark_webauthn_credentials_sub_idx').on(table.sub)],
+  (table) => [index('webauthn_credentials_sub_idx').on(table.sub)],
 )

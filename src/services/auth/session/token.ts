@@ -7,7 +7,7 @@
 import { decode, sign, verify } from 'hono/jwt'
 import { encodeBase64Url } from 'hono/utils/encode'
 
-import type { AuthenticationFacts, Identity, SigningCredentials } from '../contracts'
+import type { AuthFacts, Identity, SigningCredentials } from '../contracts'
 import type { SigningConfig } from './config'
 import type { IssuedSession, SignInInput } from './types'
 
@@ -24,7 +24,7 @@ const RESERVED_CLAIMS = new Set([
   'auth_time',
   'amr',
   'roles',
-  'sark_auth',
+  'auth',
 ])
 
 const textEncoder = new TextEncoder()
@@ -134,8 +134,8 @@ interface TokenPayloadOptions {
   readonly amr?: readonly string[]
   /** Assigned roles. */
   readonly roles?: readonly string[]
-  /** Specific MFA facts. */
-  readonly authentication?: AuthenticationFacts
+  /** Specific factor authentication facts. */
+  readonly auth?: AuthFacts
 }
 
 /**
@@ -159,7 +159,7 @@ export function buildTokenPayload(options: TokenPayloadOptions): Record<string, 
   if (options.authTime !== undefined) payload.auth_time = options.authTime
   if (options.amr && options.amr.length > 0) payload.amr = [...options.amr]
   if (options.roles && options.roles.length > 0) payload.roles = [...options.roles]
-  if (options.authentication) payload.sark_auth = options.authentication
+  if (options.auth) payload.auth = options.auth
 
   return payload
 }
@@ -182,10 +182,8 @@ function buildIdentityFromPayload(payload: Record<string, unknown>): Identity | 
   const roles = Array.isArray(payload.roles)
     ? payload.roles.filter((r) => typeof r === 'string')
     : undefined
-  const authentication =
-    payload.sark_auth && typeof payload.sark_auth === 'object'
-      ? (payload.sark_auth as AuthenticationFacts)
-      : undefined
+  const auth =
+    payload.auth && typeof payload.auth === 'object' ? (payload.auth as AuthFacts) : undefined
 
   const claims: Record<string, unknown> = {}
   for (const [key, val] of Object.entries(payload)) {
@@ -201,7 +199,7 @@ function buildIdentityFromPayload(payload: Record<string, unknown>): Identity | 
     ...(amr ? { amr } : {}),
     ...(authTime !== undefined ? { authTime } : {}),
     ...(roles ? { roles } : {}),
-    ...(authentication ? { authentication } : {}),
+    ...(auth ? { auth } : {}),
     claims,
   }
 }
@@ -259,7 +257,7 @@ export async function issueToken(
     ...(input.amr ? { amr: input.amr } : {}),
     ...(input.authTime !== undefined ? { authTime: input.authTime } : {}),
     ...(input.roles ? { roles: input.roles } : {}),
-    ...(input.authentication ? { authentication: input.authentication } : {}),
+    ...(input.auth ? { auth: input.auth } : {}),
     claims: input.claims ?? {},
   }
   const now = Math.floor(Date.now() / 1000)

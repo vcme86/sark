@@ -11,7 +11,7 @@ import { TOTP } from '@otplib/totp'
 import { generateTOTP } from '@otplib/uri'
 
 import type { AuthCheckContext, Identity } from '../contracts'
-import { MfaError } from '../error'
+import { AuthError } from '../error'
 import type { FactorPolicy } from '../factor'
 import {
   assertActive,
@@ -21,7 +21,7 @@ import {
 } from '../state/flow'
 import type { AuthFlow, AuthStateStore } from '../state/types'
 import { decryptTotpSecret, encryptTotpSecret } from './crypto'
-import type { ResolvedTotpConfig, TotpRecord, TotpService, TotpStore } from './types'
+import type { RequestTotp, ResolvedTotpConfig, TotpRecord, TotpStore } from './types'
 
 interface TotpServiceDependencies {
   readonly config: ResolvedTotpConfig
@@ -34,13 +34,13 @@ interface TotpServiceDependencies {
   readonly context: AuthCheckContext
 }
 
-export class TotpServiceImpl implements TotpService {
+export class TotpService implements RequestTotp {
   constructor(private readonly deps: TotpServiceDependencies) {}
 
   private requireCurrentIdentity(): Identity {
     const id = this.deps.getCurrentIdentity?.()
     if (!id || !id.sub) {
-      throw new MfaError('unauthorized', 'No active identity found for TOTP operation.')
+      throw new AuthError('unauthorized', 'No active identity found for TOTP operation.')
     }
     return id
   }
@@ -107,13 +107,13 @@ export class TotpServiceImpl implements TotpService {
     const identity = this.requireCurrentIdentity()
     const flow = await this.deps.stateStore.read(challenge)
     if (!flow || flow.purpose !== 'enroll-totp' || flow.sub !== identity.sub) {
-      throw new MfaError('challenge_invalid', 'Invalid or expired enrollment challenge.')
+      throw new AuthError('challenge_invalid', 'Invalid or expired enrollment challenge.')
     }
 
     const claimId = crypto.randomUUID()
     const claimRes = await this.deps.stateStore.claim(challenge, claimId, Date.now())
     if (claimRes.status !== 'claimed') {
-      throw new MfaError('challenge_invalid', 'Enrollment challenge cannot be claimed.')
+      throw new AuthError('challenge_invalid', 'Enrollment challenge cannot be claimed.')
     }
 
     const data = flow.data as {
@@ -147,14 +147,14 @@ export class TotpServiceImpl implements TotpService {
         epochTolerance: this.deps.config.epochTolerance,
       })
     } catch (error) {
-      if (error instanceof MfaError && error.code === 'invalid_code')
+      if (error instanceof AuthError && error.code === 'invalid_code')
         await this.deps.stateStore.release(challenge, claimId, Date.now())
       throw error
     }
 
     if (!verifyRes.valid) {
       await this.deps.stateStore.release(challenge, claimId, Date.now())
-      throw new MfaError('invalid_code', 'Invalid TOTP code during enrollment.')
+      throw new AuthError('invalid_code', 'Invalid TOTP code during enrollment.')
     }
 
     const record: TotpRecord = {
@@ -177,7 +177,7 @@ export class TotpServiceImpl implements TotpService {
     )
 
     if (!committed) {
-      throw new MfaError('conflict', 'Factor revision conflict during enrollment.')
+      throw new AuthError('conflict', 'Factor revision conflict during enrollment.')
     }
 
     await consumeChallenge(this.deps.stateStore, claimRes.flow, claimId, this.deps.context)
@@ -201,7 +201,7 @@ export class TotpServiceImpl implements TotpService {
       this.deps.context,
     )
     if (!committed) {
-      throw new MfaError('conflict', 'Factor revision conflict during removal.')
+      throw new AuthError('conflict', 'Factor revision conflict during removal.')
     }
   }
 
@@ -254,7 +254,7 @@ export class TotpServiceImpl implements TotpService {
     assertActive(context, flow)
     const committed = await this.deps.totpStore.commit(sub, record.revision, updatedRecord, context)
     if (!committed) {
-      throw new MfaError('conflict', 'TOTP factor changed during verification.')
+      throw new AuthError('conflict', 'TOTP factor changed during verification.')
     }
 
     return { verified: true, factorId: record.factorId }
@@ -294,12 +294,12 @@ export class TotpServiceImpl implements TotpService {
 
 /** Converts malformed tokens to retryable errors without masking host or secret failures. */
 async function verifyCode(otplib: TOTP, code: string, options: Parameters<TOTP['verify']>[1]) {
-  if (typeof code !== 'string') throw new MfaError('invalid_code', 'Invalid TOTP code.')
+  if (typeof code !== 'string') throw new AuthError('invalid_code', 'Invalid TOTP code.')
   try {
     return await otplib.verify(code, options)
   } catch (error) {
     if (error instanceof TokenLengthError || error instanceof TokenFormatError)
-      throw new MfaError('invalid_code', 'Invalid TOTP code.')
+      throw new AuthError('invalid_code', 'Invalid TOTP code.')
     throw error
   }
 }

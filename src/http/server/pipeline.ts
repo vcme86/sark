@@ -16,8 +16,8 @@ import type { AppInstance } from '../../core/types'
 import { createClient } from '../client/client'
 import type { ResolvedHttpConfig } from '../config'
 import { HttpError } from '../error'
-import { cors as sarkCors } from '../middleware/cors'
-import { csrf as sarkCsrf } from '../middleware/csrf'
+import { cors } from '../middleware/cors'
+import { csrf } from '../middleware/csrf'
 import {
   checkUrlNormalization,
   compareRoutes,
@@ -54,7 +54,7 @@ interface IndexedRoute {
   entry: RouteEntry
 }
 
-const METHOD_INDEX = '__SARK_PATH__'
+const METHOD_INDEX = '__PATH__'
 
 function preflightMethod(request: Request): string | undefined {
   return request.method === 'OPTIONS' && request.headers.has('origin')
@@ -63,19 +63,19 @@ function preflightMethod(request: Request): string | undefined {
 }
 
 function compilePolicy(effective: ReturnType<typeof computeEffectivePolicy>): RequestPolicy {
-  const csrf = effective.csrf === false ? undefined : sarkCsrf(effective.csrf)
+  const csrfMiddleware = effective.csrf === false ? undefined : csrf(effective.csrf)
   const bodyLimit =
     effective.bodyLimit === false ? undefined : requestBodyLimit(effective.bodyLimit)
-  let admission = csrf ?? bodyLimit
-  if (csrf && bodyLimit) {
+  let admission = csrfMiddleware ?? bodyLimit
+  if (csrfMiddleware && bodyLimit) {
     admission = async (ctx, next) => {
-      await csrf(ctx, async () => {
+      await csrfMiddleware(ctx, async () => {
         await bodyLimit(ctx, next)
       })
     }
   }
   return {
-    cors: effective.cors === false ? undefined : sarkCors(effective.cors),
+    cors: effective.cors === false ? undefined : cors(effective.cors),
     admission,
   }
 }
@@ -332,8 +332,8 @@ export function buildHttpApp(
       if (preflightMethod(ctx.req.raw)) return next()
       const policies = policiesFor(ctx)
       if (policies.selectedEntry !== entry) return next()
-      const cors = policies.route.cors
-      return cors ? cors(ctx, next) : next()
+      const corsMiddleware = policies.route.cors
+      return corsMiddleware ? corsMiddleware(ctx, next) : next()
     })
   }
   for (const path of preflightPaths) {

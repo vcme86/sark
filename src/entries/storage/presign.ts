@@ -6,4 +6,4 @@ export {
   type S3PresignConfig,
 } from '../../services/storage/presign'
 
-export { type PresignedResult, type PresignOptions } from '../../services/storage/types'
+export { type PresignResult, type PresignOptions } from '../../services/storage/types'

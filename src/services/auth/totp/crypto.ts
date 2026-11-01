@@ -4,7 +4,7 @@
  * @module
  */
 
-import { MfaError } from '../error'
+import { AuthError } from '../error'
 import type { TotpKey } from './types'
 
 const textEncoder = new TextEncoder()
@@ -80,7 +80,7 @@ export async function encryptTotpSecret(
  * @param sub - Associated subject identifier.
  * @param factorId - Associated factor identifier.
  * @returns Plain Base32 secret and the keyId used for decryption.
- * @throws MfaError with code key_unavailable if decryption fails or key is missing.
+ * @throws AuthError with code key_unavailable if decryption fails or key is missing.
  */
 export async function decryptTotpSecret(
   payload: Uint8Array,
@@ -89,18 +89,18 @@ export async function decryptTotpSecret(
   factorId: string,
 ): Promise<{ secret: string; keyId: string }> {
   if (payload.length < 2) {
-    throw new MfaError('key_unavailable', 'Corrupted TOTP secret payload: too short.')
+    throw new AuthError('key_unavailable', 'Corrupted TOTP secret payload: too short.')
   }
 
   let offset = 0
   const version = payload[offset++]
   if (version !== CIPHER_VERSION) {
-    throw new MfaError('key_unavailable', `Unsupported TOTP secret payload version ${version}.`)
+    throw new AuthError('key_unavailable', `Unsupported TOTP secret payload version ${version}.`)
   }
 
   const keyIdLen = payload[offset++]
   if (payload.length < 2 + keyIdLen + 12) {
-    throw new MfaError('key_unavailable', 'Corrupted TOTP secret payload: header truncated.')
+    throw new AuthError('key_unavailable', 'Corrupted TOTP secret payload: header truncated.')
   }
 
   const keyId = textDecoder.decode(payload.subarray(offset, offset + keyIdLen))
@@ -108,7 +108,7 @@ export async function decryptTotpSecret(
 
   const key = allKeys.get(keyId)
   if (!key) {
-    throw new MfaError(
+    throw new AuthError(
       'key_unavailable',
       `Decryption key "${keyId}" not found in current or retired keys.`,
     )
@@ -142,7 +142,7 @@ export async function decryptTotpSecret(
     const secret = textDecoder.decode(plaintextBuffer)
     return { secret, keyId }
   } catch (err) {
-    throw new MfaError(
+    throw new AuthError(
       'key_unavailable',
       'Failed to decrypt TOTP secret: tag mismatch or corrupted data.',
       {

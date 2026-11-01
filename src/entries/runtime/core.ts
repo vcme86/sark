@@ -6,8 +6,8 @@
 
 export {
   createDefinition,
-  type ApplicationDefinition,
-  type ApplicationDefinitionInput,
+  type AppDefinition,
+  type AppDefinitionInput,
   type PageRequestHandler,
 } from '../../core/definition'
 export type { InferResource } from '../../core/resource'

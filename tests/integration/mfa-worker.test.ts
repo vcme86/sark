@@ -4,8 +4,8 @@ import { TOTP } from '@otplib/totp'
 import { preview, type PreviewServer } from 'vite'
 import { expect, it } from 'vitest'
 
-import { mfaRecovery } from '../../src/entries/auth/recovery-d1'
-import { mfaAttempts, mfaChallenges } from '../../src/entries/auth/state-d1'
+import { recoveryCodeSets } from '../../src/entries/auth/recovery-d1'
+import { authAttemptWindows, authChallenges } from '../../src/entries/auth/state-d1'
 import { totpFactors } from '../../src/entries/auth/totp-d1'
 import { webauthnCredentials, webauthnSubjects } from '../../src/entries/auth/webauthn-d1'
 import { sqliteTableMetadata } from '../helpers/auth-schema'
@@ -51,15 +51,15 @@ export default route().handler(async c => {
   switch(input.op) {
     case 'setup': {
       const statements = [
-        'CREATE TABLE sark_mfa_challenges (id TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, purpose TEXT NOT NULL, sub TEXT, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL, max_attempts INTEGER NOT NULL, status TEXT NOT NULL, claim_id TEXT, data TEXT NOT NULL)',
-        'CREATE INDEX sark_mfa_challenges_expires_at_idx ON sark_mfa_challenges(expires_at)',
-        'CREATE TABLE sark_mfa_attempts (account_id TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)',
-        'CREATE INDEX sark_mfa_attempts_expires_at_idx ON sark_mfa_attempts(expires_at)',
-        'CREATE TABLE sark_totp_factors (sub TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, factor_id TEXT NOT NULL, algorithm TEXT NOT NULL, digits INTEGER NOT NULL, period INTEGER NOT NULL, secret BLOB NOT NULL, last_step INTEGER NOT NULL, enabled_at INTEGER NOT NULL)',
-        'CREATE TABLE sark_mfa_recovery (sub TEXT PRIMARY KEY NOT NULL, hashes TEXT NOT NULL, revision TEXT NOT NULL)',
-        'CREATE TABLE sark_webauthn_subjects (sub TEXT PRIMARY KEY NOT NULL, user_handle TEXT UNIQUE NOT NULL)',
-        'CREATE TABLE sark_webauthn_credentials (credential_id TEXT PRIMARY KEY NOT NULL, sub TEXT NOT NULL, user_handle TEXT NOT NULL, public_key BLOB NOT NULL, counter INTEGER NOT NULL, transports TEXT, device_type TEXT, backed_up INTEGER NOT NULL, revision TEXT NOT NULL, created_at INTEGER NOT NULL)',
-        'CREATE INDEX sark_webauthn_credentials_sub_idx ON sark_webauthn_credentials(sub)',
+        'CREATE TABLE auth_challenges (id TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, purpose TEXT NOT NULL, sub TEXT, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL, max_attempts INTEGER NOT NULL, status TEXT NOT NULL, claim_id TEXT, data TEXT NOT NULL)',
+        'CREATE INDEX auth_challenges_expires_at_idx ON auth_challenges(expires_at)',
+        'CREATE TABLE auth_attempt_windows (window_key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)',
+        'CREATE INDEX auth_attempt_windows_expires_at_idx ON auth_attempt_windows(expires_at)',
+        'CREATE TABLE totp_factors (sub TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, factor_id TEXT NOT NULL, algorithm TEXT NOT NULL, digits INTEGER NOT NULL, period INTEGER NOT NULL, secret BLOB NOT NULL, last_step INTEGER NOT NULL, enabled_at INTEGER NOT NULL)',
+        'CREATE TABLE recovery_code_sets (sub TEXT PRIMARY KEY NOT NULL, hashes TEXT NOT NULL, revision TEXT NOT NULL)',
+        'CREATE TABLE webauthn_subjects (sub TEXT PRIMARY KEY NOT NULL, user_handle TEXT UNIQUE NOT NULL)',
+        'CREATE TABLE webauthn_credentials (credential_id TEXT PRIMARY KEY NOT NULL, sub TEXT NOT NULL, user_handle TEXT NOT NULL, public_key BLOB NOT NULL, counter INTEGER NOT NULL, transports TEXT, device_type TEXT, backed_up INTEGER NOT NULL, revision TEXT NOT NULL, created_at INTEGER NOT NULL)',
+        'CREATE INDEX webauthn_credentials_sub_idx ON webauthn_credentials(sub)',
       ]
       await c.var.db.$client.batch(statements.map(statement => c.var.db.$client.prepare(statement)))
       return { ready: true }
@@ -73,13 +73,13 @@ export default route().handler(async c => {
       }
       return result
     }
-    case 'login': return c.var.mfa.beginLogin({ sub: 'alice', amr: ['pwd'] })
+    case 'login': return c.var.mfa.beginSignIn({ sub: 'alice', amr: ['pwd'] })
     case 'register': return c.var.webauthn.beginEnrollment()
     case 'confirm': {
       const result = await c.var.webauthn.confirmEnrollment(input.challenge, input.response)
       return { ...result, ...(input.recovery ? await c.var.mfa.regenerateRecoveryCodes() : {}) }
     }
-    case 'passwordless': return c.var.webauthn.beginLogin()
+    case 'passwordless': return c.var.webauthn.beginSignIn()
     case 'options': return c.var.webauthn.beginAuthentication(input.challenge)
     case 'confirm-totp': return c.var.totp.confirmEnrollment(input.challenge, input.code)
     case 'complete': return c.var.mfa.complete(input.challenge, input.proof ?? { kind: 'webauthn', response: input.response })
@@ -88,29 +88,29 @@ export default route().handler(async c => {
     case 'totp': return c.var.totp.beginEnrollment()
     case 'cleanup': {
       const now = Date.now()
-      await c.var.db.$client.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 105) INSERT INTO sark_mfa_challenges SELECT 'expired-' || x, 'r', 'login', 'cleanup', 0, ?, 0, 5, 'verifying', 'old', '{}' FROM n").bind(now - 1).run()
-      await c.var.db.$client.prepare("INSERT INTO sark_mfa_attempts VALUES ('cleanup-live', 1, ?)").bind(now + 60000).run()
+      await c.var.db.$client.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 105) INSERT INTO auth_challenges SELECT 'expired-' || x, 'r', 'sign-in', 'cleanup', 0, ?, 0, 5, 'verifying', 'old', '{}' FROM n").bind(now - 1).run()
+      await c.var.db.$client.prepare("INSERT INTO auth_attempt_windows VALUES ('cleanup-live', 1, ?)").bind(now + 60000).run()
       const work: Promise<unknown>[] = []
       const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger(['test']), signal: c.req.raw.signal, waitUntil: promise => { work.push(promise); c.executionCtx.waitUntil(promise) } })
       const expiredRead = await state.read('expired-1')
       for (const id of ['cleanup-first', 'cleanup-second']) {
-        await state.create({ id, revision: id, purpose: 'login', sub: 'cleanup', createdAt: now, expiresAt: now + 60000, maxAttempts: 5, attempts: 0, status: 'pending', data: {} })
+        await state.create({ id, revision: id, purpose: 'sign-in', sub: 'cleanup', createdAt: now, expiresAt: now + 60000, maxAttempts: 5, attempts: 0, status: 'pending', data: {} })
         await Promise.all(work)
-        const count = await c.var.db.$client.prepare("SELECT count(*) AS count FROM sark_mfa_challenges WHERE id LIKE 'expired-%'").first()
+        const count = await c.var.db.$client.prepare("SELECT count(*) AS count FROM auth_challenges WHERE id LIKE 'expired-%'").first()
         if (id === 'cleanup-first' && count.count !== 5) throw new Error('Cleanup exceeded or failed its first batch')
       }
-      const remaining = await c.var.db.$client.prepare("SELECT count(*) AS count FROM sark_mfa_challenges WHERE id LIKE 'expired-%'").first()
-      const live = await c.var.db.$client.prepare("SELECT count FROM sark_mfa_attempts WHERE account_id = 'cleanup-live'").first()
+      const remaining = await c.var.db.$client.prepare("SELECT count(*) AS count FROM auth_challenges WHERE id LIKE 'expired-%'").first()
+      const live = await c.var.db.$client.prepare("SELECT count FROM auth_attempt_windows WHERE window_key = 'cleanup-live'").first()
       return { expiredRead, remaining, live }
     }
     case 'budget': {
       try {
       const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger(['test']), signal: c.req.raw.signal, waitUntil: promise => c.executionCtx.waitUntil(promise) })
       const now = Date.now()
-      const account = { sub: 'budget', purpose: 'login', window: 1000, maxAttempts: 1 }
-      for (const id of ['first', 'second']) await state.create({ id, revision: id, purpose: 'login', sub: 'budget', createdAt: now, expiresAt: now + 60000, maxAttempts: 3, attempts: 0, status: 'pending', data: {} })
+      const account = { sub: 'budget', purpose: 'sign-in', window: 1000, maxAttempts: 1 }
+      for (const id of ['first', 'second']) await state.create({ id, revision: id, purpose: 'sign-in', sub: 'budget', createdAt: now, expiresAt: now + 60000, maxAttempts: 3, attempts: 0, status: 'pending', data: {} })
       const missing = await state.claim('missing', 'missing', now, account)
-      const before = await c.var.db.$client.prepare('SELECT count(*) AS count FROM sark_mfa_attempts').first()
+      const before = await c.var.db.$client.prepare('SELECT count(*) AS count FROM auth_attempt_windows').first()
       const results = await Promise.all(['first', 'second'].map(id => state.claim(id, id, now, account)))
       const winner = ['first', 'second'][results.findIndex(result => result.status === 'claimed')]
       const release = await state.release(winner, winner, now)
@@ -159,10 +159,10 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
     await json(await call({ op: 'setup' }))
 
     const metadata = [
-      mfaChallenges,
-      mfaAttempts,
+      authChallenges,
+      authAttemptWindows,
       totpFactors,
-      mfaRecovery,
+      recoveryCodeSets,
       webauthnSubjects,
       webauthnCredentials,
     ].map(sqliteTableMetadata)
@@ -223,14 +223,14 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
         sub: 'alice',
         roles: ['reader'],
         amr: ['pop'],
-        authentication: { method: 'webauthn', userVerified: true },
+        auth: { method: 'webauthn', userVerified: true },
       },
     })
     const cookie = completed.headers.getSetCookie()[0].split(';')[0]
     expect(await json(await call({ op: 'profile' }, cookie))).toMatchObject({
       sub: 'alice',
       claims: { plan: 'basic' },
-      authentication: { method: 'webauthn', userVerified: true },
+      auth: { method: 'webauthn', userVerified: true },
     })
     const secondStep = await json(await call({ op: 'login' }))
     const options = await Promise.all(
@@ -257,7 +257,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
           proof: { kind: 'recovery', code: codes.recoveryCodes[0] },
         }),
       ),
-    ).toMatchObject({ identity: { authentication: { method: 'recovery' }, amr: ['pwd', 'otp'] } })
+    ).toMatchObject({ identity: { auth: { method: 'recovery' }, amr: ['pwd', 'otp'] } })
     const retry = await json(await call({ op: 'login' }))
     expect(
       (
@@ -293,7 +293,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
           proof: { kind: 'totp', code },
         }),
       ),
-    ).toMatchObject({ identity: { authentication: { method: 'totp' }, amr: ['pwd', 'otp'] } })
+    ).toMatchObject({ identity: { auth: { method: 'totp' }, amr: ['pwd', 'otp'] } })
     expect(
       (
         await call({

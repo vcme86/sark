@@ -17,3 +17,9 @@ export function assetUrl(base: string, path: string): string {
     (base === '' || base === './' ? '/' : base) + path.split('/').map(encodeURIComponent).join('/')
   )
 }
+
+/** Complete build resources, including optional page entry and per-route styles. */
+export interface BuildAssets extends StaticAssets {
+  readonly entry?: string
+  readonly styles: Readonly<Record<string, readonly string[]>>
+}

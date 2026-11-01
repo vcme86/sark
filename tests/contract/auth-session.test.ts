@@ -1,3 +1,4 @@
+import { decode } from 'hono/jwt'
 import { describe, expect, it, vi } from 'vitest'
 
 import { requireStepUp } from '../../src/services/auth/guard'
@@ -19,7 +20,7 @@ describe('First-party Auth & Session', () => {
         authTime: Math.floor(Date.now() / 1000),
         amr: ['pwd', 'webauthn'],
         roles: ['editor'],
-        authentication: { method: 'webauthn', userVerified: true },
+        auth: { method: 'webauthn', userVerified: true },
         claims: { tenant: 'publication' },
       }
       const options = {
@@ -32,6 +33,10 @@ describe('First-party Auth & Session', () => {
       const standalone = await signToken(input, options)
       const issued = await service.issue(input)
       for (const token of [standalone, issued.token]) {
+        const { payload } = decode(token)
+        expect(payload.auth).toEqual(input.auth)
+        expect(payload).not.toHaveProperty('authentication')
+        expect(payload).not.toHaveProperty('sark_auth')
         const identity = await verifyToken(token, options)
         expect(identity).toMatchObject(input)
         expect(identity?.jti).toBeTruthy()
@@ -44,6 +49,9 @@ describe('First-party Auth & Session', () => {
         await expect(issue({ sub: 'reader', claims: { exp: 1 } })).rejects.toThrow(
           'cannot overwrite reserved session field',
         )
+        await expect(
+          issue({ sub: 'reader', claims: { auth: { method: 'totp' } } }),
+        ).rejects.toThrow('Claim "auth" cannot overwrite reserved session field.')
       }
     })
 

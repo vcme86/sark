@@ -3,10 +3,10 @@ import { spawnSync } from 'node:child_process'
 import { expect, it } from 'vitest'
 
 const tableFamilies = {
-  totp: ['sark_totp_factors'],
-  webauthn: ['sark_webauthn_subjects', 'sark_webauthn_credentials'],
-  recovery: ['sark_mfa_recovery'],
-  state: ['sark_mfa_challenges', 'sark_mfa_attempts'],
+  totp: ['totp_factors'],
+  webauthn: ['webauthn_subjects', 'webauthn_credentials'],
+  recovery: ['recovery_code_sets'],
+  state: ['auth_challenges', 'auth_attempt_windows'],
 }
 const entries = Object.keys(tableFamilies).flatMap((capability) =>
   (capability === 'state' ? ['postgres', 'd1'] : ['sqlite', 'postgres', 'd1']).map((backend) => ({

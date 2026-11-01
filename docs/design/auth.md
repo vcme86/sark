@@ -31,7 +31,7 @@ interface Identity {
   amr?: string[]
   authTime?: number
   roles?: string[]
-  authentication?: AuthenticationFacts
+  auth?: AuthFacts
   claims: Record<string, unknown>
 }
 
@@ -41,13 +41,11 @@ interface SignInInput {
   amr?: string[]
   authTime?: number
   roles?: string[]
-  authentication?: AuthenticationFacts
+  auth?: AuthFacts
   claims?: Record<string, unknown>
 }
 
-type AuthenticationFacts =
-  | { method: 'totp' | 'recovery' }
-  | { method: 'webauthn'; userVerified: boolean }
+type AuthFacts = { method: 'totp' | 'recovery' } | { method: 'webauthn'; userVerified: boolean }
 
 interface IssuedSession {
   identity: Identity
@@ -59,7 +57,7 @@ interface SessionOptions {
 }
 ```
 
-sub 为稳定主体；ver 默认 0；jti 由框架生成。authTime 是 Unix 秒的主动认证时间，缺省不表示刚认证；amr 表达实际认证方式，不能从会话有效或续期推导 MFA 已完成。authentication 通过 JWT 私有声明 sark_auth 保存具体认证方式及验证结果，未执行因素时省略。业务 claims 不覆盖框架保留的身份、签发、期限和因素字段。
+sub 为稳定主体；ver 默认 0；jti 由框架生成。authTime 是 Unix 秒的主动认证时间，缺省不表示刚认证；amr 表达实际认证方式，不能从会话有效或续期推导 MFA 已完成。auth 通过 JWT 私有声明 auth 保存具体认证方式及验证结果，未执行因素时省略。业务 claims 不覆盖框架保留的身份、签发、期限和因素字段。
 
 SessionOptions、IssuedSession 与会话签发契约统一定义在 session/types，MFA 只用 type import 引用它们。共同身份与资源检查上下文放认证底层契约；session 不引用 MFA 或具体因素服务类型。
 
@@ -157,7 +155,7 @@ function verifyToken(
 
 会话 Cookie 直接存放 JWT，默认 HttpOnly、SameSite=Lax、生产 Secure，不再套通用签名；只需认证密钥。Path 默认 /，其他专用属性按公开应用部署配置，不把内部 API DNS 写入 Domain。
 
-有效 Cookie 剩余期限不足 expiresIn 一半时，在提交响应头前准备换发。新过期时间为当前时刻加 expiresIn；保留 sub、ver、jti、amr、authTime、authentication、业务 claims 与首次 iat。这是延长会话有效期，不是再次认证，也不提供绝对最长会话时长。
+有效 Cookie 剩余期限不足 expiresIn 一半时，在提交响应头前准备换发。新过期时间为当前时刻加 expiresIn；保留 sub、ver、jti、amr、authTime、auth、业务 claims 与首次 iat。这是延长会话有效期，不是再次认证，也不提供绝对最长会话时长。
 
 每个外层请求只决定一次续期，SSR 内部 API 不重复签发。显式 signIn/signOut 优先，自动换发不得覆盖退出。过期/失效令牌不续期；Bearer 不自动滚动，由应用明确换发。
 

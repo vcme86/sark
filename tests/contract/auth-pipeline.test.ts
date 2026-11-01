@@ -133,7 +133,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
 
     const authDecl = defineAuth({
       secret: TEST_SECRET,
-      cookieName: 'sark_session',
+      cookieName: 'custom_session',
     })
 
     const loginRoute: RouteEntry = {
@@ -228,18 +228,18 @@ describe('Auth Pipeline & Request Context Integration', () => {
     expect(loginRes.status).toBe(200)
     const setCookie = loginRes.headers.get('set-cookie')
     expect(setCookie).toBeTruthy()
-    expect(setCookie).toContain('sark_session=')
+    expect(setCookie).toContain('custom_session=')
     expect(setCookie).toContain('HttpOnly')
 
-    const parsedCookies = parse(setCookie!, 'sark_session')
-    const sessionToken = parsedCookies['sark_session']
+    const parsedCookies = parse(setCookie!, 'custom_session')
+    const sessionToken = parsedCookies['custom_session']
     expect(sessionToken).toBeTruthy()
 
     // 2. Call /api/me with session cookie -> authenticated
     const meRes = await instance.fetch(
       new Request('http://localhost/api/me', {
         headers: {
-          Cookie: `sark_session=${sessionToken}`,
+          Cookie: `custom_session=${sessionToken}`,
         },
       }),
     )
@@ -254,7 +254,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
       new Request('http://localhost/api/logout', {
         method: 'POST',
         headers: {
-          Cookie: `sark_session=${sessionToken}`,
+          Cookie: `custom_session=${sessionToken}`,
         },
       }),
     )

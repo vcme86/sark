@@ -15,7 +15,7 @@ import type { RouteEntry } from '../http/server/types'
 import { resolveAppConfig } from './config'
 import { applicationRoutes, getCurrentScope, runInScope, runWithoutScope } from './context'
 import type { EnvironmentArgs } from './declaration'
-import type { ApplicationDefinition } from './definition'
+import type { AppDefinition } from './definition'
 import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { ensureBasicLogging } from './logging'
 import type { ServiceBindingFactory, ServiceCreateContext, ServicePreparation } from './service'
@@ -39,7 +39,7 @@ type AssembleOptions =
  * @param options - Resolved static settings or the event host's resolver and failure settings.
  * @returns Ready application instance.
  */
-export async function assembleApp<D extends ApplicationDefinition>(
+export async function assembleApp<D extends AppDefinition>(
   definition: D,
   options: AssembleOptions,
 ): Promise<AppInstance<D>> {
@@ -454,7 +454,7 @@ async function createServices(
  * @throws {Error} If the application factory requires an environment and env is omitted.
  * @throws {AggregateError} If initialization fails and subsequent resource cleanup also throws.
  */
-export async function createApp<D extends ApplicationDefinition>(
+export async function createApp<D extends AppDefinition>(
   definition: D,
   ...options: EnvironmentArgs<D>
 ): Promise<AppInstance<D>> {

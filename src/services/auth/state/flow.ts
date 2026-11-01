@@ -1,13 +1,13 @@
 /** Common challenge creation, expiry, cancellation, and factor-management authorization. */
 import type { AuthCheckContext, Identity } from '../contracts'
-import { MfaError } from '../error'
+import { AuthError } from '../error'
 import type { FactorPolicy } from '../factor'
 import type { AuthFlow, AuthFlowPurpose, AuthStateStore } from './types'
 
 export function assertActive(context: AuthCheckContext, flow?: AuthFlow): void {
   context.signal?.throwIfAborted()
   if (flow && Date.now() >= flow.expiresAt)
-    throw new MfaError('challenge_invalid', 'Authentication challenge expired.')
+    throw new AuthError('challenge_invalid', 'Authentication challenge expired.')
 }
 
 export function requireRecentAuthentication(
@@ -18,9 +18,9 @@ export function requireRecentAuthentication(
   if (
     identity.authTime === undefined ||
     Date.now() - identity.authTime * 1000 > maxAge ||
-    (requireFactor && !identity.authentication)
+    (requireFactor && !identity.auth)
   ) {
-    throw new MfaError('step_up_required', 'Recent authentication is required for this operation.')
+    throw new AuthError('step_up_required', 'Recent authentication is required for this operation.')
   }
 }
 
@@ -48,7 +48,7 @@ export async function createChallenge(
     data,
     protocol,
   })
-  if (!created) throw new MfaError('storage_error', 'Could not create authentication challenge.')
+  if (!created) throw new AuthError('storage_error', 'Could not create authentication challenge.')
   return id
 }
 
@@ -61,7 +61,7 @@ export async function consumeChallenge(
 ): Promise<void> {
   assertActive(context, flow)
   if (!(await store.consume(flow.id, claimId, Date.now())))
-    throw new MfaError('challenge_invalid', 'Authentication challenge could not be consumed.')
+    throw new AuthError('challenge_invalid', 'Authentication challenge could not be consumed.')
   assertActive(context, flow)
 }
 
@@ -72,6 +72,6 @@ export function requireIdentity(
 ): Identity {
   const identity = getIdentity?.()
   if (!identity || (sub !== undefined && identity.sub !== sub))
-    throw new MfaError('step_up_required', 'An unchanged authenticated session is required.')
+    throw new AuthError('step_up_required', 'An unchanged authenticated session is required.')
   return identity
 }

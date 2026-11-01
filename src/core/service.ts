@@ -30,7 +30,7 @@ export type ServiceBindingFactory = (
 ) => ServiceBinding | Promise<ServiceBinding>
 
 /** Domain facilities created after the application's resources are ready. */
-export interface ServiceInstanceResult<TService = unknown> {
+export interface ServiceInitResult<TService = unknown> {
   readonly service?: TService
   readonly createBinding?: ServiceBindingFactory
 }
@@ -53,7 +53,7 @@ export interface ServicePreparation<TService = unknown> {
   readonly create: (
     resources: Readonly<Record<string, unknown>>,
     context: ServiceCreateContext,
-  ) => ServiceInstanceResult<TService> | Promise<ServiceInstanceResult<TService>>
+  ) => ServiceInitResult<TService> | Promise<ServiceInitResult<TService>>
 }
 
 /** Instance-owned domain runtime, resolving configuration before creating resource-bound services. */

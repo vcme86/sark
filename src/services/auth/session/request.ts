@@ -22,7 +22,7 @@ export interface RequestAuthSessionState {
 }
 
 /** Parameters supplied to initialize request-scoped authentication session. */
-interface RequestSessionInitParams {
+interface RequestSessionContext {
   readonly request: Request
   readonly signal: AbortSignal
   readonly parentSessionState?: RequestAuthSessionState
@@ -31,7 +31,7 @@ interface RequestSessionInitParams {
 }
 
 /** Handlers returned from request session initialization. */
-interface RequestSessionResult {
+interface RequestSessionInitResult {
   readonly sessionState: RequestAuthSessionState
   readonly requestAuth: RequestAuth
   readonly onCommitHeaders: () => Promise<void>
@@ -106,14 +106,14 @@ export function formatSetCookie(
  * Initializes request-scoped auth session state, credential evaluation, and auto-renewal lifecycle.
  *
  * @param authService - Owning internal auth service instance.
- * @param params - Request-specific execution parameters.
+ * @param context - Request-specific execution parameters.
  * @returns Handlers and session state for the request pipeline.
  */
 export async function initRequestSession(
   authService: InternalAuthService,
-  params: RequestSessionInitParams,
-): Promise<RequestSessionResult> {
-  const { request, signal, parentSessionState, appendCookie, isHeadersCommitted } = params
+  context: RequestSessionContext,
+): Promise<RequestSessionInitResult> {
+  const { request, signal, parentSessionState, appendCookie, isHeadersCommitted } = context
   const config = authService.config
 
   let sessionState: RequestAuthSessionState

@@ -11,7 +11,7 @@ import { resolveAppConfig } from '../../core/config'
 import { runInScope } from '../../core/context'
 import { assembleApp } from '../../core/create'
 import type { EnvOf } from '../../core/declaration'
-import type { ApplicationDefinition } from '../../core/definition'
+import type { AppDefinition } from '../../core/definition'
 import { ensureBasicLogging } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
 import { type ResolvedHttpConfig, resolveHttpConfig } from '../../http/config'
@@ -60,7 +60,7 @@ export interface CloudflareWorkerHandler<Env = unknown> {
  * @param production - Vite's production flag, or true for a standalone Worker host.
  * @returns Object exposing `fetch(request, env, ctx)` compatible with Cloudflare Workers.
  */
-export function createWorkerHandler<D extends ApplicationDefinition>(
+export function createWorkerHandler<D extends AppDefinition>(
   definition: D,
   production = true,
 ): CloudflareWorkerHandler<EnvOf<D>> {

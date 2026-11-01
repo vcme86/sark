@@ -143,6 +143,18 @@ sark/
 
 services/db 负责数据库声明、连接及资源生命周期；认证模块内的 db 目录负责所属领域的存取适配，schema 目录保存相应表定义。适配借用已声明的数据库，不另建连接。SQLite/D1 共用相同的 SQLite 表定义，PG 使用独立定义；内部不为相同 schema 建复制或转发文件。
 
+## 命名约定
+
+名称依据实际对象、职责、生命周期和存储单位选择，同一概念在定义、导出和消费处使用相同名称。内部局部变量可以利用所属模块的上下文缩短；自有符号在公开入口直接按定义名导出，不另造一套短名/全名。上游通用符号可以按用途限定，如 `parse` → `parseCookie`；导入同名符号或区分测试中的默认/自定义对象时，允许有实际区分作用的局部别名。
+
+- 目录按职责命名，如 core、http、page、auth；集合名称沿用所属领域与项目惯例，如 services、entries。平台适配使用既有 adapter，不强制全部目录采用单数或复数。文件使用小写和连字符，以实际内容命名；不为统一字面形式改变已有职责划分或增加目录层级
+- TypeScript 类型、类与组件使用 PascalCase，函数、字段和变量使用 camelCase，模块级固定默认值使用 UPPER_SNAKE_CASE。App、Auth、Http、Sql、Totp 等自有领域词按既有惯用缩写统一，如 AuthFacts、AuthFlow、Identity.auth；OAuth、WebAuthn、D1、S3、R2 及上游公开类型保留专名或原名。动作短语按语义命名，如 completeAuthentication，authenticate 等动词不机械截短
+- Config 表示能力或应用声明配置，ResolvedConfig 表示默认值和校验已完成的配置；Options 表示调用控制项或上游接入选项，Input 表示调用方资料，Args 表示框架回调参数，Context 表示执行设施。名称先体现实际用途，不给所有对象机械添加后缀
+- Declaration 表示延迟声明，Assembly 表示内部装配，InitResult 表示创建结果。RequestAuth、RequestVisitor、RequestMfa 等 Request 前缀表示请求绑定接口；实例维护单独命名，如 TotpMaintenance。认证请求接口的实现使用 MfaService 等领域服务名；类型后缀表达实际角色，不使用 PublicInstance 等泛称
+- 动作函数以动词表达实际行为，如 listPublicFiles、createProductionAssets、writeBuildAssets；资源名称覆盖真实使用范围，纯 API 应用也使用的构建产物不冠以 page。登录统一使用 signIn、beginSignIn 与 SignInResult 等词根，协议规定的字段和上游动作名称保持原名
+- 持久化类型和表名反映实际存储单位：认证尝试记录是账户/用途的计数窗口，恢复码记录是一组带版本的摘要集合。默认 schema 使用 authAttemptWindows、recoveryCodeSets 等同名定义和导出；SQL 使用对应 snake_case 复数表名，索引采用所属表名、索引列和 idx 后缀
+- 领域限定词用于区分实际对象，如 authChallenges、totpFactors；不添加框架品牌前缀。标准协议字段、上游类型、平台 binding 与浏览器共享命名空间按其契约保留，不为形式一致改写外部协议
+
 ## 依赖方向
 
 生成的应用定义是组合根，显式引用所选核心、领域能力和宿主。核心使用这些装配结果，不维护包含所有能力的配置联合或运行时注册表。
@@ -182,8 +194,8 @@ entries 按使用场景限定公开符号，不镜像实现目录。可选能力
 - `auth/oauth`：defineOAuth；`auth/totp`：defineTotp；`auth/webauthn`：defineWebAuthn；`auth/mfa`：defineMfa、memoryState 及共同认证契约。WebAuthn 浏览器接入从 `auth/webauthn/browser` 导入，具体符号由 [webauthn.md](webauthn.md) 定义
 - `auth/totp/sqlite`、`auth/totp/postgres`、`auth/totp/d1`：sqlTotp、totpFactors
 - `auth/webauthn/sqlite`、`auth/webauthn/postgres`、`auth/webauthn/d1`：sqlWebAuthn、webauthnSubjects、webauthnCredentials
-- `auth/recovery/sqlite`、`auth/recovery/postgres`、`auth/recovery/d1`：sqlRecovery、mfaRecovery
-- `auth/state/postgres`、`auth/state/d1`：sqlAuthState、mfaChallenges、mfaAttempts
+- `auth/recovery/sqlite`、`auth/recovery/postgres`、`auth/recovery/d1`：sqlRecovery、recoveryCodeSets
+- `auth/state/postgres`、`auth/state/d1`：sqlAuthState、authChallenges、authAttemptWindows
 - `visitors`：defineVisitors；`visitors/browser`：ensureVisitor
 - `stats`：defineStats 与计数契约；`stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats
 - `jobs`：defineJobs；`logging`：defineLogging；`metrics`：defineMetrics；`health`：defineHealth，及各自的选项、服务和上下文类型

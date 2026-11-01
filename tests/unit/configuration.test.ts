@@ -7,10 +7,10 @@ import type { AppConfig } from '../../src/core/config'
 import { resolveHttpConfig } from '../../src/http/config'
 import { computeEffectivePolicy } from '../../src/http/server/policy'
 import { createPageConfigResolver, definePage, resolvePageConfig } from '../../src/page/config'
-import { resolveProjectConfig, resolveSarkOptions } from '../../src/tooling/config'
+import { resolvePluginOptions, resolveProjectConfig } from '../../src/tooling/config'
 afterEach(() => vi.unstubAllEnvs())
 it('normalizes prefixes once and binds all discovery paths to the supplied root', () => {
-  const options = resolveSarkOptions({
+  const options = resolvePluginOptions({
     appEntry: 'config/app.ts',
     apiDir: 'handlers',
     apiPrefix: '/service//v2/',
@@ -30,17 +30,19 @@ it('normalizes prefixes once and binds all discovery paths to the supplied root'
   expect(project.apiPrefix).toBe(options.apiPrefix)
   expect(project.webPrefix).toBe(options.webPrefix)
   expect(project.webDir).toBe(false)
-  expect(resolveProjectConfig('/example', resolveSarkOptions({ apiDir: false })).apiDir).toBe(false)
+  expect(resolveProjectConfig('/example', resolvePluginOptions({ apiDir: false })).apiDir).toBe(
+    false,
+  )
 })
 
 it.each(['api', '//example.test', '/api?version=2', '/api/../private'])(
   'rejects an invalid API prefix: %s',
-  (apiPrefix) => expect(() => resolveSarkOptions({ apiPrefix })).toThrow(/apiPrefix/),
+  (apiPrefix) => expect(() => resolvePluginOptions({ apiPrefix })).toThrow(/apiPrefix/),
 )
 
 it('rejects null rather than restoring a default', () => {
   // @ts-expect-error JavaScript callers can supply values outside the public type.
-  expect(() => resolveSarkOptions({ apiDir: null })).toThrow(/apiDir/)
+  expect(() => resolvePluginOptions({ apiDir: null })).toThrow(/apiDir/)
 })
 
 it('merges partial objects and retains explicit disabled policies, zero and empty arrays', () => {

@@ -16,7 +16,7 @@ export {
 } from '../../services/auth/session/config'
 export type {
   AuthCheckContext,
-  AuthenticationFacts,
+  AuthFacts,
   Identity,
   SigningCredentials,
   SigningKey,

@@ -1,5 +1,5 @@
 /**
- * Multi-factor authentication domain errors.
+ * Authentication flow and factor-management errors.
  *
  * @module
  */
@@ -7,7 +7,7 @@
 import { HttpError } from '../../http/error'
 
 /** Categorized machine-readable error codes for MFA failures. */
-export type MfaErrorCode =
+export type AuthErrorCode =
   | 'challenge_invalid'
   | 'too_many_attempts'
   | 'invalid_code'
@@ -18,7 +18,7 @@ export type MfaErrorCode =
   | 'storage_error'
   | 'unauthorized'
 
-const STATUS_BY_CODE: Record<MfaErrorCode, number> = {
+const STATUS_BY_CODE: Record<AuthErrorCode, number> = {
   challenge_invalid: 400,
   too_many_attempts: 429,
   invalid_code: 400,
@@ -31,9 +31,9 @@ const STATUS_BY_CODE: Record<MfaErrorCode, number> = {
 }
 
 /** Specialized HTTP error for MFA, TOTP, WebAuthn, and recovery failures. */
-export class MfaError extends HttpError {
+export class AuthError extends HttpError {
   constructor(
-    code: MfaErrorCode,
+    code: AuthErrorCode,
     message: string,
     options?: { details?: unknown; headers?: HeadersInit },
   ) {
@@ -42,6 +42,6 @@ export class MfaError extends HttpError {
       details: options?.details,
       headers: options?.headers,
     })
-    this.name = 'MfaError'
+    this.name = 'AuthError'
   }
 }

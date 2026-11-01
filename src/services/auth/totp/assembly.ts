@@ -5,14 +5,14 @@ import type { FactorAssembly } from '../factor'
 import { initializeStore } from '../store'
 import { resolveTotpConfig } from './config'
 import type { TotpDeclaration } from './declaration'
-import { TotpServiceImpl } from './service'
-import type { TotpPublicInstance } from './types'
+import { TotpService } from './service'
+import type { TotpMaintenance } from './types'
 
 export function createTotpFactor(declaration: TotpDeclaration): FactorAssembly & {
   readonly kind: 'totp'
-  readonly maintenance: ServiceAssembly<TotpPublicInstance>
+  readonly maintenance: ServiceAssembly<TotpMaintenance>
 } {
-  const initialized = new WeakMap<Readonly<Record<string, unknown>>, TotpPublicInstance>()
+  const initialized = new WeakMap<Readonly<Record<string, unknown>>, TotpMaintenance>()
   return {
     kind: 'totp',
     maintenance: {
@@ -41,7 +41,7 @@ export function createTotpFactor(declaration: TotpDeclaration): FactorAssembly &
             stateStore,
             policy,
           }
-          const service = new TotpServiceImpl(base)
+          const service = new TotpService(base)
           initialized.set(context.resources, { reencrypt: (sub) => service.reencrypt(sub) })
           return {
             verifier: {
@@ -54,7 +54,7 @@ export function createTotpFactor(declaration: TotpDeclaration): FactorAssembly &
               },
             },
             bind: (request) =>
-              new TotpServiceImpl({
+              new TotpService({
                 ...base,
                 context: request.context,
                 getCurrentIdentity: request.getIdentity,

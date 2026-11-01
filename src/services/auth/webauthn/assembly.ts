@@ -6,7 +6,7 @@ import type { FactorAssembly } from '../factor'
 import { initializeStore } from '../store'
 import { resolveWebAuthnConfig } from './config'
 import type { WebAuthnDeclaration } from './declaration'
-import { authenticationCredentialId, WebAuthnServiceImpl } from './service'
+import { authenticationCredentialId, WebAuthnService } from './service'
 
 export function createWebAuthnFactor(
   declaration: WebAuthnDeclaration,
@@ -25,7 +25,7 @@ export function createWebAuthnFactor(
             stateStore,
             policy,
           }
-          const service = new WebAuthnServiceImpl(base)
+          const service = new WebAuthnService(base)
           return {
             verifier: {
               kind: 'webauthn',
@@ -47,7 +47,7 @@ export function createWebAuthnFactor(
               },
             },
             bind: (request) =>
-              new WebAuthnServiceImpl({
+              new WebAuthnService({
                 ...base,
                 context: request.context,
                 getCurrentIdentity: request.getIdentity,

@@ -12,13 +12,13 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   },
 })
 
-export const subjects = pgTable('sark_webauthn_subjects', {
+export const webauthnSubjects = pgTable('webauthn_subjects', {
   sub: text('sub').primaryKey(),
   userHandle: text('user_handle').notNull().unique(),
 })
 
-export const credentials = pgTable(
-  'sark_webauthn_credentials',
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
   {
     credentialId: text('credential_id').primaryKey(),
     sub: text('sub').notNull(),
@@ -31,5 +31,5 @@ export const credentials = pgTable(
     revision: text('revision').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
-  (table) => [index('sark_webauthn_credentials_sub_idx').on(table.sub)],
+  (table) => [index('webauthn_credentials_sub_idx').on(table.sub)],
 )

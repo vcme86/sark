@@ -13,7 +13,7 @@ export interface DisposalContext {
 }
 
 /** Resource value and its owned cleanup, registered immediately after creation. */
-interface ResourceResult<T> {
+interface ResourceInitResult<T> {
   readonly value: T
   readonly dispose?: (context: DisposalContext) => Promise<void> | void
 }
@@ -31,7 +31,10 @@ export interface ResourceAssembly<T = unknown> {
    * @returns The resource value and optional owned cleanup, registered after creation succeeds.
    * @throws If creation fails; the resource must release anything acquired before returning a result.
    */
-  createStatic?(env: unknown, context: { readonly signal: AbortSignal }): Promise<ResourceResult<T>>
+  createStatic?(
+    env: unknown,
+    context: { readonly signal: AbortSignal },
+  ): Promise<ResourceInitResult<T>>
 
   /**
    * Assembles an event-scoped resource on event hosts (e.g. Cloudflare Workers).

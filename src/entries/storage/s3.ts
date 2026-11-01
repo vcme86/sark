@@ -10,7 +10,7 @@ export {
   type FileBody,
   type FileStore,
   type GetOptions,
-  type PresignedResult,
+  type PresignResult,
   type PresignOptions,
   type PutOptions,
   type StorageErrorCode,

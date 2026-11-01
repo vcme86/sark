@@ -1,7 +1,7 @@
 /** Common MFA policy, one-time proof completion, and request-bound session issuance. */
 import type { AuthCheckContext, Identity } from '../contracts'
-import { MfaError } from '../error'
-import type { FactorVerifier, SessionService } from '../factor'
+import { AuthError } from '../error'
+import type { FactorKind, FactorProof, FactorVerifier, SessionService } from '../factor'
 import { generateRecoveryCodes, hashRecoveryCode } from '../recovery/service'
 import type { RecoveryStore } from '../recovery/types'
 import { validateSignInInput } from '../session/token'
@@ -14,14 +14,8 @@ import {
 } from '../state/flow'
 import type { AuthStateStore } from '../state/types'
 import { completeAuthentication } from '../verification'
-import { resolveLoginPolicy } from './config'
-import type {
-  LoginResult,
-  LoginResultMethods,
-  MfaProof,
-  MfaService,
-  ResolvedMfaConfig,
-} from './types'
+import { resolveSignInPolicy } from './config'
+import type { RequestMfa, ResolvedMfaConfig, SignInResult } from './types'
 
 interface MfaServiceDependencies {
   readonly config: ResolvedMfaConfig
@@ -34,13 +28,13 @@ interface MfaServiceDependencies {
   readonly wasFactorEnrolledInRequest?: (sub: string) => boolean
 }
 
-export class MfaServiceImpl implements MfaService {
+export class MfaService implements RequestMfa {
   constructor(private readonly deps: MfaServiceDependencies) {}
 
   private async methods(
     sub: string,
-  ): Promise<{ methods: LoginResultMethods; bindings: Record<string, string> }> {
-    const methods: LoginResultMethods = []
+  ): Promise<{ methods: FactorKind[]; bindings: Record<string, string> }> {
+    const methods: FactorKind[] = []
     const bindings: Record<string, string> = {}
     for (const factor of this.deps.factors) {
       if (factor.binding) {
@@ -56,13 +50,13 @@ export class MfaServiceImpl implements MfaService {
     return { methods, bindings }
   }
 
-  async beginLogin(input: SignInInput, options?: SessionOptions): Promise<LoginResult> {
+  async beginSignIn(input: SignInInput, options?: SessionOptions): Promise<SignInResult> {
     assertActive(this.deps.context)
     validateSignInInput(input)
     const policy =
-      typeof this.deps.config.login === 'function'
-        ? resolveLoginPolicy(await this.deps.config.login(input, this.deps.context))
-        : this.deps.config.login
+      typeof this.deps.config.signIn === 'function'
+        ? resolveSignInPolicy(await this.deps.config.signIn(input, this.deps.context))
+        : this.deps.config.signIn
     const firstStep = { ...input, authTime: input.authTime ?? Math.floor(Date.now() / 1000) }
     if (policy === 'skip') {
       assertActive(this.deps.context)
@@ -74,7 +68,7 @@ export class MfaServiceImpl implements MfaService {
     const available = await this.methods(input.sub)
     if (!available.methods.length) {
       if (policy === 'required')
-        throw new MfaError('factor_missing', 'No enrolled authentication factor is available.')
+        throw new AuthError('factor_missing', 'No enrolled authentication factor is available.')
       assertActive(this.deps.context)
       return {
         status: 'authenticated',
@@ -84,7 +78,7 @@ export class MfaServiceImpl implements MfaService {
     const challenge = await createChallenge(
       this.deps.stateStore,
       this.deps.config.challenge,
-      'login',
+      'sign-in',
       {
         signInInput: firstStep,
         sessionOptions: options,
@@ -98,12 +92,12 @@ export class MfaServiceImpl implements MfaService {
 
   async beginStepUp(
     options?: SessionOptions,
-  ): Promise<{ challenge: string; methods: LoginResultMethods }> {
+  ): Promise<{ challenge: string; methods: FactorKind[] }> {
     assertActive(this.deps.context)
     const identity = requireIdentity(this.deps.getCurrentIdentity)
     const available = await this.methods(identity.sub)
     if (!available.methods.length)
-      throw new MfaError('factor_missing', 'No enrolled authentication factor is available.')
+      throw new AuthError('factor_missing', 'No enrolled authentication factor is available.')
     const challenge = await createChallenge(
       this.deps.stateStore,
       this.deps.config.challenge,
@@ -114,7 +108,7 @@ export class MfaServiceImpl implements MfaService {
     return { challenge, methods: available.methods }
   }
 
-  complete(challenge: string, proof: MfaProof): Promise<IssuedSession> {
+  complete(challenge: string, proof: FactorProof): Promise<IssuedSession> {
     return completeAuthentication(
       { ...this.deps, accountLimit: this.deps.config.accountLimit },
       challenge,
@@ -127,7 +121,7 @@ export class MfaServiceImpl implements MfaService {
     const identity = requireIdentity(this.deps.getCurrentIdentity)
     const config = this.deps.config.recovery
     if (!config || !this.deps.recoveryStore)
-      throw new MfaError('factor_missing', 'Recovery codes are not configured.')
+      throw new AuthError('factor_missing', 'Recovery codes are not configured.')
     if (!this.deps.wasFactorEnrolledInRequest?.(identity.sub))
       requireRecentAuthentication(identity, this.deps.config.recentAuthMaxAge, true)
     const codes = generateRecoveryCodes(config.count)
@@ -140,7 +134,7 @@ export class MfaServiceImpl implements MfaService {
         hashes,
       }))
     )
-      throw new MfaError('conflict', 'Recovery codes changed concurrently.')
+      throw new AuthError('conflict', 'Recovery codes changed concurrently.')
     return { recoveryCodes: codes }
   }
 }

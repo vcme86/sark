@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
-import type { AccountLimitParams, AuthFlow } from '../../src/services/auth/state/types'
+import type { AuthAttemptLimit, AuthFlow } from '../../src/services/auth/state/types'
 
 const createSampleFlow = (
   id: string,
@@ -10,7 +10,7 @@ const createSampleFlow = (
 ): AuthFlow => ({
   id,
   revision: 'rev-1',
-  purpose: 'login',
+  purpose: 'sign-in',
   sub,
   createdAt: Date.now(),
   expiresAt,
@@ -23,7 +23,7 @@ const createSampleFlow = (
 afterEach(() => vi.useRealTimers())
 
 describe('MemoryAuthStateStore State Machine and Throttling', () => {
-  const store = new MemoryAuthStateStore({ maxChallenges: 10, maxAccounts: 10 })
+  const store = new MemoryAuthStateStore({ maxChallenges: 10, maxAttemptWindows: 10 })
 
   it('creates, claims, and consumes flow', async () => {
     const flow = createSampleFlow('flow-1')
@@ -78,10 +78,10 @@ describe('MemoryAuthStateStore State Machine and Throttling', () => {
   })
 
   it('enforces account throttling across different challenges', async () => {
-    const throttledStore = new MemoryAuthStateStore({ maxChallenges: 10, maxAccounts: 10 })
-    const account: AccountLimitParams = {
+    const throttledStore = new MemoryAuthStateStore({ maxChallenges: 10, maxAttemptWindows: 10 })
+    const account: AuthAttemptLimit = {
       sub: 'target-user',
-      purpose: 'login',
+      purpose: 'sign-in',
       window: 60_000,
       maxAttempts: 2,
     }

@@ -12,7 +12,7 @@ import { DEFAULT_VISITOR_PATH } from './defaults'
 import type { ResolvedVisitorsConfig, VisitorsConfig } from './types'
 
 export const DEFAULT_VISITORS_CONFIG = {
-  cookieName: 'sark_visitor',
+  cookieName: 'visitor_id',
   expiresIn: 15_552_000_000,
   path: DEFAULT_VISITOR_PATH,
   cookie: {

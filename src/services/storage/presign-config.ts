@@ -1,12 +1,7 @@
 /** Presign configuration and request validation, independent of signing SDKs. */
 import { getMimeType } from 'hono/utils/mime'
 
-import {
-  type PresignedResult,
-  type PresignOptions,
-  StorageError,
-  validateStorageKey,
-} from './types'
+import { type PresignOptions, type PresignResult, StorageError, validateStorageKey } from './types'
 
 /** Configuration for S3 presigning, reusing client credentials and target bucket. */
 export interface S3PresignConfig {
@@ -39,7 +34,7 @@ export interface R2PresignConfig {
 /** Supported presign configurations. */
 export type PresignConfig = S3PresignConfig | R2PresignConfig
 
-export type R2Signer = (options: PresignOptions) => Promise<PresignedResult>
+export type R2Signer = (options: PresignOptions) => Promise<PresignResult>
 
 /** Presign declaration retained in storage configuration. */
 export interface PresignDeclaration<Options extends PresignConfig = PresignConfig> {

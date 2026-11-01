@@ -2,12 +2,12 @@
 import { BuildEnvironment, createIdResolver, type ResolvedConfig } from 'vite'
 
 import {
+  type PluginOptions,
   type ResolvedProjectConfig,
+  resolvePluginOptions,
   resolveProjectConfig,
-  resolveSarkOptions,
-  type SarkOptions,
 } from '../config'
-import { developmentAssets } from './assets'
+import { createDevelopmentAssets } from './assets'
 import { discoverAppEntry, discoverDatabaseDriver, type DiscoveredAppExports } from './discover/app'
 import { type DiscoveredPageTree, discoverPages } from './discover/pages'
 import { discoverApiRoutes } from './discover/routes'
@@ -20,8 +20,8 @@ import { generateBuildArtifacts } from './generate'
  * @param options - Sark discovery and generation settings; omitted values use shared defaults.
  * @throws If discovery detects invalid exports or route conflicts, or generated files cannot be written.
  */
-export function generateProject(projectRoot: string, options: SarkOptions = {}): void {
-  generateResolvedProject(resolveProjectConfig(projectRoot, resolveSarkOptions(options)), '/')
+export function generateProject(projectRoot: string, options: PluginOptions = {}): void {
+  generateResolvedProject(resolveProjectConfig(projectRoot, resolvePluginOptions(options)), '/')
 }
 
 /**
@@ -71,7 +71,8 @@ export function generateResolvedProject(
     webPrefix: config.webPrefix,
     target: config.target,
     apiTypes: config.apiTypes,
-    assets: base === undefined ? undefined : developmentAssets(base, pages, config.generatedDir),
+    assets:
+      base === undefined ? undefined : createDevelopmentAssets(base, pages, config.generatedDir),
   })
   return pages
 }

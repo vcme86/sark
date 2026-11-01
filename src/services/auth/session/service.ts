@@ -189,7 +189,7 @@ export function createAuthService(
         authTime: identity.authTime,
         amr: identity.amr,
         roles: identity.roles,
-        authentication: identity.authentication,
+        auth: identity.auth,
       })
 
       const token = await signWithKey(payload, config.activeKey)

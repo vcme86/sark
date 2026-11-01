@@ -20,7 +20,7 @@ export type {
   PageConfig,
   PageDeclaration,
   PageError,
-  PageIdentityCallback,
+  PageIdentityResolver,
   ScriptDescriptor,
   ShouldRevalidateArgs,
 } from '../page/types'

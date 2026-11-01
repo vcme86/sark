@@ -126,7 +126,7 @@ describe('Visitors Contract Tests', () => {
         expect(response.status).toBe(allowed ? 204 : 403)
         expect(response.headers.get('access-control-allow-origin')).toBe(origin)
         if (allowed) {
-          expect(response.headers.get('set-cookie')).toContain('sark_visitor=')
+          expect(response.headers.get('set-cookie')).toContain('visitor_id=')
         } else {
           expect((await response.json()).error.code).toBe('csrf_forbidden')
           expect(response.headers.get('set-cookie')).toBeNull()
@@ -170,12 +170,12 @@ describe('Visitors Contract Tests', () => {
     const validUuid = crypto.randomUUID()
     const futureExp = Date.now() + 100_000
     const validPayload = `v1:${validUuid}:${futureExp}`
-    const validSignedCookie = await generateSignedCookie('sark_visitor', validPayload, SECRET)
+    const validSignedCookie = await generateSignedCookie('visitor_id', validPayload, SECRET)
 
     const expiredUuid = crypto.randomUUID()
     const pastExp = Date.now() - 100_000
     const expiredPayload = `v1:${expiredUuid}:${pastExp}`
-    const expiredSignedCookie = await generateSignedCookie('sark_visitor', expiredPayload, SECRET)
+    const expiredSignedCookie = await generateSignedCookie('visitor_id', expiredPayload, SECRET)
 
     const tamperedSignedCookie = validSignedCookie.replace(validUuid.slice(0, 4), 'ffff')
 
@@ -303,7 +303,7 @@ describe('Visitors Contract Tests', () => {
       // Single Set-Cookie header written
       const setCookies = response.headers.getSetCookie()
       expect(setCookies.length).toBe(1)
-      expect(setCookies[0]).toContain(`sark_visitor=v1%3A${firstId}`)
+      expect(setCookies[0]).toContain(`visitor_id=v1%3A${firstId}`)
       expect(setCookies[0]).toContain('Path=/')
       expect(setCookies[0]).toContain('HttpOnly')
       expect(setCookies[0]).toContain('SameSite=Lax')
@@ -316,7 +316,7 @@ describe('Visitors Contract Tests', () => {
     const existingUuid = crypto.randomUUID()
     const exp = Date.now() + 100_000
     const signedCookie = await generateSignedCookie(
-      'sark_visitor',
+      'visitor_id',
       `v1:${existingUuid}:${exp}`,
       SECRET,
     )
@@ -364,10 +364,10 @@ describe('Visitors Contract Tests', () => {
       const setCookies = response.headers.getSetCookie()
       expect(setCookies.length).toBe(2)
       // 1. Cleared (Max-Age=0)
-      expect(setCookies[0]).toContain('sark_visitor=')
+      expect(setCookies[0]).toContain('visitor_id=')
       expect(setCookies[0]).toContain('Max-Age=0')
       // 2. New signed cookie
-      expect(setCookies[1]).toContain(`sark_visitor=v1%3A${data.newId}`)
+      expect(setCookies[1]).toContain(`visitor_id=v1%3A${data.newId}`)
     } finally {
       await instance.close()
     }
@@ -376,11 +376,7 @@ describe('Visitors Contract Tests', () => {
   it('strictly throws response_committed when mutating headers after commit, but allows reusing valid ID', async () => {
     const validUuid = crypto.randomUUID()
     const exp = Date.now() + 100_000
-    const signedCookie = await generateSignedCookie(
-      'sark_visitor',
-      `v1:${validUuid}:${exp}`,
-      SECRET,
-    )
+    const signedCookie = await generateSignedCookie('visitor_id', `v1:${validUuid}:${exp}`, SECRET)
 
     let caughtEnsureError: unknown
     let caughtClearError: unknown
@@ -464,7 +460,7 @@ describe('Visitors Contract Tests', () => {
     const visitorUuid = crypto.randomUUID()
     const exp = Date.now() + 100_000
     const visitorCookie = await generateSignedCookie(
-      'sark_visitor',
+      'visitor_id',
       `v1:${visitorUuid}:${exp}`,
       SECRET,
     )
