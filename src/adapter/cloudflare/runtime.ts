@@ -4,6 +4,10 @@
  * @module
  */
 
+import type {
+  WebSocket as WorkerWebSocket,
+  WebSocketPair as WorkerWebSocketPair,
+} from '@cloudflare/workers-types'
 import { Context } from 'hono'
 import { cors } from 'hono/cors'
 
@@ -12,12 +16,15 @@ import { runInScope } from '../../core/context'
 import { assembleApp } from '../../core/create'
 import type { EnvOf } from '../../core/declaration'
 import type { AppDefinition } from '../../core/definition'
+import { applicationLifecycles } from '../../core/lifecycle'
 import { ensureBasicLogging } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
 import { type ResolvedHttpConfig, resolveHttpConfig } from '../../http/config'
 import { formatErrorResponse } from '../../http/server/output'
 import { applyResponseHeaders } from '../../http/server/request-context'
+import { getWsUpgradeState } from '../../http/server/websocket'
 import { decorateCloudflareAssetResponse } from './assets'
+import { runCloudflareWebSocket } from './websocket'
 
 /** Cloudflare Workers standard execution context interface. */
 export interface CloudflareExecutionContext {
@@ -142,7 +149,50 @@ export function createWorkerHandler<D extends AppDefinition>(
       }
 
       const instance = await getInstance()
-      return instance.fetch(request, env, ctx)
+      const res = await instance.fetch(request, env, ctx)
+      const upgradeState = getWsUpgradeState(res)
+      if (upgradeState) {
+        const { WebSocketPair } = globalThis as unknown as {
+          WebSocketPair: typeof WorkerWebSocketPair
+        }
+        let serverSocket: WorkerWebSocket | undefined
+        let accepted = false
+        let transferred = false
+        try {
+          const pair = new WebSocketPair()
+          serverSocket = pair[1]
+          serverSocket.binaryType = 'arraybuffer'
+          serverSocket.accept()
+          accepted = true
+          const init: ResponseInit & { webSocket: WorkerWebSocket } = {
+            status: 101,
+            webSocket: pair[0],
+            headers: res.headers,
+          }
+          const response = new Response(null, init)
+          runCloudflareWebSocket({
+            serverSocket,
+            handlers: upgradeState.handlers,
+            connectionScope: upgradeState.scope,
+            lifecycle: applicationLifecycles.get(instance),
+            release: upgradeState.release!,
+            executionCtx: ctx,
+            connectionAbort: upgradeState.connectionAbort,
+          })
+          transferred = true
+          return response
+        } finally {
+          if (!transferred) {
+            upgradeState.connectionAbort.abort()
+            try {
+              if (accepted) serverSocket!.close(1011, 'WebSocket initialization failed')
+            } finally {
+              await upgradeState.release!()
+            }
+          }
+        }
+      }
+      return res
     },
   }
 }

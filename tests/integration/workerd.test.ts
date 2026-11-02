@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { createServer, preview, type PreviewServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { WebSocket } from 'ws'
 
 import { createProject, runProjectCli, serverUrl, viteEntry } from '../helpers/project'
 
@@ -59,6 +60,28 @@ export default route().handler(ctx => {
   setCookie(ctx, 'mode', 'current')
   return { ok: true }
 })`,
+  )
+  project.write(
+    `${apiDir}/events.sse.ts`,
+    `import { route } from '@olivaw/sark/server'
+export default route().events<{ ping: { value: string } }>({ heartbeat: false }).handler(() => ({
+  async onOpen(stream) {
+    await stream.send('ping', { value: 'from-stream' })
+    stream.close()
+  },
+}))`,
+  )
+  project.write(
+    `${apiDir}/echo.ws.ts`,
+    `import { route } from '@olivaw/sark/server'
+export default route().handler(() => ({
+  onOpen(socket) {
+    socket.send('cf-ws-open')
+  },
+  onMessage(socket, data) {
+    socket.send('worker:' + (typeof data === 'string' ? data : new TextDecoder().decode(data)))
+  },
+}))`,
   )
   project.write(
     'vite.config.mts',
@@ -216,6 +239,36 @@ for (const mode of ['development', 'production preview'] as const) {
     it('does not mount Node probes in Workers', async () => {
       for (const path of ['/livez', '/readyz'])
         expect((await fetch(serverUrl(workerServer!.httpServer) + path)).status).toBe(404)
+    })
+
+    it('streams Server-Sent Events from Workers runtime', async () => {
+      const response = await fetch(`${workerUrl}/api/events`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('text/event-stream')
+      const text = await response.text()
+      expect(text).toContain('event: ping')
+      expect(text).toContain('"value":"from-stream"')
+    })
+
+    it('handles WebSocket upgrade on Workers runtime', async () => {
+      const wsUrl = (serverUrl(workerServer!.httpServer) + '/service/v2/api/echo').replace(
+        /^http/,
+        'ws',
+      )
+      const ws = new WebSocket(wsUrl)
+      const openPromise = Promise.withResolvers<string>()
+      ws.on('message', (data) => {
+        openPromise.resolve(data.toString())
+      })
+      const msg = await openPromise.promise
+      expect(msg).toBe('cf-ws-open')
+      const echoPromise = Promise.withResolvers<string>()
+      ws.once('message', (data) => {
+        echoPromise.resolve(data.toString())
+      })
+      ws.send('hello-cf')
+      expect(await echoPromise.promise).toBe('worker:hello-cf')
+      ws.close()
     })
   })
 }

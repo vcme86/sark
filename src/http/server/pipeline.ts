@@ -8,9 +8,8 @@ import { type Context, Hono, type MiddlewareHandler } from 'hono'
 import { every } from 'hono/combine'
 import { matchedRoutes } from 'hono/route'
 import { TrieRouter } from 'hono/router/trie-router'
-import { getPath as getRequestPath } from 'hono/utils/url'
 
-import { getCurrentScope, type RequestScope } from '../../core/context'
+import { getCurrentScope, type RequestScope, runInScope } from '../../core/context'
 import { getLogger } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
 import { createClient } from '../client/client'
@@ -21,8 +20,7 @@ import { csrf } from '../middleware/csrf'
 import {
   checkUrlNormalization,
   compareRoutes,
-  createRouteCanonicalizer,
-  type RouteCanonicalizer,
+  createRequestPathResolver,
   routeShape,
 } from '../path'
 import { captureResponsePolicy } from '../response-policy'
@@ -36,11 +34,14 @@ import {
 } from './output'
 import { computeEffectivePolicy } from './policy'
 import { bindRequestServices, requestContext } from './request-context'
-import type { PageRequestHandler, RouteEntry } from './types'
+import { executeSseEndpoint } from './sse'
+import type { HttpEnv, PageRequestHandler, RouteEntry } from './types'
+import { executeWebSocketEndpoint } from './websocket'
 
 interface RequestPolicy {
   cors?: MiddlewareHandler
   admission?: MiddlewareHandler
+  csrf?: boolean | { origins?: string[] }
 }
 
 interface RequestPolicies {
@@ -77,7 +78,23 @@ function compilePolicy(effective: ReturnType<typeof computeEffectivePolicy>): Re
   return {
     cors: effective.cors === false ? undefined : cors(effective.cors),
     admission,
+    csrf: effective.csrf,
   }
+}
+
+async function finalizeResponse(ctx: Context, output: unknown): Promise<Response> {
+  if (output instanceof Response && !ctx.finalized) preserveResponseCookies(ctx, output)
+  if (ctx.req.method === 'HEAD' && output instanceof Response && output.body) {
+    try {
+      await output.body.cancel()
+    } catch (error) {
+      getLogger().warn('HEAD response body cancellation failed', { error })
+    }
+  }
+  const response = formatResponse(output, ctx.req.raw, ctx.res.headers)
+  const vary = response.headers.get('Vary')
+  if (vary) ctx.header('Vary', vary)
+  return response
 }
 
 /**
@@ -127,6 +144,35 @@ export function buildHttpApp(
   for (const entry of orderedRoutes) {
     if (
       entry.kind !== 'page' &&
+      entry.routePath.isWs &&
+      (entry.declaration.validators.json ||
+        entry.declaration.validators.form ||
+        entry.declaration.validators.text)
+    ) {
+      throw new Error(
+        `${entry.source ?? entry.routePath.urlPath}: WebSocket routes cannot declare a request body schema.`,
+      )
+    }
+    if (entry.kind !== 'page') {
+      const declIsSse = entry.declaration.isSse === true
+      if (entry.routePath.isSse && !declIsSse) {
+        throw new Error(
+          `${entry.source ?? entry.routePath.urlPath}: SSE file (.sse) must declare an SSE endpoint via .events(...).`,
+        )
+      }
+      if (!entry.routePath.isSse && declIsSse) {
+        throw new Error(
+          `${entry.source ?? entry.routePath.urlPath}: Non-SSE file cannot declare an SSE endpoint.`,
+        )
+      }
+      if (entry.routePath.isWs && declIsSse) {
+        throw new Error(
+          `${entry.source ?? entry.routePath.urlPath}: WebSocket route cannot declare an SSE endpoint.`,
+        )
+      }
+    }
+    if (
+      entry.kind !== 'page' &&
       (entry.routePath.method === 'GET' || entry.routePath.method === 'HEAD') &&
       (entry.declaration.validators.json ||
         entry.declaration.validators.form ||
@@ -163,7 +209,7 @@ export function buildHttpApp(
     if (!cached) {
       const applicationPolicy = compilePolicy(cfg)
       cached = {
-        defaultPolicy: { cors: applicationPolicy.cors },
+        defaultPolicy: { cors: applicationPolicy.cors, csrf: applicationPolicy.csrf },
         applicationPolicy,
         routePolicies: new Map<RouteEntry, RequestPolicy>(),
       }
@@ -234,8 +280,6 @@ export function buildHttpApp(
     return policies
   }
 
-  let canonicalizer: RouteCanonicalizer | undefined
-
   function pageClient(ctx: Context) {
     const instance = instanceProvider?.()
     if (!instance || apiPrefix === undefined) {
@@ -265,63 +309,51 @@ export function buildHttpApp(
     })
   }
 
-  const getPath = (request: Request): string => {
-    let pathname = getRequestPath(request)
-
-    if (pathname.length > 1 && pathname.endsWith('/')) {
-      pathname = pathname.slice(0, -1)
-    }
-
-    const currentConfig = getConfig()
-    if (!currentConfig.caseSensitive) {
-      const canonical = (canonicalizer ??= createRouteCanonicalizer(orderedRoutes)).findCanonical(
-        pathname,
-        preflightMethod(request) ?? request.method,
-      )
-      if (canonical) {
-        pathname = canonical
-      }
-    }
-
-    return pathname
-  }
+  const pathResolver = createRequestPathResolver(orderedRoutes, getConfig)
+  const getPath = (request: Request): string => pathResolver(request, preflightMethod(request))
 
   const preparedRoutes = orderedRoutes.map((entry) => {
     const indexed = { method: entry.routePath.method, entry }
     methodRouter.add(entry.routePath.method, entry.routePath.urlPath, indexed)
     methodRouter.add(METHOD_INDEX, entry.routePath.urlPath, indexed)
-    if (entry.routePath.method === 'GET') methodRouter.add('HEAD', entry.routePath.urlPath, indexed)
+    if (entry.routePath.method === 'GET' && !entry.routePath.isWs) {
+      methodRouter.add('HEAD', entry.routePath.urlPath, indexed)
+    }
+
     const handler: MiddlewareHandler = async (ctx) => {
-      const output =
-        entry.kind === 'page'
-          ? await entry.pageHandler(
-              ctx,
-              pageClient(ctx),
-              getCurrentScope() as RequestScope,
-              getConfig().production,
-            )
-          : await entry.declaration.handler(
-              ctx,
-              await parseAndValidateInput(ctx, entry.declaration.validators),
-            )
-      if (output instanceof Response && !ctx.finalized) preserveResponseCookies(ctx, output)
-      if (ctx.req.method === 'HEAD' && output instanceof Response && output.body) {
-        try {
-          await output.body.cancel()
-        } catch (error) {
-          getLogger().warn('HEAD response body cancellation failed', { error })
-        }
+      if (entry.kind === 'page') {
+        const output = await entry.pageHandler(
+          ctx,
+          pageClient(ctx),
+          getCurrentScope() as RequestScope,
+          getConfig().production,
+        )
+        return finalizeResponse(ctx, output)
       }
-      const response = formatResponse(output, ctx.req.raw, ctx.res.headers)
-      const vary = response.headers.get('Vary')
-      if (vary) ctx.header('Vary', vary)
-      return response
+
+      const input = await parseAndValidateInput(ctx, entry.declaration.validators)
+      const output = await entry.declaration.handler(ctx, input)
+
+      if (output instanceof Response) {
+        return finalizeResponse(ctx, output)
+      }
+
+      if (entry.routePath.isSse) {
+        return executeSseEndpoint(entry, ctx, output, instanceProvider)
+      }
+
+      if (entry.routePath.isWs) {
+        const policies = policiesFor(ctx)
+        return executeWebSocketEndpoint(ctx, output, policies.route.csrf)
+      }
+
+      return finalizeResponse(ctx, output)
     }
     handlerToEntry.set(handler, entry)
     return { ...entry, handler }
   })
 
-  const app = new Hono({ getPath })
+  const app = new Hono<HttpEnv>({ getPath })
   app.use('*', requestContext(getConfig, instanceProvider))
 
   // Register CORS ahead of all rejections, using the selected route's own parameter context.
@@ -363,13 +395,16 @@ export function buildHttpApp(
     const publicUrl = new URL(scope!.externalOrigin!)
     publicUrl.pathname = requestUrl.pathname
     publicUrl.search = requestUrl.search
-    const redirectUrl = checkUrlNormalization(
-      publicUrl,
-      ctx.req.method,
-      currentConfig.trailingSlash,
-      ctx.req.path,
-    )
-    if (redirectUrl) return ctx.redirect(redirectUrl, 308)
+    const policies = policiesFor(ctx)
+    if (!policies.selectedEntry?.routePath.isWs) {
+      const redirectUrl = checkUrlNormalization(
+        publicUrl,
+        ctx.req.method,
+        currentConfig.trailingSlash,
+        ctx.req.path,
+      )
+      if (redirectUrl) return ctx.redirect(redirectUrl, 308)
+    }
     return next()
   })
 
@@ -379,6 +414,39 @@ export function buildHttpApp(
     const vary = errorResponse.headers.get('Vary')
     if (vary) ctx.header('Vary', vary)
     return preserveResponseCookies(ctx, errorResponse)
+  })
+
+  // Services and endpoint callbacks share the connection signal from their first binding.
+  app.use('*', async (ctx, next) => {
+    const selected = policiesFor(ctx).selectedEntry
+    if (!selected || (!selected.routePath.isWs && !selected.routePath.isSse)) return next()
+    const scope = getCurrentScope() as RequestScope
+    const parentSignal = scope.signal
+    const controller = new AbortController()
+    const forwardAbort = () => controller.abort(parentSignal.reason)
+    if (parentSignal.aborted) forwardAbort()
+    else
+      parentSignal.addEventListener('abort', forwardAbort, {
+        once: true,
+        signal: controller.signal,
+      })
+    ctx.set('sark_connection_abort', controller)
+    try {
+      await runInScope({ ...scope, signal: controller.signal }, next)
+    } finally {
+      const acceptedWs = ctx.get('sark_ws_upgrade')
+      const streaming =
+        selected.routePath.isSse &&
+        ctx.res.status === 200 &&
+        ctx.res.body &&
+        ctx.res.headers.get('content-type')?.split(';')[0].trim().toLowerCase() ===
+          'text/event-stream'
+      if (!acceptedWs && !streaming) {
+        controller.abort()
+        parentSignal.removeEventListener('abort', forwardAbort)
+        await ctx.get('sark_sse_close')?.()
+      }
+    }
   })
 
   app.use('*', bindRequestServices)
@@ -455,7 +523,7 @@ export function buildHttpApp(
     if (matches && matches.length > 0) {
       for (const [route] of matches) {
         allowedMethods.add(route.method)
-        if (route.method === 'GET') allowedMethods.add('HEAD')
+        if (route.method === 'GET' && !route.entry.routePath.isWs) allowedMethods.add('HEAD')
       }
     }
 

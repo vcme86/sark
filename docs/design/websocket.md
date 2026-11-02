@@ -47,7 +47,7 @@ interface SocketHandlers {
   onOpen?(socket: Socket): void | Promise<void>
   onMessage?(socket: Socket, data: string | Uint8Array): void | Promise<void>
   onClose?(socket: Socket, code: number, reason: string): void | Promise<void>
-  onError?(socket: Socket, error: unknown): void
+  onError?(socket: Socket, error: unknown): void | Promise<void>
 }
 ```
 
@@ -67,9 +67,9 @@ send 返回 void 表示向平台提交发送，不表示字节已发送完毕或
 
 ## 两个平台与开发接入
 
-Node 生产复用 Hono Node server 的升级能力；Vite 已持有 server 时使用自己的 upgrade/ws 桥接，不访问适配器私有 Symbol。两条路径共享握手、事件和关闭规则。
+Node 生产与 Vite 开发复用桥接实现，每个应用实例拥有自己的底层 WebSocket 引擎。存在 `.ws.ts` 路由时需安装可选 peer `ws`；无该路由时不加载此依赖。Vite 的 HMR 与启用 WS 的代理先确定归属，其余升级再按共同路径规则交给 Sark；HTTP-only 代理不占用 WS 路由。两种 Node 接入共享握手、包含头与正文的 HTTP 拒绝响应、事件派发和排空。
 
-Workers 复用对应 Hono/平台升级，必要时在连接可发送后触发一次 onOpen，不依赖上游一定提供同名事件。异步初始化不重新改变已经完成的升级决定；异常沿连接错误处理。平台连接工作不伪装成常驻 Node server 的 shutdown。
+Workers 采用平台原生 `WebSocketPair` 与 101 Response 挂载机制（提交带 `webSocket` 的 101 Response）。握手接受时将事件服务释放移交连接关闭处理，避免连接建立时即时销毁。原生接受与 101 响应准备成功后启动一次 onOpen；其异步错误不能改写已接受的握手。平台连接工作不伪装成常驻 Node server 的 shutdown，不引入 Node 专有协议依赖。
 
 负载均衡不会逐条迁移已建立连接，重连重新准入。框架不默认提供跨实例广播、持久会话、Durable Object 房间或消息总线。
 

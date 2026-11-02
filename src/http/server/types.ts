@@ -4,7 +4,20 @@ import type { Context } from 'hono'
 import type { RequestScope } from '../../core/context'
 import type { HttpClient } from '../client/client'
 import type { ParsedRoutePath } from '../path'
-import type { RouteDeclaration, RouteScope } from '../types'
+import type { RouteDeclaration, RouteScope, SseDeclaration } from '../types'
+import type { WsUpgradeState } from './websocket'
+
+/** Private variables used during endpoint preparation and host handoff. */
+export interface HttpEnv {
+  Variables: {
+    sark_connection_abort: AbortController
+    sark_sse_close?: () => Promise<void>
+    sark_ws_upgrade?: WsUpgradeState
+  }
+}
+
+/** Internal context carrying connection preparation and upgrade state. */
+export type HttpContext = Context<HttpEnv>
 
 /** Page request handler installed by generated application assembly. */
 export type PageRequestHandler = (
@@ -27,6 +40,6 @@ interface RouteEntryBase {
 /** HTTP API declaration or a page terminal, sharing the same Hono execution chain. */
 export type RouteEntry = RouteEntryBase &
   (
-    | { readonly kind?: 'api'; readonly declaration: RouteDeclaration }
+    | { readonly kind?: 'api'; readonly declaration: RouteDeclaration | SseDeclaration }
     | { readonly kind: 'page'; readonly pageHandler: PageRequestHandler }
   )

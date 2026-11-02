@@ -167,6 +167,109 @@ export interface RouteDeclaration<
   readonly validators: InputValidators
   readonly handler: RouteHandler<TInput, TOutput>
   readonly isRoute: true
+  readonly isSse?: false
+}
+
+/** Options configuring Server-Sent Events behavior. */
+export interface SseOptions {
+  /**
+   * Heartbeat interval in milliseconds using comment frames.
+   * Pass `false` to disable heartbeat frames.
+   *
+   * @default 15000
+   */
+  heartbeat?: number | false
+}
+
+/** Resolved and validated options for Server-Sent Events behavior. */
+export interface ResolvedSseOptions {
+  /** Heartbeat interval in milliseconds using comment frames, or `false` if disabled. */
+  readonly heartbeat: number | false
+}
+
+/** Per-message metadata for Server-Sent Events. */
+export interface SseSendOptions {
+  /** Event identifier; CR, LF, and NUL are not allowed. */
+  id?: string
+  /** Non-negative integer reconnection interval in milliseconds, including zero. */
+  retry?: number
+}
+
+/** Server-Sent Events stream handle providing message transmission and lifecycle controls. */
+export interface SseStream<TEvents = Record<string, unknown>> {
+  /**
+   * Encodes and sends a typed event to the connected client respecting backpressure.
+   *
+   * @param event - Name of the event defined in the endpoint's event table.
+   * @param data - JSON-serializable payload written to the event's data field.
+   * @param options - Optional event ID and retry interval.
+   * @returns Resolves after stream backpressure, or without writing if closing.
+   *   Rejects on serialization, metadata, or transport failure.
+   */
+  send<K extends keyof TEvents & string>(
+    event: K,
+    data: TEvents[K],
+    options?: SseSendOptions,
+  ): Promise<void>
+  /** Abort signal triggered when the client disconnects or the stream is closed. */
+  readonly signal: AbortSignal
+  /** Initiates graceful close without waiting for the currently executing callback. */
+  close(): void
+}
+
+/** Lifecycle callbacks for a Server-Sent Events endpoint. */
+export interface SseHandlers<TEvents = Record<string, unknown>> {
+  /**
+   * Starts the producer after admission, before the host necessarily delivers response headers.
+   * Returning from onOpen does not close the stream.
+   */
+  onOpen?(stream: SseStream<TEvents>): void | Promise<void>
+  /** Runs once during close, after the producer's returned asynchronous work finishes. */
+  onClose?(stream: SseStream<TEvents>): void | Promise<void>
+  /** Invoked when an unhandled error occurs during stream production or message writing. */
+  onError?(stream: SseStream<TEvents>, error: unknown): void | Promise<void>
+}
+
+/** Declared Server-Sent Events endpoint definition. */
+export interface SseDeclaration<
+  TInput = any,
+  TEvents = Record<string, unknown>,
+  TSchemas extends RouteInputSchema | undefined = any,
+> {
+  readonly options: ResolvedRouteOptions
+  readonly schemas?: TSchemas
+  readonly validators: InputValidators
+  readonly sseOptions: ResolvedSseOptions
+  readonly handler: (
+    ctx: Context,
+    input: TInput,
+  ) => SseHandlers<TEvents> | Response | Promise<SseHandlers<TEvents> | Response>
+  readonly isRoute: true
+  readonly isSse: true
+}
+
+/** Duplex WebSocket abstraction for active connections across Node and Cloudflare Workers. */
+export interface Socket {
+  /** Submits text or binary data to the underlying transport. */
+  send(data: string | Uint8Array): void
+  /** Initiates the closing handshake with an optional status code and reason string. */
+  close(code?: number, reason?: string): void
+  /** Abort signal triggered when the connection is closed, faulted, or drained. */
+  readonly signal: AbortSignal
+  /** Numeric connection state: 0 (CONNECTING), 1 (OPEN), 2 (CLOSING), 3 (CLOSED). */
+  readonly readyState: number
+}
+
+/** Lifecycle and message event handlers for a WebSocket endpoint. */
+export interface SocketHandlers {
+  /** Invoked after the WebSocket handshake completes and the socket is ready for communication. */
+  onOpen?(socket: Socket): void | Promise<void>
+  /** Invoked concurrently for incoming messages without awaiting prior message execution. */
+  onMessage?(socket: Socket, data: string | Uint8Array): void | Promise<void>
+  /** Runs after transport closure and the completion of returned open, message, and error work. */
+  onClose?(socket: Socket, code: number, reason: string): void | Promise<void>
+  /** Invoked on unhandled callback exceptions, asynchronous rejections, or transport failures. */
+  onError?(socket: Socket, error: unknown): void | Promise<void>
 }
 
 /** Strongly-typed metadata representation of an endpoint for API client consumption. */
@@ -248,3 +351,32 @@ export type EndpointFromRoute<R, Path extends string = never> =
         output: SuccessfulOutput<Awaited<Output>>
       }
     : { input: unknown; output: unknown }
+
+/**
+ * Infers typed schema inputs and the event-to-payload mapping for an SSE endpoint.
+ * Request bodies are excluded from the inferred input.
+ */
+export type SseEndpointFromRoute<R, Path extends string = never> =
+  R extends SseDeclaration<any, infer Events, infer Schemas>
+    ? {
+        input: (Schemas extends { params: unknown } ? SchemaField<Schemas, 'params'> : {}) &
+          (Schemas extends { query: unknown } ? SchemaField<Schemas, 'query'> : {}) &
+          (Schemas extends { headers: unknown } ? SchemaField<Schemas, 'headers'> : {}) &
+          (Schemas extends { params: unknown } ? {} : DefaultPathInput<Path>)
+        events: Events
+      }
+    : { input: unknown; events: Record<string, unknown> }
+
+/**
+ * Infers typed schema inputs for a WebSocket endpoint.
+ * Request bodies are excluded from the inferred input.
+ */
+export type WsEndpointFromRoute<R, Path extends string = never> =
+  R extends RouteDeclaration<any, any, infer Schemas>
+    ? {
+        input: (Schemas extends { params: unknown } ? SchemaField<Schemas, 'params'> : {}) &
+          (Schemas extends { query: unknown } ? SchemaField<Schemas, 'query'> : {}) &
+          (Schemas extends { headers: unknown } ? SchemaField<Schemas, 'headers'> : {}) &
+          (Schemas extends { params: unknown } ? {} : DefaultPathInput<Path>)
+      }
+    : { input: unknown }

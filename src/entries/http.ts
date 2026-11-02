@@ -11,6 +11,7 @@ export {
   type DefaultApi,
   type HttpClient,
   type Register,
+  type SseConnection,
 } from '../http/client/client'
 export { HttpError } from '../http/error'
 export type {
@@ -19,4 +20,6 @@ export type {
   EndpointFromRoute,
   HttpMethod,
   Jsonify,
+  SseEndpointFromRoute,
+  WsEndpointFromRoute,
 } from '../http/types'

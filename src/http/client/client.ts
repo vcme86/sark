@@ -2,6 +2,14 @@ import { DEFAULT_API_PREFIX, DEFAULT_CLIENT_CREDENTIALS } from '../defaults'
 import { HttpError } from '../error'
 import { decodeResponse } from './decode'
 import { buildUrl, encodeBody, type RequestData } from './encode'
+import {
+  createSseConnection,
+  type SseConnection,
+  type SseErrorHandler,
+  type SseEventHandler,
+} from './sse'
+
+export type { SseConnection, SseErrorHandler, SseEventHandler }
 
 /**
  * Application API registry extended through the public HTTP entry.
@@ -42,9 +50,23 @@ export interface ClientCallOptions extends RequestData {
 
 type MethodEndpoint<Methods, Method extends string> = Method extends keyof Methods
   ? Methods[Method]
-  : 'ALL' extends keyof Methods
-    ? Methods['ALL']
-    : never
+  : Method extends 'GET'
+    ? 'WS' extends keyof Methods
+      ? never
+      : 'SSE' extends keyof Methods
+        ? never
+        : 'ALL' extends keyof Methods
+          ? Methods['ALL']
+          : never
+    : Method extends 'HEAD'
+      ? 'WS' extends keyof Methods
+        ? never
+        : 'ALL' extends keyof Methods
+          ? Methods['ALL']
+          : never
+      : 'ALL' extends keyof Methods
+        ? Methods['ALL']
+        : never
 
 type ExtractPaths<Api, Method extends string> =
   Api extends Record<string, unknown>
@@ -52,6 +74,15 @@ type ExtractPaths<Api, Method extends string> =
         [Path in keyof Api & string]: [MethodEndpoint<Api[Path], Method>] extends [never]
           ? never
           : Path
+      }[keyof Api & string]
+    : string
+
+type SseMethodEndpoint<Methods> = 'SSE' extends keyof Methods ? Methods['SSE'] : never
+
+type ExtractSsePaths<Api> =
+  Api extends Record<string, unknown>
+    ? {
+        [Path in keyof Api & string]: [SseMethodEndpoint<Api[Path]>] extends [never] ? never : Path
       }[keyof Api & string]
     : string
 
@@ -85,9 +116,18 @@ type HasRequiredInput<I> = I extends object
     : false
   : false
 
-type SafeBodyForMethod<Method extends string> = Method extends 'GET' | 'HEAD'
+type SafeBodyForMethod<Method extends string> = Method extends 'GET' | 'HEAD' | 'SSE'
   ? { json?: never; form?: never; text?: never }
   : {}
+
+type ExtractEvents<Api, Path extends string> =
+  Api extends Record<string, unknown>
+    ? Path extends keyof Api
+      ? Api[Path] extends { SSE: { events: infer Events } }
+        ? Events
+        : Record<string, unknown>
+      : Record<string, unknown>
+    : Record<string, unknown>
 
 type ClientOptionsFor<Api, Method extends string, Path extends string> =
   Api extends Record<string, unknown>
@@ -225,6 +265,18 @@ export interface HttpClient<Api = unknown> {
    * @returns The unconsumed Response regardless of HTTP status; transport failures still reject.
    */
   requestRaw(method: string, path: string, init?: RequestInit): Promise<Response>
+
+  /**
+   * Establishes a Server-Sent Events (SSE) connection to a typed streaming endpoint.
+   *
+   * @param path - SSE route template relative to the client's base URL.
+   * @param args - Endpoint query, parameters, headers, and fetch options; request bodies are excluded.
+   * @returns An active SseConnection instance.
+   */
+  sse<Path extends ExtractSsePaths<Api>>(
+    path: Path,
+    ...args: ClientArgsFor<Api, 'SSE', Path>
+  ): SseConnection<ExtractEvents<Api, Path>>
 }
 
 /**
@@ -263,15 +315,23 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
     return headers
   }
 
+  async function prepareRequest(
+    path: string,
+    callOptions?: ClientCallOptions,
+  ): Promise<{ url: string; headers: Headers; credentials: RequestCredentials }> {
+    const url = buildUrl(baseUrl, path, callOptions?.params, callOptions?.query)
+    const headers = await resolveHeaders(callOptions?.headers)
+    const credentials = callOptions?.init?.credentials ?? defaultCredentials
+    return { url, headers, credentials }
+  }
+
   async function send(
     method: string,
     path: string,
     callOptions?: ClientCallOptions,
   ): Promise<Response> {
-    const url = buildUrl(baseUrl, path, callOptions?.params, callOptions?.query)
-    const headers = await resolveHeaders(callOptions?.headers)
+    const { url, headers, credentials } = await prepareRequest(path, callOptions)
     const body = callOptions ? encodeBody(callOptions, headers) : undefined
-    const credentials = callOptions?.init?.credentials ?? defaultCredentials
 
     return customFetch(
       new Request(url, {
@@ -338,6 +398,15 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
           credentials,
         }),
       )
+    },
+
+    sse(path: string, ...args: any[]): SseConnection {
+      const callOptions = (args[0] ?? {}) as ClientCallOptions
+      return createSseConnection({
+        fetch: customFetch,
+        prepareRequest: () => prepareRequest(path, callOptions),
+        callOptions,
+      })
     },
   } as HttpClient<Api>
 }

@@ -71,7 +71,10 @@ export function preserveResponseCookies(ctx: Context, response: Response): Respo
 export function preserveMiddlewareCookies(middleware: MiddlewareHandler): MiddlewareHandler {
   return async (ctx, next) => {
     const response = await middleware(ctx, next)
-    if (response instanceof Response && !ctx.finalized) preserveResponseCookies(ctx, response)
+    if (response instanceof Response) {
+      if (!ctx.finalized) preserveResponseCookies(ctx, response)
+      ctx.res = response
+    }
     return response
   }
 }

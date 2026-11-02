@@ -9,9 +9,14 @@ import {
 } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 import type { RouteEntry } from '../../src/http/server/types'
+import type { SseDeclaration } from '../../src/http/types'
 
 /** Builds a route fixture from a mounted path or route filename. */
-export function routeEntry(path: string, handler: RouteHandler | RouteDeclaration, method = 'get') {
+export function routeEntry(
+  path: string,
+  handler: RouteHandler | RouteDeclaration | SseDeclaration,
+  method = 'get',
+) {
   const file = path.endsWith('.ts')
     ? path
     : path.replace(/^\/api\//, '').replace(/:([a-zA-Z0-9_]+)/g, '[$1]') +

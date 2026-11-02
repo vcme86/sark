@@ -35,7 +35,8 @@ export interface NodeServerControl {
    * Repeated calls share the same shutdown operation and do not exit the process.
    *
    * @returns A promise resolving after transport draining and application disposal complete.
-   * @throws If draining or disposal fails or exceeds its deadline; multiple failures use AggregateError.
+   * @throws If draining or disposal fails or exceeds its deadline.
+   * Multiple failures are reported in an AggregateError.
    */
   close(): Promise<void>
 }
@@ -61,7 +62,7 @@ interface NodeBuildAssets {
  * 1. Resolve runtime settings and validate listening/shutdown config.
  * 2. Mount probes before compression and business request forwarding.
  * 3. Register response compression, optional build assets, and business forwarding.
- * 4. Bind the listener and wait for successful startup.
+ * 4. Prepare selected WebSocket support, then bind the listener and wait for startup.
  * 5. Register SIGTERM/SIGINT handlers and return the server control handle.
  *
  * Shutdown order:
@@ -81,7 +82,7 @@ interface NodeBuildAssets {
  *   followed by optional deployed build assets.
  * @returns Server control handle with port and `close()` method.
  * @throws {Error} If runtime configuration or listener startup fails.
- * @throws {AggregateError} If startup fails and subsequent cleanup of application resources also throws.
+ * @throws {AggregateError} If startup fails and application cleanup also throws.
  */
 export async function startNodeServer<R extends NodeRuntimeDeclaration | undefined = undefined>(
   instance: AppInstance<any>,
@@ -135,7 +136,18 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
 
     deliveryApp.all('*', (ctx) => instance.fetch(ctx.req.raw, ctx.env))
 
-    let serverInstance: ServerType
+    const hasWs = instance.definition.routes.some(
+      (r: { routePath: { isWs?: boolean } }) => r.routePath.isWs,
+    )
+    let wsBridge: import('./websocket').NodeWebSocketBridge | undefined
+    let writeResponseFn: typeof import('./websocket').writeServerResponse | undefined
+    if (hasWs) {
+      const { createNodeWebSocketBridge, writeServerResponse } = await import('./websocket')
+      wsBridge = createNodeWebSocketBridge(instance)
+      writeResponseFn = writeServerResponse
+    }
+
+    let serverInstance!: ServerType
     let resolvedPort = config.port
 
     await new Promise<void>((resolve, reject) => {
@@ -155,6 +167,36 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
       serverInstance.once('error', onError)
     })
 
+    if (wsBridge && writeResponseFn) {
+      const bridge = wsBridge
+      const writer = writeResponseFn
+      serverInstance.on('upgrade', (req, socket, head) => {
+        bridge
+          .handleUpgrade(req, socket, head)
+          .then(async (handled) => {
+            if (!handled) {
+              await writer(req, socket, new Response('Not Found', { status: 404 }))
+            }
+          })
+          .catch((err) => {
+            getLogger().error('Unhandled error during WebSocket upgrade: {error}', { error: err })
+            try {
+              socket.destroy(err instanceof Error ? err : new Error(String(err)))
+            } catch {}
+          })
+      })
+    }
+
+    if ('closeIdleConnections' in serverInstance) {
+      const httpServer = serverInstance
+      httpServer.on('request', (_request, response) => {
+        response.once('finish', () => {
+          // Connections active when close() began become idle after their response finishes.
+          if (!httpServer.listening) httpServer.closeIdleConnections()
+        })
+      })
+    }
+
     getLogger().info(`Node server listening on port ${resolvedPort}`)
 
     const lifecycle = applicationLifecycles.get(instance)!
@@ -172,10 +214,11 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
         const transportClosed = new Promise<void>((resolve, reject) => {
           serverInstance.close((error) => (error ? reject(error) : resolve()))
         })
+        const bridgeClosed = wsBridge ? wsBridge.close(deadline) : Promise.resolve()
         const errors: unknown[] = []
         try {
           const drained = await waitUntil(
-            Promise.all([transportClosed, lifecycle.waitForIdle()]),
+            Promise.all([transportClosed, bridgeClosed, lifecycle.waitForIdle()]),
             deadline - config.shutdown.reserve,
           )
           if (!drained) {

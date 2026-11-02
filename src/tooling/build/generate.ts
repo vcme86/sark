@@ -227,7 +227,10 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
   const routeApiEntries: string[] = []
 
   // Group routes by URL path for Api type mapping
-  const pathMethodMap = new Map<string, Array<{ method: string; importName: string }>>()
+  const pathMethodMap = new Map<
+    string,
+    Array<{ method: string; importName: string; isSse: boolean; isWs: boolean }>
+  >()
 
   routes.forEach((r, idx) => {
     const importName = `route_${idx}`
@@ -254,19 +257,37 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
       methods = []
       pathMethodMap.set(r.routePath.clientPath, methods)
     }
-    methods.push({ method: r.routePath.method, importName })
+    methods.push({
+      method: r.routePath.method,
+      importName,
+      isSse: r.routePath.isSse,
+      isWs: r.routePath.isWs,
+    })
   })
 
   for (const [urlPath, methods] of pathMethodMap.entries()) {
     const methodLines: string[] = []
     for (const m of methods) {
-      methodLines.push(
-        `    ${m.method}: EndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>`,
-      )
-      if (m.method === 'GET') {
+      if (m.isSse) {
         methodLines.push(
-          `    HEAD: { input: EndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>['input']; output: Response }`,
+          `    SSE: SseEndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>`,
         )
+        methodLines.push(
+          `    HEAD: { input: SseEndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>['input']; output: Response }`,
+        )
+      } else if (m.isWs) {
+        methodLines.push(
+          `    WS: WsEndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>`,
+        )
+      } else {
+        methodLines.push(
+          `    ${m.method}: EndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>`,
+        )
+        if (m.method === 'GET') {
+          methodLines.push(
+            `    HEAD: { input: EndpointFromRoute<typeof ${m.importName}, ${JSON.stringify(urlPath)}>['input']; output: Response }`,
+          )
+        }
       }
     }
     const prefix = apiPrefix === '/' ? '' : apiPrefix
@@ -433,7 +454,7 @@ ${hasVisitors ? "import { createVisitorsAssembly } from '@olivaw/sark/runtime/vi
 ${requiresMfaAssembly ? "import { createMfaAssembly } from '@olivaw/sark/runtime/mfa'" : ''}
 ${hasTotp ? "import { createTotpFactor } from '@olivaw/sark/runtime/totp'" : ''}
 ${hasWebAuthn ? "import { createWebAuthnFactor } from '@olivaw/sark/runtime/webauthn'" : ''}
-import type { EndpointFromRoute } from '@olivaw/sark/server'
+import type { EndpointFromRoute, SseEndpointFromRoute, WsEndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
 ${hasApp ? `import { app } from ${appImportPath}` : ''}
 ${hasRuntime ? `import { runtime } from ${appImportPath}` : ''}

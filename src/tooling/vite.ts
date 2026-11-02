@@ -1,10 +1,10 @@
-import { isBuiltin } from 'node:module'
 /**
  * Vite plugin for filesystem route discovery, code generation, and dev serving.
  *
  * @module
  */
-import { resolve } from 'node:path'
+import { isBuiltin } from 'node:module'
+import { posix, resolve } from 'node:path'
 
 import { getRequestListener } from '@hono/node-server'
 import { getPath as getRequestPath } from 'hono/utils/url'
@@ -24,6 +24,7 @@ import { getApplicationRoutes } from '../core/context'
 import { createApp } from '../core/create'
 import type { AppDefinition } from '../core/definition'
 import { applicationLifecycles } from '../core/lifecycle'
+import { getLogger } from '../core/logging'
 import type { AppInstance } from '../core/types'
 import type { PageRequestHandler } from '../http/server/types'
 import {
@@ -326,6 +327,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       let handoffQueue: Promise<void> = Promise.resolve()
       let fatalDisposalError: Error | null = null
       let shutdown: ResolvedNodeRuntimeConfig['shutdown']
+      let activeWsBridge: import('../adapter/node/websocket').NodeWebSocketBridge | undefined
       let closingInstance:
         | { instance: AppInstance; complete: Promise<void>; deadline: number }
         | undefined
@@ -421,6 +423,15 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           const instance = await createApp(bindDevelopmentPages(appModule.definition), {
             env: nodeEnv,
           })
+          try {
+            if (instance.definition.routes.some((entry) => entry.routePath.isWs)) {
+              const { createNodeWebSocketBridge } = await import('../adapter/node/websocket')
+              activeWsBridge = createNodeWebSocketBridge(instance)
+            }
+          } catch (error) {
+            await instance.close()
+            throw error
+          }
           shutdown = runtime.shutdown
           currentAppInstance = instance
           creatingPromise = null
@@ -443,11 +454,14 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         if (!closingInstance) {
           const instance = currentAppInstance
           currentAppInstance = null
+          const bridgeToClose = activeWsBridge
+          activeWsBridge = undefined
           if (!instance) return
           const lifecycle = applicationLifecycles.get(instance)!
           const deadline = performance.now() + shutdown.deadline
           const owned = [...requests].filter(([, request]) => request.instance === instance)
-          const work = Promise.all(owned.map(([, request]) => request.done))
+          const bridgeClosed = bridgeToClose ? bridgeToClose.close(deadline) : Promise.resolve()
+          const work = Promise.all([...owned.map(([, request]) => request.done), bridgeClosed])
           const drained = Promise.withResolvers<void>()
           lifecycle.deferDisposalUntil(drained.promise, deadline)
           let cancellation: Error | undefined
@@ -474,8 +488,9 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
               })
             }
             // Socket closure alone does not finish a handler awaiting non-cancellable work.
-            // Keep this instance and its resources owned until the actual listener operations settle.
+            // Keep this instance's resources until its request and connection work settles.
             await work
+            if (bridgeToClose) await bridgeToClose.close(deadline)
             drained.resolve()
             const outcome = await closed
             if (outcome.error !== undefined && outcome.error !== cancellation) throw outcome.error
@@ -557,6 +572,49 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           console.error('[sark][dev] Error closing application on server close:', err)
         })
       })
+
+      const hmr = server.config.server.hmr
+      const hmrPath =
+        hmr && typeof hmr === 'object' && hmr.path
+          ? posix.join(server.config.base, hmr.path)
+          : server.config.base
+      const wsProxyRules = Object.entries(server.config.server.proxy ?? {}).flatMap(
+        ([key, value]) => {
+          const config = typeof value === 'string' ? { target: value } : value
+          const target = config.target
+          const protocol =
+            typeof target === 'string' ? target.split(':')[0] + ':' : target?.protocol
+          if (config.ws !== true && protocol !== 'ws:' && protocol !== 'wss:') return []
+          return [key.startsWith('^') ? new RegExp(key) : key]
+        },
+      )
+      const onServerUpgrade = async (
+        req: import('node:http').IncomingMessage,
+        socket: import('node:stream').Duplex,
+        head: Buffer,
+      ) => {
+        try {
+          const pathname = new URL(req.url || '/', 'http://localhost').pathname
+          const protocol = req.headers['sec-websocket-protocol']
+          if (pathname === hmrPath && (protocol === 'vite-hmr' || protocol === 'vite-ping')) return
+          if (
+            wsProxyRules.some((rule) =>
+              typeof rule === 'string' ? pathname.startsWith(rule) : rule.test(pathname),
+            )
+          )
+            return
+          await getAppInstance()
+          await activeWsBridge?.handleUpgrade(req, socket, head)
+        } catch (error) {
+          getLogger('dev.websocket').error('WebSocket upgrade failed: {error}', { error })
+          socket.destroy(
+            error instanceof Error
+              ? error
+              : new Error('WebSocket upgrade failed', { cause: error }),
+          )
+        }
+      }
+      server.httpServer?.on('upgrade', onServerUpgrade)
 
       const listener = getRequestListener(
         async (request, env) => {

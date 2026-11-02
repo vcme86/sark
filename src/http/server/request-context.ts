@@ -18,6 +18,7 @@ import {
   validateHost,
 } from '../proxy'
 import { formatErrorResponse, preserveResponseCookies } from './output'
+import { wsUpgradeCarrierMap, type WsUpgradeState } from './websocket'
 
 function getPeerIp(ctx: Context, isWorkers: boolean): string {
   if (isWorkers) {
@@ -47,6 +48,14 @@ export function applyResponseHeaders(
   config: ResolvedHttpConfig,
   requestId: string,
 ): Response {
+  if (
+    response.status === 101 ||
+    (response.body && wsUpgradeCarrierMap.has(response.body as ReadableStream))
+  ) {
+    response.headers.set('X-Request-Id', requestId)
+    applyConfiguredHeaders(response.headers, config)
+    return response
+  }
   const headers = new Headers(response.headers)
   headers.set('X-Request-Id', requestId)
   applyConfiguredHeaders(headers, config)
@@ -175,7 +184,20 @@ export function requestContext(
         preserveResponseCookies(ctx, formatErrorResponse(error, effectiveConfig.production)),
       )
     }
-    // Hono's header() makes the final response writable, including native fetch responses.
+    const upgradeState = ctx.get('sark_ws_upgrade') as WsUpgradeState | undefined
+    if (upgradeState) {
+      const isCarrierRetained = ctx.res.body === upgradeState.carrier && ctx.res.status === 200
+
+      if (!isCarrierRetained) {
+        upgradeState.connectionAbort.abort()
+        wsUpgradeCarrierMap.delete(upgradeState.carrier)
+      } else {
+        ctx.header('X-Request-Id', requestId)
+        applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
+        headersCommitted = true
+        return
+      }
+    }
     ctx.header('X-Request-Id', requestId)
     applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
     headersCommitted = true

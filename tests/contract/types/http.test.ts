@@ -58,6 +58,13 @@ describe('generated HTTP type contracts', () => {
       'rawfiles.[...path].get': 'route().handler(ctx => ({ path: ctx.req.param("path") }))',
       'users.[id].get':
         'route().validate({ params: z.object({ id: z.string() }) }).handler((_c, input) => input.params)',
+      'clock.sse':
+        'route().validate({ query: z.object({ token: z.string() }) }).events<{ tick: { time: number } }>().handler(() => ({}))',
+      'chat.ws': 'route().validate({ query: z.object({ room: z.string() }) }).handler(() => ({}))',
+      'combo-ws.ws': 'route().handler(() => ({}))',
+      'combo-ws.all': 'route().handler(() => ({ allFallback: true }))',
+      'combo-sse.sse': 'route().events<{ tick: number }>().handler(() => ({}))',
+      'combo-sse.all': 'route().handler(() => ({ allFallback: true }))',
     }
     const files: Record<string, string> = {
       'app.ts': '',
@@ -185,6 +192,40 @@ client.get('/read/:id')
 client.get('/read/:id', { params: { missing: 'Alice' } })
 // @ts-expect-error Catch-all parameters are required even without a validation schema.
 client.get('/rawfiles/*path')
+
+const sseConn = client.sse('/clock', { query: { token: 'secret' } })
+sseConn.on('tick', (data) => {
+  const time: number = data.time
+  // @ts-expect-error Data payload property must match event type.
+  const bad: string = data.time
+  void [time, bad]
+})
+// @ts-expect-error SSE route is excluded from client.get.
+client.get('/clock')
+// @ts-expect-error SSE route requires declared query parameter.
+client.sse('/clock')
+// @ts-expect-error SSE route cannot accept request body.
+client.sse('/clock', { query: { token: 'secret' }, json: {} })
+client.head('/clock', { query: { token: 'secret' } })
+// @ts-expect-error An ALL fallback route cannot be subscribed to via client.sse.
+client.sse('/fallback', { query: { term: 'book' } })
+// @ts-expect-error WS route is excluded from client.get.
+client.get('/chat')
+// @ts-expect-error WS route is excluded from client.sse.
+client.sse('/chat')
+type ChatInput = Api['/chat']['WS']['input']
+const validChat: ChatInput = { query: { room: 'general' } }
+// @ts-expect-error Query room must be string.
+const invalidChat: ChatInput = { query: { room: 123 } }
+// @ts-expect-error WS route with ALL fallback cannot be called with client.get.
+client.get('/combo-ws')
+// @ts-expect-error WS HEAD does not fall back to ALL.
+client.head('/combo-ws')
+// @ts-expect-error SSE route with ALL fallback cannot be called with client.get.
+client.get('/combo-sse')
+const comboWsPost = (await client.post('/combo-ws')).allFallback
+const comboSsePost = (await client.post('/combo-sse')).allFallback
+void [validChat, invalidChat, comboWsPost, comboSsePost]
 `,
     }
     for (const [name, declaration] of Object.entries(routes)) {

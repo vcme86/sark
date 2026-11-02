@@ -14,6 +14,7 @@ export class LifecycleManager {
   private _state: LifecycleState = 'initializing'
   private readonly resources: DisposableResource[] = []
   private readonly cancellation = new AbortController()
+  private readonly drainController = new AbortController()
   private activeRequests = 0
   private idle?: ReturnType<typeof Promise.withResolvers<void>>
   private disposal?: Promise<void>
@@ -31,6 +32,11 @@ export class LifecycleManager {
     return this.cancellation.signal
   }
 
+  /** Abort signal triggered when the application enters the draining phase. */
+  get drainingSignal(): AbortSignal {
+    return this.drainController.signal
+  }
+
   /** Number of currently active in-flight requests. */
   get pendingRequests(): number {
     return this.activeRequests
@@ -43,7 +49,10 @@ export class LifecycleManager {
 
   /** Transitions the lifecycle to `draining`, rejecting new work and preparing for shutdown. */
   setDraining(): void {
-    if (this._state === 'ready' || this._state === 'initializing') this._state = 'draining'
+    if (this._state === 'ready' || this._state === 'initializing') {
+      this._state = 'draining'
+      this.drainController.abort()
+    }
   }
 
   /** Increments the active request counter when a request begins execution. */

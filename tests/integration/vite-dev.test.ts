@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { createServer, normalizePath } from 'vite'
 import { describe, expect, it, vi } from 'vitest'
+import { WebSocket, WebSocketServer } from 'ws'
 
 import { getCurrentScope } from '../../src/core/context'
 import { applicationLifecycles } from '../../src/core/lifecycle'
@@ -295,6 +296,66 @@ describe('development instance handoff coordinator', () => {
       expect(load).not.toHaveBeenCalled()
     } finally {
       await harness.close()
+      project.remove()
+    }
+  })
+
+  it('separates Sark upgrades from HMR and WS proxies while retaining HTTP-only proxy routes', async () => {
+    const project = createProject()
+    const upstream = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    upstream.on('connection', (socket) => socket.send('proxy-open'))
+    await once(upstream, 'listening')
+    project.write(
+      'app.ts',
+      "import { defineApp } from '@olivaw/sark/server'; export const app = defineApp()",
+    )
+    project.write(
+      'api/你好.ws.ts',
+      `import { route } from '@olivaw/sark/server'
+export default route().handler(() => ({ onOpen(socket) { socket.send('sark-open') } }))`,
+    )
+    project.write(
+      'vite.config.mts',
+      `import { sark } from '@olivaw/sark/vite'
+export default { plugins: [sark()], server: { hmr: { path: '/updates' }, proxy: {
+  '/api': { target: 'http://127.0.0.1:9999', ws: false },
+  '^/proxy': { target: '${serverUrl(upstream)}', ws: true },
+} } }`,
+    )
+    let server: Awaited<ReturnType<typeof createServer>> | undefined
+    const clients: WebSocket[] = []
+    try {
+      server = await createServer({
+        root: project.root,
+        logLevel: 'silent',
+        server: { host: '127.0.0.1', port: 0 },
+      })
+      await server.listen()
+      const origin = serverUrl(server.httpServer).replace(/^http/, 'ws')
+      for (const [path, protocol, expected] of [
+        ['/api/你好', 'my-vite-hmr', 'sark-open'],
+        ['/proxy', undefined, 'proxy-open'],
+      ] as const) {
+        const client = new WebSocket(origin + path, protocol, { handshakeTimeout: 2000 })
+        clients.push(client)
+        expect((await once(client, 'message'))[0].toString()).toBe(expected)
+        const closed = once(client, 'close')
+        client.close()
+        await closed
+      }
+      const ping = new WebSocket(origin + '/updates', 'vite-ping', { handshakeTimeout: 2000 })
+      clients.push(ping)
+      await once(ping, 'open')
+    } finally {
+      for (const client of clients) {
+        if (client.readyState !== WebSocket.CLOSED) {
+          const closed = once(client, 'close')
+          client.terminate()
+          await closed
+        }
+      }
+      await server?.close()
+      await new Promise<void>((resolve) => upstream.close(() => resolve()))
       project.remove()
     }
   })

@@ -5,6 +5,7 @@
  */
 
 import { TrieRouter } from 'hono/router/trie-router'
+import { getPath as getRequestPath } from 'hono/utils/url'
 
 import { canonicalPathname, normalizeUrlPath } from './url'
 
@@ -193,7 +194,7 @@ export function parseApiFilePath(relativePath: string, apiPrefix: string): Parse
  *
  * @param a - First candidate route.
  * @param b - Second candidate route.
- * @returns A negative value when a precedes b, positive when b precedes a, or zero for equal priority.
+ * @returns Negative if a precedes b, positive if b precedes a, or zero for equal priority.
  */
 export function compareRoutes(
   a: Pick<ParsedRoutePath, 'urlPath' | 'method'>,
@@ -244,7 +245,7 @@ export interface RouteCanonicalizer {
  * @returns A canonicalizer preserving the case of parameter and wildcard values.
  */
 export function createRouteCanonicalizer(
-  routes: Array<{ readonly routePath: ParsedRoutePath }>,
+  routes: readonly { readonly routePath: ParsedRoutePath }[],
 ): RouteCanonicalizer {
   const router = new TrieRouter<string[]>()
   const pathIndex = '__PATH__'
@@ -290,4 +291,27 @@ export function checkUrlNormalization(
 
   const normalized = normalizeUrlPath(url, matchedPath, trailingSlash)
   return normalized.pathname === url.pathname ? null : normalized.href
+}
+
+/**
+ * Compiles the shared request-path boundary used by HTTP and WebSocket hosts.
+ *
+ * @param routes - Routes in dispatch priority order.
+ * @param getConfig - Already resolved HTTP settings for the current application or event.
+ * @returns A resolver that decodes once, trims the terminal slash, and canonicalizes static segments.
+ */
+export function createRequestPathResolver(
+  routes: readonly { readonly routePath: ParsedRoutePath }[],
+  getConfig: () => { readonly caseSensitive: boolean },
+): (request: Request, method?: string) => string {
+  let canonicalizer: RouteCanonicalizer | undefined
+  return (request, method = request.method) => {
+    let pathname = getRequestPath(request)
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1)
+    if (!getConfig().caseSensitive) {
+      canonicalizer ??= createRouteCanonicalizer(routes)
+      pathname = canonicalizer.findCanonical(pathname, method) ?? pathname
+    }
+    return pathname
+  }
 }

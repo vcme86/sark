@@ -19,6 +19,7 @@ export {
 export { HttpError } from '../http/error'
 export { z } from '../http/schema'
 export { route } from '../http/server/route'
+export { SOCKET_READY_STATE } from '../http/server/websocket'
 export type {
   ClientInputFromSchemas,
   Context,
@@ -34,4 +35,13 @@ export type {
   RouteHandler,
   RouteInputSchema,
   RouteOptions,
+  Socket,
+  SocketHandlers,
+  SseDeclaration,
+  SseEndpointFromRoute,
+  SseHandlers,
+  SseOptions,
+  SseSendOptions,
+  SseStream,
+  WsEndpointFromRoute,
 } from '../http/types'

@@ -263,9 +263,9 @@ export default route()
 
 顺序为 route → validate（可省）→ events → handler。事件表是事件名到 JSON 载荷的类型映射。
 
-SseStream 提供异步 `send(event, data, { id?, retry? }?)`、signal 和 close。send 复用 Hono 标准事件流编码，受背压约束；id/retry 遵循事件流语义，retry 为毫秒。heartbeat 默认 15000 毫秒，false 关闭；使用注释帧，背压时不积压心跳。
+SseStream 提供异步 `send(event, data, { id?, retry? }?)`、signal 和 close。send 遵循标准事件流编码，校验 event/id 字段禁止包含换行符（CR/LF），id 禁止包含空字符（NUL），retry 须为非负整数；data 必须可 JSON 序列化，序列化或写入失败拒绝返回的 Promise。写入受底层流背压约束；id/retry 遵循事件流语义，retry 为毫秒。heartbeat 默认 15000 毫秒，false 关闭；使用注释帧，背压时不积压心跳。
 
-onOpen 返回后不自动结束连接。断开、close、排空或不可恢复错误结束；框架捕获回调异常和 Promise 拒绝，跟踪回调返回的异步操作并在关闭时清理。提交头前准入失败用 HttpError/Response；提交后不能改状态，不输出内部异常。
+onOpen 返回后不自动结束连接。close 发起优雅关闭，停止新写入与心跳，不等待当前回调；断开或宿主强制取消会中断背压等待。框架等待回调返回的异步操作、onClose 和响应收尾完成后释放连接资源。send 错误由调用方处理，生产者未处理的异常进入一次 onError；正常取消不作为生产者错误。提交头前准入失败用 HttpError/Response；提交后不能改状态，不输出内部异常。
 
 HEAD 执行准入与输入校验，不启动生产者/心跳。每次建连和重连重新认证、授权与限流，不按每个事件重复入口限制。不进入页面缓存，Sark 跳过 text/event-stream 压缩。Node/Workers 均接对应宿主流生命周期。
 
@@ -275,7 +275,7 @@ client.sse(path, options?) 只接受 SSE 路径，query/params 必填性按 endp
 
 返回 SseConnection，提供 `on(event, handler): unsubscribe`、`onError(handler): unsubscribe`、close。事件名 error 与连接错误通道分开。初次 HTTP 非 2xx 通过 onError 报告 HttpError；已建连接的错误也交给句柄，不伪装成普通请求 Promise。
 
-底层使用现有 HTTP 传输读取标准事件流，支持头和异步凭据工厂。重连遵循 retry、Last-Event-ID、204 停止；每次重连取得当前凭据，取消沿 init.signal，close 后停止重连。
+底层复用 createClient 相同的已解析 baseUrl、credentials、headers 工厂与 customFetch。严格匹配 text/event-stream 媒体类型并仅接受 200 响应，204 停止重连。解析器在事件块结束（空行）时提交 Last-Event-ID，未完成块不污染重连 ID；客户端调用 close 立即停止当前 chunk 后续事件派发并释放底层流资源。重连遵循 retry、Last-Event-ID；每次重连取得当前凭据，取消沿 init.signal，close 后停止重连。只有 id 的完整事件块也更新重连 ID；retry: 0 合法，表示下次重连不额外等待服务器指定的间隔。
 
 订阅在 Effect 或明确业务生命周期中建立并清理，不在 React render 或 SSR Loader 自动订阅。框架不把 SSE 事件接成页面导航或业务状态。
 

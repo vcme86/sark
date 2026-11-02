@@ -12,6 +12,7 @@ import { formatErrorResponse } from '../http/server/output'
 import { buildHttpApp } from '../http/server/pipeline'
 import { applyResponseHeaders } from '../http/server/request-context'
 import type { RouteEntry } from '../http/server/types'
+import { getWsUpgradeState } from '../http/server/websocket'
 import { resolveAppConfig } from './config'
 import { applicationRoutes, getCurrentScope, runInScope, runWithoutScope } from './context'
 import type { EnvironmentArgs } from './declaration'
@@ -276,6 +277,21 @@ export async function assembleApp<D extends AppDefinition>(
           () => activeApp!.fetch(request, requestEnv, executionCtx as any),
         )
 
+        const upgradeState = getWsUpgradeState(rawResponse)
+        if (upgradeState) {
+          lifecycle.beginRequest()
+          let release: Promise<void> | undefined
+          upgradeState.release = () =>
+            (release ??= (async () => {
+              try {
+                await cleanupEventDisposals()
+              } finally {
+                lifecycle.endRequest()
+              }
+            })())
+          return rawResponse
+        }
+
         if (eventDisposals.length > 0) {
           return attachDisposal(rawResponse, cleanupEventDisposals, executionCtx)
         }
@@ -401,22 +417,27 @@ function attachDisposal(
     return response
   }
   const reader = response.body.getReader()
+  let cancelled = false
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const chunk = await reader.read()
+        if (cancelled) return
         if (chunk.done) {
           reader.releaseLock()
           finish()
           controller.close()
         } else controller.enqueue(chunk.value)
       } catch (error) {
+        if (cancelled) return
         reader.releaseLock()
         finish()
         controller.error(error)
       }
     },
     async cancel(reason) {
+      // Cancelling resolves pending reads before the underlying cancel operation finishes.
+      cancelled = true
       try {
         await reader.cancel(reason)
       } finally {

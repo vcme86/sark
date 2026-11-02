@@ -1,3 +1,5 @@
+import { once } from 'node:events'
+
 import { describe, expect, it } from 'vitest'
 
 import { createDefinition } from '../../src/entries/runtime/core'
@@ -178,6 +180,83 @@ describe('node delivery', () => {
       expect(res.status).toBe(200)
       expect(res.headers.get('content-encoding')).toBeNull()
     } finally {
+      await server.close()
+    }
+  })
+
+  it('delivers real Server-Sent Events over TCP and bypasses compression', async () => {
+    const e = entry(
+      'events.sse.ts',
+      route()
+        .events<{ live: { count: number } }>({ heartbeat: 40 })
+        .handler(() => ({
+          async onOpen(stream) {
+            await stream.send('live', { count: 1 })
+            await new Promise((r) => setTimeout(r, 50))
+            await stream.send('live', { count: 2 })
+            stream.close()
+          },
+        })),
+    )
+    const app = await createApp(createDefinition({ app: defineApp({ csrf: false }), routes: [e] }))
+    const server = await startNodeServer(app, defineNodeRuntime({ port: 0 }))
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.port}/api/events`, {
+        headers: { 'Accept-Encoding': 'gzip' },
+      })
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/event-stream')
+      expect(res.headers.get('content-encoding')).toBeNull()
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let text = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        text += decoder.decode(value)
+      }
+      expect(text).toContain('event: live')
+      expect(text).toContain('"count":1')
+      expect(text).toContain('"count":2')
+      expect(text).toContain(': heartbeat')
+    } finally {
+      await server.close()
+      await app.close()
+    }
+  })
+
+  it('cancels an SSE producer cooperatively before disposing the Node application', async () => {
+    const entered = Promise.withResolvers<void>()
+    let closedTriggered = false
+    const e = entry(
+      'drain.sse.ts',
+      route()
+        .events<{ ready: boolean }>({ heartbeat: false })
+        .handler(() => ({
+          async onOpen(stream) {
+            await stream.send('ready', true)
+            entered.resolve()
+            if (!stream.signal.aborted) await once(stream.signal, 'abort')
+          },
+          onClose() {
+            closedTriggered = true
+          },
+        })),
+    )
+    const app = await createApp(createDefinition({ routes: [e] }))
+    const server = await startNodeServer(
+      app,
+      defineNodeRuntime({ port: 0, shutdown: { deadline: 600, reserve: 100 } }),
+    )
+    let response: Response | undefined
+    try {
+      response = await fetch(`http://127.0.0.1:${server.port}/api/drain`)
+      await entered.promise
+      await server.close()
+      expect(closedTriggered).toBe(true)
+    } finally {
+      await response?.body?.cancel()
       await server.close()
     }
   })
