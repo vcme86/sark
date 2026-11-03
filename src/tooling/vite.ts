@@ -89,7 +89,9 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         resolved.target === 'cloudflare'
           ? resolveProjectConfig(resolve(config.root ?? '.'), resolved)
           : undefined
-      const tree = early ? generateResolvedProject(early) : undefined
+      const tree = early
+        ? generateResolvedProject(early, undefined, undefined, { bootstrap: true })
+        : undefined
       return {
         environments: {
           ssr: {
@@ -423,6 +425,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           const instance = await createApp(bindDevelopmentPages(appModule.definition), {
             env: nodeEnv,
           })
+          applicationLifecycles.get(instance)!.configureShutdown(runtime.shutdown)
           try {
             if (instance.definition.routes.some((entry) => entry.routePath.isWs)) {
               const { createNodeWebSocketBridge } = await import('../adapter/node/websocket')

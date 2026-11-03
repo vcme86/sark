@@ -4,15 +4,22 @@
  * @module
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import { getLogger } from '@logtape/logtape'
 import type { Hono } from 'hono'
 
 import type { ResolvedHttpConfig } from '../http/config'
 import { formatErrorResponse } from '../http/server/output'
 import { buildHttpApp } from '../http/server/pipeline'
-import { applyResponseHeaders } from '../http/server/request-context'
+import { applyResponseHeaders, responseMetadata } from '../http/server/request-context'
 import type { RouteEntry } from '../http/server/types'
 import { getWsUpgradeState } from '../http/server/websocket'
+import { emitAccessLog } from '../services/logging/access'
+import { createLoggingAssembly, type LoggingRuntime } from '../services/logging/assembly'
+import type { LoggingDeclaration } from '../services/logging/types'
+import { resolveRateLimitDeclaration } from '../services/rate-limit/declaration'
+import type { RateLimitDeclaration } from '../services/rate-limit/types'
 import { resolveAppConfig } from './config'
 import { applicationRoutes, getCurrentScope, runInScope, runWithoutScope } from './context'
 import type { EnvironmentArgs } from './declaration'
@@ -21,6 +28,9 @@ import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { ensureBasicLogging } from './logging'
 import type { ServiceBindingFactory, ServiceCreateContext, ServicePreparation } from './service'
 import type { AppInstance } from './types'
+
+/** Internal symbol for dispatching scheduled platform events within assembled event context. */
+export const kInternalDispatchEvent = Symbol.for('sark.dispatchEvent')
 
 /** Resolved configuration supplied by a fixed-instance or event host. */
 type AssembleOptions =
@@ -89,6 +99,12 @@ export async function assembleApp<D extends AppDefinition>(
           }
         : undefined
 
+    const rateLimitDecl = definition.rateLimit as RateLimitDeclaration | undefined
+    const staticRateLimitConfig =
+      options.kind === 'static'
+        ? resolveRateLimitDeclaration(rateLimitDecl, options.env)
+        : undefined
+
     // Compile the complete route graph before opening resources, using one conflict policy.
     const staticHonoApp =
       options.kind === 'static'
@@ -100,13 +116,23 @@ export async function assembleApp<D extends AppDefinition>(
             definition.page404Handler,
             definition.webPrefix,
             staticAssetMountHandler,
+            staticRateLimitConfig,
           )
         : undefined
     let cachedEventHonoApp: Hono<any> | undefined
     let cachedEventRoutes: readonly RouteEntry[] | undefined
 
+    const loggingDeclaration = definition.logging as LoggingDeclaration | undefined
+    const appResources: Record<string, import('./resource').ResourceAssembly<any>> = {}
+    if (loggingDeclaration) {
+      appResources.logging = createLoggingAssembly(loggingDeclaration)
+    }
+    if (definition.resources) {
+      Object.assign(appResources, definition.resources)
+    }
+
     const staticResources: Record<string, unknown> = {}
-    const assembledResources = Object.entries(definition.resources ?? {})
+    const assembledResources = Object.entries(appResources)
 
     for (const [name, res] of assembledResources) {
       if (options.kind === 'static') {
@@ -126,6 +152,9 @@ export async function assembleApp<D extends AppDefinition>(
     }
 
     const staticEnv = options.kind === 'static' ? options.env : undefined
+    const readyCallbacks: Array<
+      (readyContext: import('./service').ServiceReadyContext) => void | Promise<void>
+    > = []
     const staticServices = staticPlan
       ? await createServices(staticPlan.preparations, staticResources, {
           env: staticEnv,
@@ -134,6 +163,9 @@ export async function assembleApp<D extends AppDefinition>(
           logger,
           waitUntil: trackStaticWork,
           signal: lifecycle.signal,
+          drainingSignal: lifecycle.drainingSignal,
+          shutdown: lifecycle.shutdown,
+          onReady: (cb) => readyCallbacks.push(cb),
           registerDispose: (name, dispose) => lifecycle.register({ name, dispose }),
         })
       : undefined
@@ -147,21 +179,23 @@ export async function assembleApp<D extends AppDefinition>(
       return scope.config
     }
 
-    lifecycle.setReady()
+    interface EventScopeContext {
+      readonly resources: Readonly<Record<string, unknown>>
+      readonly services: Readonly<Record<string, unknown>>
+      readonly serviceBindingFactories: Readonly<Record<string, ServiceBindingFactory>>
+      readonly effectiveConfig: ResolvedHttpConfig
+      readonly httpApp?: Hono<any>
+      readonly cleanup: () => Promise<void>
+    }
 
-    const executeTracked = async (
-      request: Request,
-      requestEnv?: unknown,
-      executionCtx?: unknown,
-    ): Promise<Response> => {
-      lifecycle.beginRequest()
-      const parent = getCurrentScope()
-      const isInternal = parent?.app === instance && parent?.isInternal === true
-      const requestId =
-        (isInternal ? parent.requestId : undefined) ||
-        (executionCtx ? request.headers.get('cf-ray') : undefined) ||
-        crypto.randomUUID()
-      let effectiveConfig: ResolvedHttpConfig | undefined
+    async function prepareEventScope(
+      eventEnv: unknown,
+      executionCtx: unknown,
+      signal: AbortSignal,
+      compileHttpApp = false,
+    ): Promise<EventScopeContext> {
+      const effectiveConfig = options.kind === 'event' ? options.resolve(eventEnv) : options.config
+      const eventPlan = await prepareServices(eventEnv, effectiveConfig)
       const eventDisposals: Array<() => Promise<void> | void> = []
       const eventWork = new Set<Promise<unknown>>()
       const trackEventWork = (promise: Promise<unknown>) => {
@@ -174,7 +208,7 @@ export async function assembleApp<D extends AppDefinition>(
           executionCtx as { waitUntil?: (work: Promise<unknown>) => void } | undefined
         )?.waitUntil?.(tracked)
       }
-      const cleanupEventDisposals = async () => {
+      const cleanup = async () => {
         await Promise.all(eventWork)
         const errors: unknown[] = []
         while (eventDisposals.length) {
@@ -188,131 +222,289 @@ export async function assembleApp<D extends AppDefinition>(
       }
 
       try {
-        effectiveConfig = isInternal
-          ? currentConfig()
-          : options.kind === 'event'
-            ? options.resolve(requestEnv)
-            : options.config
-        const pageConfig = isInternal
-          ? parent.pageConfig
-          : options.kind === 'static'
-            ? staticPageConfig
-            : resolvePageConfig?.(requestEnv)
-
-        const eventPlan =
-          !isInternal && options.kind === 'event'
-            ? await prepareServices(requestEnv, effectiveConfig)
-            : undefined
-
-        let activeApp = isInternal ? parent.httpApp! : staticHonoApp
-        if (eventPlan) {
+        let httpApp: Hono<any> | undefined
+        if (compileHttpApp) {
           const routes = eventPlan.routes
           if (
             !cachedEventRoutes ||
             routes.length !== cachedEventRoutes.length ||
             routes.some((route, index) => route !== cachedEventRoutes![index])
           ) {
+            const eventRateLimitConfig = rateLimitDecl
+              ? (env: unknown) => resolveRateLimitDeclaration(rateLimitDecl, env)!
+              : undefined
             cachedEventHonoApp = buildHttpApp(
               currentConfig,
-              routes,
+              [...routes],
               () => instance,
               definition.apiPrefix,
               definition.page404Handler,
               definition.webPrefix,
+              undefined,
+              eventRateLimitConfig,
             )
             cachedEventRoutes = routes
           }
-          activeApp = cachedEventHonoApp!
+          httpApp = cachedEventHonoApp!
         }
 
-        let currentResources: Readonly<Record<string, unknown>>
-        if (isInternal) {
-          currentResources = parent.resources!
-        } else if (options.kind === 'event') {
-          const resources: Record<string, unknown> = {}
-          for (const [name, res] of assembledResources) {
-            const result = await res.createForEvent!(requestEnv)
-            resources[name] = result.value
+        const resources: Record<string, unknown> = {}
+        for (const [name, res] of assembledResources) {
+          const resResult = await res.createForEvent!(eventEnv)
+          resources[name] = resResult.value
+          if ('dispose' in resResult && typeof resResult.dispose === 'function') {
+            eventDisposals.push(resResult.dispose as () => void | Promise<void>)
           }
-          currentResources = resources
-        } else {
-          currentResources = staticResources
         }
 
-        const eventServices = eventPlan
-          ? await createServices(eventPlan.preparations, currentResources, {
-              env: requestEnv,
-              target: 'cloudflare',
-              resourceDeclarations: definition.resources ?? {},
-              logger,
-              waitUntil: trackEventWork,
-              signal: request.signal,
-              registerDispose: (_name, dispose) => {
-                eventDisposals.push(dispose)
-              },
-            })
-          : undefined
-        const currentServices = isInternal
-          ? parent.services
-          : (staticServices ?? eventServices)!.services
-        const currentBindingFactories = isInternal
-          ? parent.serviceBindingFactories
-          : (staticServices ?? eventServices)!.factories
-
-        const rawResponse = await runInScope(
-          {
-            ...parent,
-            requestId,
-            app: instance,
-            config: effectiveConfig,
-            pageConfig,
-            resources: currentResources,
-            services: currentServices,
-            serviceBindingFactories: currentBindingFactories,
-            serviceBindings: isInternal ? parent.serviceBindings : undefined,
-            httpApp: activeApp,
-            env: options.kind === 'event' ? requestEnv : options.env,
-            executionCtx,
+        const eventServices = await createServices(eventPlan.preparations, resources, {
+          env: eventEnv,
+          target: 'cloudflare',
+          resourceDeclarations: definition.resources ?? {},
+          logger,
+          waitUntil: trackEventWork,
+          signal,
+          registerDispose: (_name, dispose) => {
+            eventDisposals.push(dispose as any)
           },
-          () => activeApp!.fetch(request, requestEnv, executionCtx as any),
-        )
+        })
 
-        const upgradeState = getWsUpgradeState(rawResponse)
-        if (upgradeState) {
-          lifecycle.beginRequest()
-          let release: Promise<void> | undefined
-          upgradeState.release = () =>
-            (release ??= (async () => {
-              try {
-                await cleanupEventDisposals()
-              } finally {
-                lifecycle.endRequest()
-              }
-            })())
-          return rawResponse
+        return {
+          resources,
+          services: eventServices.services,
+          serviceBindingFactories: eventServices.factories,
+          effectiveConfig,
+          httpApp,
+          cleanup,
         }
-
-        if (eventDisposals.length > 0) {
-          return attachDisposal(rawResponse, cleanupEventDisposals, executionCtx)
-        }
-        return rawResponse
-      } catch (failure) {
-        let err = failure
+      } catch (initErr) {
+        let err = initErr
         try {
-          await cleanupEventDisposals()
-        } catch (cleanupError) {
-          err = new AggregateError([err, cleanupError], 'Event execution and disposal failed.')
+          await cleanup()
+        } catch (cleanupErr) {
+          err = new AggregateError([err, cleanupErr], 'Event initialization and disposal failed.')
         }
-        const errorConfig =
+        throw err
+      }
+    }
+
+    /** Keeps event cleanup inside the logging scope, including initialization failures. */
+    async function runEventScope<T>(event: EventScopeContext, fn: () => Promise<T>): Promise<T> {
+      let entered = false
+      const execute = async () => {
+        entered = true
+        let result: T
+        try {
+          result = await fn()
+        } catch (error) {
+          try {
+            await event.cleanup()
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], 'Event execution and cleanup failed.', {
+              cause: cleanupError,
+            })
+          }
+          throw error
+        }
+        await event.cleanup()
+        return result
+      }
+      const logging = event.resources.logging as LoggingRuntime | undefined
+      try {
+        return await (logging?.withScope ? logging.withScope(execute) : execute())
+      } catch (error) {
+        // A scoped LogTape configuration can fail before it invokes execute.
+        if (!entered) {
+          try {
+            await event.cleanup()
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], 'Event setup and cleanup failed.', {
+              cause: cleanupError,
+            })
+          }
+        }
+        throw error
+      }
+    }
+
+    const executeTracked = async (
+      request: Request,
+      requestEnv?: unknown,
+      executionCtx?: unknown,
+    ): Promise<Response> => {
+      const requestStartTime = performance.now()
+      lifecycle.beginRequest()
+      const parent = getCurrentScope()
+      const isInternal = parent?.app === instance && parent?.isInternal === true
+      const requestId =
+        (isInternal ? parent.requestId : undefined) ||
+        (executionCtx ? request.headers.get('cf-ray') : undefined) ||
+        crypto.randomUUID()
+      let effectiveConfig: ResolvedHttpConfig | undefined
+      let eventScope: EventScopeContext | undefined
+
+      function errorResponse(error: unknown): Response {
+        const config =
           effectiveConfig ?? (options.kind === 'static' ? options.config : options.errorConfig)
         const response = runInScope({ requestId, app: instance }, () =>
-          formatErrorResponse(err, errorConfig.production),
+          formatErrorResponse(error, config.production),
         )
         return applyResponseHeaders(
           request.method === 'HEAD' ? new Response(null, response) : response,
-          errorConfig,
+          config,
           requestId,
         )
+      }
+
+      try {
+        let currentResources: Readonly<Record<string, unknown>>
+        let currentServices: Readonly<Record<string, unknown>>
+        let currentBindingFactories: Readonly<Record<string, ServiceBindingFactory>>
+        let activeApp = isInternal ? parent.httpApp! : staticHonoApp
+
+        if (isInternal) {
+          effectiveConfig = currentConfig()
+          currentResources = parent.resources!
+          currentServices = parent.services!
+          currentBindingFactories = parent.serviceBindingFactories!
+        } else if (options.kind === 'event') {
+          eventScope = await prepareEventScope(requestEnv, executionCtx, request.signal, true)
+          effectiveConfig = eventScope.effectiveConfig
+          currentResources = eventScope.resources
+          currentServices = eventScope.services
+          currentBindingFactories = eventScope.serviceBindingFactories
+          activeApp = eventScope.httpApp!
+        } else {
+          effectiveConfig = options.config
+          currentResources = staticResources
+          currentServices = staticServices!.services
+          currentBindingFactories = staticServices!.factories
+        }
+
+        const pageConfig = isInternal
+          ? parent.pageConfig
+          : options.kind === 'static'
+            ? staticPageConfig
+            : resolvePageConfig?.(requestEnv)
+        const logging = currentResources.logging as LoggingRuntime | undefined
+        const shouldLogAccess = !isInternal && logging?.isAccessLogEnabled === true
+
+        const dispatch = async (finishEvent?: () => Promise<void>): Promise<Response> => {
+          let response: Response
+          try {
+            response = await runInScope(
+              {
+                ...parent,
+                requestId,
+                app: instance,
+                config: effectiveConfig,
+                pageConfig,
+                resources: currentResources,
+                services: currentServices,
+                serviceBindingFactories: currentBindingFactories,
+                serviceBindings: isInternal ? parent.serviceBindings : undefined,
+                httpApp: activeApp,
+                env: options.kind === 'event' ? requestEnv : options.env,
+                executionCtx,
+              },
+              () => activeApp!.fetch(request, requestEnv, executionCtx as any),
+            )
+          } catch (error) {
+            response = errorResponse(error)
+          }
+
+          const upgrade = getWsUpgradeState(response)
+          const meta = responseMetadata.get(response)
+          const recordAccess = (outcome: 'ok' | 'error' | 'aborted') => {
+            if (shouldLogAccess)
+              emitAccessLog(
+                {
+                  method: request.method,
+                  url: request.url,
+                  requestId: meta?.requestId || response.headers.get('x-request-id') || requestId,
+                  clientIp: meta?.clientIp || '127.0.0.1',
+                },
+                upgrade ? 101 : response.status,
+                performance.now() - requestStartTime,
+                outcome,
+              )
+          }
+          if (upgrade) {
+            recordAccess('ok')
+            lifecycle.beginRequest()
+            let released: Promise<void> | undefined
+            upgrade.release = AsyncLocalStorage.bind(
+              () =>
+                (released ??= (async () => {
+                  try {
+                    await finishEvent?.()
+                  } finally {
+                    lifecycle.endRequest()
+                  }
+                })()),
+            )
+            return response
+          }
+          return shouldLogAccess || finishEvent
+            ? runInScope(
+                meta?.scope ?? {
+                  requestId: meta?.requestId || requestId,
+                  app: instance,
+                  config: effectiveConfig,
+                  pageConfig,
+                  resources: currentResources,
+                  services: currentServices,
+                  serviceBindingFactories: currentBindingFactories,
+                  httpApp: activeApp,
+                  env: options.kind === 'event' ? requestEnv : options.env,
+                  executionCtx,
+                },
+                () =>
+                  trackResponseCompletion(response, (outcome) => {
+                    recordAccess(outcome)
+                    void finishEvent?.()
+                  }),
+              )
+            : response
+        }
+
+        if (!eventScope) return await dispatch()
+
+        const event = eventScope
+        eventScope = undefined // runEventScope now owns all cleanup, including setup failure.
+        const ready = Promise.withResolvers<Response>()
+        const completed = Promise.withResolvers<void>()
+        let lifetime: Promise<void>
+        lifetime = runEventScope(event, async () => {
+          ready.resolve(
+            await dispatch(() => {
+              completed.resolve()
+              return lifetime
+            }),
+          )
+          await completed.promise
+        })
+        const host = executionCtx as { waitUntil(work: Promise<unknown>): void } | undefined
+        // Register the whole lifetime before returning; it includes LogTape async disposal.
+        if (host) host.waitUntil(lifetime)
+        else
+          void lifetime.catch((error) => logger.error('Event disposal failed: {error}', { error }))
+        void lifetime.catch(ready.reject)
+        return await ready.promise
+      } catch (failure) {
+        let error = failure
+        if (eventScope) {
+          try {
+            await eventScope.cleanup()
+          } catch (cleanupError) {
+            error = new AggregateError(
+              [error, cleanupError],
+              'Event execution and cleanup failed.',
+              { cause: cleanupError },
+            )
+          }
+        }
+        return errorResponse(error)
       } finally {
         lifecycle.endRequest()
       }
@@ -344,7 +536,38 @@ export async function assembleApp<D extends AppDefinition>(
       close(): Promise<void> {
         return lifecycle.close()
       },
-    } as AppInstance<D>
+      [kInternalDispatchEvent]:
+        options.kind === 'event'
+          ? async <T>(
+              eventEnv: unknown,
+              executionCtx: unknown,
+              fn: () => Promise<T>,
+            ): Promise<T> => {
+              lifecycle.beginRequest()
+              try {
+                const event = await prepareEventScope(eventEnv, executionCtx, lifecycle.signal)
+                return await runEventScope(event, () =>
+                  runInScope(
+                    {
+                      app: instance,
+                      requestId: crypto.randomUUID(),
+                      config: event.effectiveConfig,
+                      resources: event.resources,
+                      services: event.services,
+                      serviceBindingFactories: event.serviceBindingFactories,
+                      env: eventEnv,
+                      executionCtx,
+                      signal: lifecycle.signal,
+                    },
+                    fn,
+                  ),
+                )
+              } finally {
+                lifecycle.endRequest()
+              }
+            }
+          : undefined,
+    } as unknown as AppInstance<D>
 
     for (const [name] of assembledResources) {
       Object.defineProperty(instance, name, {
@@ -379,6 +602,16 @@ export async function assembleApp<D extends AppDefinition>(
 
     applicationLifecycles.set(instance, lifecycle)
     if (staticHonoApp) applicationRoutes.set(instance, staticHonoApp.routes)
+
+    lifecycle.setReady()
+    const readyContext = {
+      app: instance,
+      services: staticServices?.services ?? {},
+    }
+    for (const cb of readyCallbacks) {
+      await cb(readyContext)
+    }
+
     return instance
   } catch (err) {
     lifecycle.cancel(
@@ -395,57 +628,55 @@ export async function assembleApp<D extends AppDefinition>(
   }
 }
 
-/** Retains event services until the response ends, fails, or is cancelled. */
-function attachDisposal(
+/** Observes body completion once, preserving async scope and stream backpressure. */
+function trackResponseCompletion(
   response: Response,
-  cleanup: () => Promise<void>,
-  executionCtx?: unknown,
+  complete: (outcome: 'ok' | 'error' | 'aborted') => void,
 ): Response {
-  const host = executionCtx as { waitUntil?: (work: Promise<unknown>) => void } | undefined
-  let disposal: Promise<void> | undefined
-  const finish = () => {
-    if (disposal) return
-    disposal = cleanup()
-    if (host?.waitUntil) host.waitUntil(disposal)
-    else
-      void disposal.catch((error) =>
-        getLogger(['app', 'lifecycle']).error('Event disposal failed: {error}', { error }),
-      )
-  }
+  let finished = false
+  const finish = AsyncLocalStorage.bind((outcome: 'ok' | 'error' | 'aborted') => {
+    if (finished) return
+    finished = true
+    complete(outcome)
+  })
   if (!response.body) {
-    finish()
+    finish(response.status < 400 ? 'ok' : 'error')
     return response
   }
   const reader = response.body.getReader()
   let cancelled = false
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read()
-        if (cancelled) return
-        if (chunk.done) {
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull: AsyncLocalStorage.bind(
+        async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+          try {
+            const chunk = await reader.read()
+            if (cancelled) return
+            if (chunk.done) {
+              reader.releaseLock()
+              finish(response.status < 400 ? 'ok' : 'error')
+              controller.close()
+            } else controller.enqueue(chunk.value)
+          } catch (error) {
+            if (cancelled) return
+            reader.releaseLock()
+            finish('error')
+            controller.error(error)
+          }
+        },
+      ),
+      cancel: AsyncLocalStorage.bind(async (reason: unknown) => {
+        cancelled = true
+        try {
+          await reader.cancel(reason)
+        } finally {
           reader.releaseLock()
-          finish()
-          controller.close()
-        } else controller.enqueue(chunk.value)
-      } catch (error) {
-        if (cancelled) return
-        reader.releaseLock()
-        finish()
-        controller.error(error)
-      }
+          finish('aborted')
+        }
+      }),
     },
-    async cancel(reason) {
-      // Cancelling resolves pending reads before the underlying cancel operation finishes.
-      cancelled = true
-      try {
-        await reader.cancel(reason)
-      } finally {
-        reader.releaseLock()
-        finish()
-      }
-    },
-  })
+    { highWaterMark: 0 },
+  )
   return new Response(body, response)
 }
 

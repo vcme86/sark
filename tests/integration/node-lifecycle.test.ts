@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { getCurrentScope } from '../../src/core/context'
 import { applicationLifecycles } from '../../src/core/lifecycle'
+import { defineJobs } from '../../src/entries/jobs'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { startNodeServer } from '../../src/entries/runtime/node'
 import { createApp, defineApp, route } from '../../src/entries/server'
 import { defineNodeRuntime } from '../../src/entries/server/node'
 import { parseApiFilePath } from '../../src/http/path'
 import type { RouteDeclaration } from '../../src/http/types'
+import { createNodeJobsAssembly } from '../../src/services/jobs/assembly-node'
 
 const entry = (file: string, declaration: RouteDeclaration) => ({
   routePath: parseApiFilePath(file, '/api')!,
@@ -54,6 +56,94 @@ describe('Node lifecycle integration', () => {
     } finally {
       await host.close()
     }
+  })
+
+  it('uses the actual Node host shutdown budget for an independent job stop', async () => {
+    let aborted = false
+    const jobs = defineJobs([
+      {
+        name: 'manual',
+        schedule: { interval: 60000 },
+        handler: async ({ signal }) => {
+          await new Promise<void>((resolve) =>
+            signal.addEventListener(
+              'abort',
+              () => {
+                aborted = true
+                resolve()
+              },
+              { once: true },
+            ),
+          )
+        },
+      },
+    ])
+    const app = await createApp(
+      createDefinition({ jobs, services: { jobs: createNodeJobsAssembly(jobs) } }),
+    )
+    const host = await startNodeServer(
+      app,
+      defineNodeRuntime({ port: 0, shutdown: { deadline: 150, reserve: 50 } }),
+    )
+    const handle = app.jobs!.get('manual')!
+    const execution = handle.run()
+    const started = performance.now()
+    try {
+      await expect(handle.stop()).rejects.toThrow('graceful drain budget')
+      expect(aborted).toBe(true)
+      expect(performance.now() - started).toBeLessThan(1000)
+      await execution
+    } finally {
+      await host.close()
+    }
+  })
+
+  it('bounds stop by an active host deadline and retains resources until actual job completion', async () => {
+    const release = Promise.withResolvers<void>()
+    let disposed = false
+    const jobs = defineJobs([
+      { name: 'held', schedule: { interval: 60000 }, handler: () => release.promise },
+    ])
+    const app = await createApp(
+      createDefinition({
+        jobs,
+        services: { jobs: createNodeJobsAssembly(jobs) },
+        resources: {
+          connection: {
+            createStatic: async () => ({
+              value: {},
+              dispose() {
+                disposed = true
+              },
+            }),
+          },
+        },
+      }),
+    )
+    const host = await startNodeServer(
+      app,
+      defineNodeRuntime({ port: 0, shutdown: { deadline: 150, reserve: 50 } }),
+    )
+    const handle = app.jobs!.get('held')!
+    const execution = handle.run()
+    const closing = host.close().then(
+      () => undefined,
+      (error) => error,
+    )
+    try {
+      const started = performance.now()
+      await expect(handle.stop()).rejects.toThrow()
+      expect(performance.now() - started).toBeLessThan(1000)
+      expect(await closing).toBeInstanceOf(Error)
+      expect(disposed).toBe(false)
+      expect(handle.isExecuting()).toBe(true)
+    } finally {
+      release.resolve()
+      await execution
+      await app.close().catch(() => {})
+      await closing
+    }
+    expect(disposed).toBe(true)
   })
 
   it('does not dispose resources twice when app.close follows host close', async () => {
@@ -147,16 +237,18 @@ describe('Node lifecycle integration', () => {
     await entered.promise
     const start = performance.now()
     try {
-      await expect(server.close()).rejects.toThrow('drain budget')
+      await expect(server.close()).rejects.toThrow(/drain budget|Application shutdown failed/)
       expect(performance.now() - start).toBeLessThan(1000)
       expect(scopeSignal?.aborted).toBe(true)
       expect(server.server.listening).toBe(false)
-      expect(app.state).toBe('closed')
+      expect(app.state).toBe('draining')
       await response
     } finally {
       release.resolve()
       await finished.promise
       await expect.poll(() => applicationLifecycles.get(app)!.pendingRequests).toBe(0)
+      await app.close().catch(() => {})
+      expect(app.state).toBe('closed')
     }
   })
 

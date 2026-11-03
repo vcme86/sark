@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { expect, it } from 'vitest'
 
-import { discoverAppEntry } from '../../src/tooling/build/discover/app'
+import { discoverAppEntry, discoverJobsDeclaration } from '../../src/tooling/build/discover/app'
 import { discoverPages } from '../../src/tooling/build/discover/pages'
 import { discoverApiRoutes } from '../../src/tooling/build/discover/routes'
 
@@ -95,6 +95,76 @@ it.each([
     expect(discoverAppEntry(join(root, 'app.ts'))).toEqual({
       exports: ['app'],
     })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it('discovers background jobs with literal and dynamic onCron identifiers', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sark-jobs-discovery-'))
+  try {
+    const source = `
+      import { defineJobs } from '@olivaw/sark/jobs'
+      const customCron = '0 0 * * *'
+      export const jobs = defineJobs([
+        {
+          name: 'literalJob',
+          onCron: '0 * * * *',
+          handler: async () => {},
+        },
+        {
+          name: 'dynamicJob',
+          onCron: customCron,
+          handler: async () => {},
+        },
+        {
+          name: 'nodeJob',
+          schedule: '0 12 * * *',
+          handler: async () => {},
+        },
+      ])
+    `
+    const appPath = join(root, 'app.ts')
+    writeFileSync(appPath, source)
+    const discovered = discoverJobsDeclaration(appPath)
+    expect(discovered).toEqual({
+      kind: 'static',
+      jobs: [
+        {
+          name: 'literalJob',
+          onCron: '0 * * * *',
+          isDynamicOnCron: false,
+          hasNodeOptions: false,
+        },
+        {
+          name: 'dynamicJob',
+          onCron: undefined,
+          isDynamicOnCron: true,
+          hasNodeOptions: false,
+        },
+        {
+          name: 'nodeJob',
+          onCron: undefined,
+          isDynamicOnCron: false,
+          hasNodeOptions: true,
+        },
+      ],
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it.each([
+  "[{ name: 'known', onCron: '0 * * * *', handler() {} }, ...extra]",
+  "[{ ...base, name: 'combined' }]",
+  '[sharedJob]',
+])('defers incomplete job declarations to runtime: %s', (source) => {
+  const root = mkdtempSync(join(tmpdir(), 'sark-jobs-expression-'))
+  try {
+    const app = join(root, 'app.ts')
+    writeFileSync(app, `export const jobs = defineJobs(${source})`)
+    expect(discoverJobsDeclaration(app)).toEqual({ kind: 'dynamic' })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

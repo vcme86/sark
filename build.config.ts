@@ -45,6 +45,11 @@ export default defineBuildConfig({
         'src/entries/visitors.ts',
         'src/entries/visitors/browser.ts',
 
+        'src/entries/logging.ts',
+        'src/entries/health.ts',
+        'src/entries/jobs.ts',
+        'src/entries/middleware/rate-limit.ts',
+
         'src/entries/vite.ts',
         'src/tooling/cli.ts',
 
@@ -59,6 +64,7 @@ export default defineBuildConfig({
         'src/entries/runtime/totp.ts',
         'src/entries/runtime/webauthn.ts',
         'src/entries/runtime/visitors.ts',
+        'src/entries/runtime/jobs.ts',
       ],
     },
   ],

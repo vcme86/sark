@@ -95,4 +95,7 @@ type AppInstanceServices<D> = D extends { services?: infer S }
 /** Sark application runtime instance returned by `createApp`. */
 export type AppInstance<D = unknown> = BaseAppInstance<D> &
   AppInstanceResources<D> &
-  AppInstanceServices<D>
+  AppInstanceServices<D> &
+  (D extends { jobs: unknown }
+    ? { readonly jobs?: import('../services/jobs/types').JobsManager }
+    : {})

@@ -271,3 +271,104 @@ export function discoverAppEntry(appFilePath: string): DiscoveredAppExports {
     exports: foundExports,
   }
 }
+
+/** Summary of declared jobs in the application entry. */
+export interface DiscoveredJobSummary {
+  readonly name: string
+  readonly onCron?: string
+  readonly isDynamicOnCron?: boolean
+  readonly hasNodeOptions?: boolean
+}
+
+/** Discovered jobs declaration: static job definitions, env factory, dynamic expression, or none. */
+export type DiscoveredJobs =
+  | { kind: 'static'; jobs: DiscoveredJobSummary[] }
+  | { kind: 'factory' }
+  | { kind: 'dynamic' }
+  | { kind: 'none' }
+
+/**
+ * Discovers declared jobs structure from the application entry without evaluating code.
+ */
+export function discoverJobsDeclaration(appFilePath: string): DiscoveredJobs {
+  if (!existsSync(appFilePath)) return { kind: 'none' }
+  const program = parseModule(appFilePath)
+
+  for (const node of program.body) {
+    const declaration = node.type === 'ExportNamedDeclaration' ? node.declaration : undefined
+    if (declaration?.type === 'VariableDeclaration') {
+      for (const variable of declaration.declarations) {
+        if (variable.id.type === 'Identifier' && variable.id.name === 'jobs' && variable.init) {
+          let init = variable.init
+          while (
+            init.type === 'TSAsExpression' ||
+            init.type === 'TSSatisfiesExpression' ||
+            init.type === 'TSNonNullExpression'
+          ) {
+            init = (init as any).expression
+          }
+
+          if (init.type === 'CallExpression' && init.arguments.length > 0) {
+            let arg = init.arguments[0]
+            while (
+              arg.type === 'TSAsExpression' ||
+              arg.type === 'TSSatisfiesExpression' ||
+              arg.type === 'TSNonNullExpression'
+            ) {
+              arg = (arg as any).expression
+            }
+
+            if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
+              return { kind: 'factory' }
+            }
+
+            if (arg.type === 'ArrayExpression') {
+              const jobs: DiscoveredJobSummary[] = []
+              for (const element of arg.elements) {
+                if (!element || element.type !== 'ObjectExpression') return { kind: 'dynamic' }
+                if (element.properties.some((prop) => prop.type !== 'Property' || prop.computed))
+                  return { kind: 'dynamic' }
+                if (element && element.type === 'ObjectExpression') {
+                  let name = ''
+                  let onCron: string | undefined
+                  let isDynamicOnCron = false
+                  let hasNodeOptions = false
+
+                  for (const prop of element.properties) {
+                    if (prop.type === 'Property') {
+                      const key =
+                        prop.key.type === 'Identifier' ? prop.key.name : (prop.key as any).value
+                      if (key === 'name') {
+                        name =
+                          prop.value.type === 'Literal' ? String(prop.value.value) : 'dynamic-job'
+                      } else if (key === 'onCron') {
+                        if (prop.value.type === 'Literal') {
+                          onCron = String(prop.value.value)
+                        } else {
+                          isDynamicOnCron = true
+                        }
+                      } else if (
+                        key === 'schedule' ||
+                        key === 'timezone' ||
+                        key === 'preventOverlap' ||
+                        key === 'runOnInit'
+                      ) {
+                        hasNodeOptions = true
+                      }
+                    }
+                  }
+                  jobs.push({ name, onCron, isDynamicOnCron, hasNodeOptions })
+                }
+              }
+              return { kind: 'static', jobs }
+            }
+
+            return { kind: 'dynamic' }
+          }
+        }
+      }
+    }
+  }
+
+  return { kind: 'none' }
+}

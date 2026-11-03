@@ -4,6 +4,8 @@
  * @module
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import { getCurrentScope, type RequestScope, runInScope } from '../../core/context'
 import type { LifecycleManager } from '../../core/lifecycle'
 import { getLogger } from '../../core/logging'
@@ -126,7 +128,14 @@ export async function executeWebSocketEndpoint(
   const res = ctx.newResponse(carrier, 200)
 
   const upgradeState: WsUpgradeState = {
-    handlers: handlersOrResponse,
+    // Platform callbacks run outside the handshake's async call tree.
+    handlers: {
+      onOpen: handlersOrResponse.onOpen && AsyncLocalStorage.bind(handlersOrResponse.onOpen),
+      onMessage:
+        handlersOrResponse.onMessage && AsyncLocalStorage.bind(handlersOrResponse.onMessage),
+      onClose: handlersOrResponse.onClose && AsyncLocalStorage.bind(handlersOrResponse.onClose),
+      onError: handlersOrResponse.onError && AsyncLocalStorage.bind(handlersOrResponse.onError),
+    },
     scope,
     carrier,
     connectionAbort,

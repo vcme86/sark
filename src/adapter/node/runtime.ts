@@ -1,6 +1,7 @@
 import { isIP } from 'node:net'
 
 import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from '../../core/declaration'
+import { DEFAULT_SHUTDOWN_BUDGET } from '../../core/lifecycle'
 import {
   type CompressionOptions,
   resolveCompression,
@@ -87,7 +88,7 @@ export interface NodeRuntimeDeclaration extends BaseDeclaration<
 /** Default Node runtime configuration. */
 const DEFAULT_NODE_RUNTIME_CONFIG = {
   port: 3000,
-  shutdown: { deadline: 10000, reserve: 2000 },
+  shutdown: DEFAULT_SHUTDOWN_BUDGET,
   probes: { liveness: '/livez', readiness: '/readyz' },
 }
 

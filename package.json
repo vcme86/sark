@@ -148,6 +148,22 @@
       "types": "./dist/entries/visitors/browser.d.mts",
       "import": "./dist/entries/visitors/browser.mjs"
     },
+    "./logging": {
+      "types": "./dist/entries/logging.d.mts",
+      "import": "./dist/entries/logging.mjs"
+    },
+    "./health": {
+      "types": "./dist/entries/health.d.mts",
+      "import": "./dist/entries/health.mjs"
+    },
+    "./jobs": {
+      "types": "./dist/entries/jobs.d.mts",
+      "import": "./dist/entries/jobs.mjs"
+    },
+    "./middleware/rate-limit": {
+      "types": "./dist/entries/middleware/rate-limit.d.mts",
+      "import": "./dist/entries/middleware/rate-limit.mjs"
+    },
     "./vite": {
       "types": "./dist/entries/vite.d.mts",
       "import": "./dist/entries/vite.mjs"
@@ -195,6 +211,10 @@
     "./runtime/visitors": {
       "types": "./dist/entries/runtime/visitors.d.mts",
       "import": "./dist/entries/runtime/visitors.mjs"
+    },
+    "./runtime/jobs": {
+      "types": "./dist/entries/runtime/jobs.d.mts",
+      "import": "./dist/entries/runtime/jobs.mjs"
     }
   },
   "scripts": {
@@ -225,6 +245,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/vite-plugin": "^1.65.0",
     "@cloudflare/workers-types": "^5.20261025.1",
+    "@logtape/file": "^2.4.2",
     "@otplib/core": "^13.5.0",
     "@otplib/plugin-base32-scure": "^13.5.0",
     "@otplib/plugin-crypto-web": "^13.5.0",
@@ -240,6 +261,7 @@
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.1.2",
     "better-sqlite3": "^13.0.3",
+    "croner": "^11.0.0",
     "drizzle-orm": "^0.45.4",
     "obuild": "^0.4.45",
     "openid-client": "^6.8.8",
@@ -259,6 +281,7 @@
     "@aws-sdk/lib-storage": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@cloudflare/workers-types": "^5.20261019.1",
+    "@logtape/file": "^2.4.2",
     "@otplib/core": "^13.5.0",
     "@otplib/plugin-base32-scure": "^13.5.0",
     "@otplib/plugin-crypto-web": "^13.5.0",
@@ -268,11 +291,13 @@
     "@simplewebauthn/server": "^14.0.3",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.0",
+    "croner": "^11.0.0",
     "drizzle-orm": "^0.45.0",
     "openid-client": "^6.8.8",
     "postgres": "^3.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "wrangler": "^4.152.0",
     "ws": "^8.22.1"
   },
   "peerDependenciesMeta": {
@@ -289,6 +314,9 @@
       "optional": true
     },
     "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@logtape/file": {
       "optional": true
     },
     "@otplib/core": {
@@ -318,6 +346,9 @@
     "better-sqlite3": {
       "optional": true
     },
+    "croner": {
+      "optional": true
+    },
     "drizzle-orm": {
       "optional": true
     },
@@ -331,6 +362,9 @@
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "wrangler": {
       "optional": true
     },
     "ws": {

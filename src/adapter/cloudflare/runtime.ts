@@ -13,7 +13,7 @@ import { cors } from 'hono/cors'
 
 import { resolveAppConfig } from '../../core/config'
 import { runInScope } from '../../core/context'
-import { assembleApp } from '../../core/create'
+import { assembleApp, kInternalDispatchEvent } from '../../core/create'
 import type { EnvOf } from '../../core/declaration'
 import type { AppDefinition } from '../../core/definition'
 import { applicationLifecycles } from '../../core/lifecycle'
@@ -23,8 +23,13 @@ import { type ResolvedHttpConfig, resolveHttpConfig } from '../../http/config'
 import { formatErrorResponse } from '../../http/server/output'
 import { applyResponseHeaders } from '../../http/server/request-context'
 import { getWsUpgradeState } from '../../http/server/websocket'
+import { dispatchCloudflareJobs, type ScheduledController } from '../../services/jobs/cloudflare'
+import { resolveJobsDeclaration } from '../../services/jobs/declaration'
+import type { JobsDeclaration } from '../../services/jobs/types'
 import { decorateCloudflareAssetResponse } from './assets'
 import { runCloudflareWebSocket } from './websocket'
+
+export type { ScheduledController } from '../../services/jobs/cloudflare'
 
 /** Cloudflare Workers standard execution context interface. */
 export interface CloudflareExecutionContext {
@@ -49,6 +54,19 @@ export interface CloudflareWorkerHandler<Env = unknown> {
    * @returns The application response.
    */
   fetch(request: Request, env: Env, ctx: CloudflareExecutionContext): Promise<Response>
+
+  /**
+   * Handles a Workers Scheduled event.
+   *
+   * @param controller - Scheduled event controller containing the platform cron string.
+   * @param env - Bindings for this event.
+   * @param ctx - Platform execution context, including waitUntil.
+   */
+  scheduled?(
+    controller: ScheduledController,
+    env: Env,
+    ctx: CloudflareExecutionContext,
+  ): Promise<void>
 }
 
 /**
@@ -193,6 +211,26 @@ export function createWorkerHandler<D extends AppDefinition>(
         }
       }
       return res
+    },
+
+    async scheduled(controller, env, ctx): Promise<void> {
+      const instance = await getInstance()
+      const jobsDecl = definition.jobs as JobsDeclaration | undefined
+      if (!jobsDecl) {
+        throw new Error(`No scheduled jobs defined, received cron "${controller.cron}".`)
+      }
+      const jobDefs = resolveJobsDeclaration(jobsDecl, env, 'cloudflare')
+
+      const dispatchEvent = (instance as any)[kInternalDispatchEvent]
+      if (typeof dispatchEvent !== 'function') {
+        throw new Error('Internal error: Application instance does not support event dispatching.')
+      }
+
+      const effectiveCrons = definition.triggers?.crons
+
+      await dispatchEvent(env, ctx, async () => {
+        await dispatchCloudflareJobs(jobDefs, controller, env, ctx, instance, effectiveCrons)
+      })
     },
   }
 }

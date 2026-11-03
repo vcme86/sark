@@ -279,6 +279,8 @@ export const runtime = defineNodeRuntime({
 
 进入 draining 状态后就绪探针立即返回 503，拒绝新业务请求并停止任务触发；在 deadline-reserve 前等待已受理 HTTP、连接回调和任务。等待预算耗尽后发出取消信号、终止传输并记录未结束工作；取消信号不等于 Promise 已结束。之后按剩余时间逆序释放，日志最后刷新。每一步共用剩余预算，close 幂等。
 
+宿主等待超时后先报告失败；尚未结束的处理器或任务仍持有其资源，实际工作结束后才继续清理，不提前将实例标为 closed。
+
 HTTP 连接、WS、任务和驱动分别停止；closeAllConnections 不能代替 WS 关闭。宿主退出和第二次信号处理见部署文档。
 
 ## Workers 生命周期与开发替换

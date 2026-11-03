@@ -6,6 +6,21 @@
 
 import type { DisposableResource, LifecycleState } from './types'
 
+/** Application shutdown budget shared by Node hosting and programmatic instances. */
+export interface ShutdownBudget {
+  readonly deadline: number
+  readonly reserve: number
+}
+
+/** Canonical budget used until a Node host supplies its resolved settings. */
+export const DEFAULT_SHUTDOWN_BUDGET: ShutdownBudget = { deadline: 10000, reserve: 2000 }
+
+/** Live shutdown state shared with services; the deadline uses performance.now(). */
+export interface ShutdownContext {
+  readonly budget: ShutdownBudget
+  readonly deadline?: number
+}
+
 /** WeakMap binding application instances to their underlying LifecycleManager. */
 export const applicationLifecycles = new WeakMap<object, LifecycleManager>()
 
@@ -20,7 +35,19 @@ export class LifecycleManager {
   private disposal?: Promise<void>
   private closing?: Promise<void>
   private disposalBarrier: Promise<void> = Promise.resolve()
-  private disposalDeadline?: number
+  private readonly shutdownState: { budget: ShutdownBudget; deadline?: number } = {
+    budget: DEFAULT_SHUTDOWN_BUDGET,
+  }
+
+  /** Live host settings and the current absolute shutdown deadline. */
+  get shutdown(): ShutdownContext {
+    return this.shutdownState
+  }
+
+  /** Installs the host's already resolved budget before accepting requests. */
+  configureShutdown(budget: ShutdownBudget): void {
+    this.shutdownState.budget = budget
+  }
 
   /** Current lifecycle phase of the managed application. */
   get state(): LifecycleState {
@@ -86,8 +113,10 @@ export class LifecycleManager {
    * @param reason - Error indicating why the lifecycle was aborted (e.g. shutdown timeout).
    */
   cancel(reason: Error): void {
+    if (this.signal.aborted) return
     this.cancellation.abort(reason)
     this.idle?.reject(reason)
+    this.idle = undefined
   }
 
   /**
@@ -125,7 +154,7 @@ export class LifecycleManager {
    */
   deferDisposalUntil(barrier: Promise<void>, deadline?: number): void {
     this.disposalBarrier = barrier
-    this.disposalDeadline = deadline
+    this.shutdownState.deadline = deadline
   }
 
   /**
@@ -150,6 +179,8 @@ export class LifecycleManager {
       errors.push(error)
     }
     await this.disposalBarrier
+    // A host timeout can reject its wait, but unfinished handlers still own their resources.
+    if (this.activeRequests > 0) await (this.idle ??= Promise.withResolvers<void>()).promise
     try {
       await this.disposeAll()
     } catch (error) {
@@ -165,7 +196,7 @@ export class LifecycleManager {
     while (this.resources.length > 0) {
       const resource = this.resources.pop()!
       try {
-        await resource.dispose({ signal: this.signal, deadline: this.disposalDeadline })
+        await resource.dispose({ signal: this.signal, deadline: this.shutdownState.deadline })
       } catch (error) {
         errors.push(error)
       }

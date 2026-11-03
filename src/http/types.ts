@@ -8,6 +8,7 @@ import type { JSONParsed } from 'hono/utils/types'
 import type { ZodType } from 'zod'
 
 import type { Register } from '../core/types'
+import type { RateLimitConfig } from '../services/rate-limit/types'
 import type { CorsOptions } from './config'
 import type { InputSchema, InputValidator } from './schema'
 
@@ -146,10 +147,16 @@ export interface RouteOptions {
 
   /** Route-specific CSRF configuration (`boolean` or `{ origins?: string[] }`). */
   csrf?: boolean | { origins?: string[] }
+
+  /** Route-specific rate limit configuration, or `false` to disable. */
+  rateLimit?: false | Partial<RateLimitConfig>
 }
 
 /** Declared route overrides with the route's own middleware list normalized. */
-export interface ResolvedRouteOptions extends Pick<RouteOptions, 'bodyLimit' | 'cors' | 'csrf'> {
+export interface ResolvedRouteOptions extends Pick<
+  RouteOptions,
+  'bodyLimit' | 'cors' | 'csrf' | 'rateLimit'
+> {
   readonly middleware: readonly MiddlewareHandler[]
 }
 

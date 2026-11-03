@@ -10,7 +10,7 @@ import { join, relative } from 'node:path'
 import type { BuildAssets } from '../../http/assets'
 import { routeShape } from '../../http/path'
 import { writeBuildAssets } from './assets'
-import type { DiscoveredAppExports } from './discover/app'
+import { type DiscoveredAppExports, discoverJobsDeclaration } from './discover/app'
 import type { DiscoveredPageTree } from './discover/pages'
 import type { DiscoveredRouteFile } from './discover/routes'
 
@@ -52,6 +52,10 @@ interface GenerateOptions {
   assets?: BuildAssets
   /** Module exporting an external Api type, already relative to generated code when local. */
   apiTypes?: string
+  /** Whether final job mapping checks can run; disabled for the bootstrap Worker entry. */
+  validateJobs?: boolean
+  /** Effective triggers resolved once by the owning project entry. */
+  triggers?: { crons?: readonly string[] }
 }
 
 function generateClientTsx(
@@ -143,6 +147,7 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
   const hasMfa = appExports.exports.includes('mfa')
   const hasTotp = appExports.exports.includes('totp')
   const hasWebAuthn = appExports.exports.includes('webauthn')
+  const hasJobs = appExports.exports.includes('jobs')
   const requiresMfaAssembly = hasMfa || hasTotp || hasWebAuthn
   const hasAuth = appExports.exports.includes('auth')
   if (requiresMfaAssembly && !hasAuth)
@@ -162,6 +167,8 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
     const api = getRoutes.get(routeShape(page.routePath.urlPath))
     if (api) throw new Error(`Route conflict: API ${api} and page ${page.relativePath}`)
   }
+
+  let effectiveCrons: readonly string[] | undefined
 
   // Platform boundary validation
   if (target === 'cloudflare') {
@@ -193,6 +200,61 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
     if (appExports.databaseDriver === 'sqlite' || appExports.databaseDriver === 'postgres') {
       throw new Error(
         `Cloudflare Workers target does not support Node.js database driver ("${appExports.databaseDriver}"). Use Cloudflare D1 ("@olivaw/sark/db/d1") for Workers.`,
+      )
+    }
+
+    const discoveredJobs = hasJobs ? discoverJobsDeclaration(appEntryPath) : undefined
+    effectiveCrons = options.triggers?.crons
+
+    if (hasJobs && options.validateJobs !== false) {
+      if (effectiveCrons === undefined || effectiveCrons.length === 0) {
+        throw new Error(
+          'Cloudflare Workers target requires triggers.crons in Wrangler configuration when background jobs ("jobs") are declared.',
+        )
+      }
+
+      if (discoveredJobs?.kind === 'static') {
+        const declaredCrons = new Set<string>()
+        let hasDynamicOnCron = false
+        for (const job of discoveredJobs.jobs) {
+          if (job.hasNodeOptions) {
+            throw new Error(
+              `Job "${job.name}" declares Node-specific options not supported on Cloudflare Workers. Use onCron for Workers.`,
+            )
+          }
+          if (!job.onCron && !job.isDynamicOnCron) {
+            throw new Error(`Job "${job.name}" must specify onCron on Cloudflare Workers.`)
+          }
+          if (job.isDynamicOnCron) {
+            hasDynamicOnCron = true
+          } else if (job.onCron) {
+            if (!effectiveCrons.includes(job.onCron)) {
+              throw new Error(
+                `Scheduled job "${job.name}" specifies onCron "${job.onCron}" which is not declared in Wrangler triggers.crons.`,
+              )
+            }
+            declaredCrons.add(job.onCron)
+          }
+        }
+
+        if (!hasDynamicOnCron) {
+          for (const cron of effectiveCrons) {
+            if (!declaredCrons.has(cron)) {
+              throw new Error(
+                `Wrangler triggers.crons specifies cron "${cron}" which has no matching scheduled job declared.`,
+              )
+            }
+          }
+        }
+      }
+    } else if (
+      !hasJobs &&
+      options.validateJobs !== false &&
+      effectiveCrons &&
+      effectiveCrons.length > 0
+    ) {
+      throw new Error(
+        'Wrangler triggers.crons specifies scheduled crons, but no "jobs" declaration is exported from application entry.',
       )
     }
   } else if (target === 'node') {
@@ -414,6 +476,9 @@ const page404Handler = createPage404Handler(
   const hasAssets = appExports.exports.includes('assets')
   const hasOAuth = appExports.exports.includes('oauth')
   const hasVisitors = appExports.exports.includes('visitors')
+  const hasHealth = appExports.exports.includes('health')
+  const hasLogging = appExports.exports.includes('logging')
+  const hasRateLimit = appExports.exports.includes('rateLimit')
 
   const resourceEntries: string[] = []
   if (hasDatabase) resourceEntries.push('db: database')
@@ -436,6 +501,7 @@ const page404Handler = createPage404Handler(
     )
   }
   if (hasTotp) serviceEntries.push('totp: totpFactor.maintenance')
+  if (target === 'node' && hasJobs) serviceEntries.push('jobs: createNodeJobsAssembly(jobs)')
   const servicesCode =
     serviceEntries.length > 0 ? `services: { ${serviceEntries.join(', ')} },` : ''
 
@@ -444,6 +510,10 @@ const page404Handler = createPage404Handler(
   if (hasTotp) declItems.push('totp')
   if (hasWebAuthn) declItems.push('webauthn')
   if (hasMfa) declItems.push('mfa')
+  if (hasHealth) declItems.push('health')
+  if (hasLogging) declItems.push('logging')
+  if (hasRateLimit) declItems.push('rateLimit')
+  if (hasJobs) declItems.push('jobs')
   const declarationsCode =
     declItems.length > 0 ? `declarations: [${declItems.join(', ')}] as const,` : ''
 
@@ -454,6 +524,7 @@ ${hasVisitors ? "import { createVisitorsAssembly } from '@olivaw/sark/runtime/vi
 ${requiresMfaAssembly ? "import { createMfaAssembly } from '@olivaw/sark/runtime/mfa'" : ''}
 ${hasTotp ? "import { createTotpFactor } from '@olivaw/sark/runtime/totp'" : ''}
 ${hasWebAuthn ? "import { createWebAuthnFactor } from '@olivaw/sark/runtime/webauthn'" : ''}
+${target === 'node' && hasJobs ? "import { createNodeJobsAssembly } from '@olivaw/sark/runtime/jobs'" : ''}
 import type { EndpointFromRoute, SseEndpointFromRoute, WsEndpointFromRoute } from '@olivaw/sark/server'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
 ${hasApp ? `import { app } from ${appImportPath}` : ''}
@@ -468,6 +539,10 @@ ${hasVisitors ? `import { visitors } from ${appImportPath}` : ''}
 ${hasMfa ? `import { mfa } from ${appImportPath}` : ''}
 ${hasTotp ? `import { totp } from ${appImportPath}` : ''}
 ${hasWebAuthn ? `import { webauthn } from ${appImportPath}` : ''}
+${hasHealth ? `import { health } from ${appImportPath}` : ''}
+${hasLogging ? `import { logging } from ${appImportPath}` : ''}
+${hasRateLimit ? `import { rateLimit } from ${appImportPath}` : ''}
+${hasJobs ? `import { jobs } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
@@ -479,6 +554,11 @@ ${hasTotp ? 'const totpFactor = createTotpFactor(totp)' : ''}
 export const definition = createDefinition({
   ${hasApp ? 'app,' : ''}
   ${appExports.exports.includes('page') ? 'page,' : ''}
+  ${hasHealth ? 'health,' : ''}
+  ${hasLogging ? 'logging,' : ''}
+  ${hasRateLimit ? 'rateLimit,' : ''}
+  ${hasJobs ? 'jobs,' : ''}
+  ${target === 'cloudflare' && effectiveCrons ? `triggers: { crons: ${JSON.stringify(effectiveCrons)} },` : ''}
   ${declarationsCode}
   ${resourcesCode}
   ${target === 'node' && hasAssets ? 'assetMounts: assets,' : ''}
@@ -622,7 +702,7 @@ await startNodeServer(instance, runtime, process.env${options.assets ? ', { root
   } else if (target === 'cloudflare') {
     rmSync(join(generatedDir, 'start.ts'), { force: true })
     const workerTsContent = `/// <reference types="vite/client" />
-import { createWorkerHandler, type CloudflareExecutionContext } from '@olivaw/sark/runtime/cloudflare'
+import { createWorkerHandler, type CloudflareExecutionContext${hasJobs ? ', type ScheduledController' : ''} } from '@olivaw/sark/runtime/cloudflare'
 import { definition } from './app'
 
 declare global {
@@ -640,7 +720,7 @@ const handler = createWorkerHandler(definition, import.meta.env.PROD)
 export default {
   fetch(request: Request, env: Env, ctx: CloudflareExecutionContext): Promise<Response> {
     return handler.fetch(request, env, ctx)
-  },
+  },${hasJobs ? `\n  scheduled(controller: ScheduledController, env: Env, ctx: CloudflareExecutionContext): Promise<void> {\n    return handler.scheduled!(controller, env, ctx)\n  },` : ''}
 }
 `
     writeFileIfChanged(join(generatedDir, 'worker.ts'), workerTsContent)

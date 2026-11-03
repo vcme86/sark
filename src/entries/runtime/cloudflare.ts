@@ -8,4 +8,5 @@ export {
   createWorkerHandler,
   type CloudflareExecutionContext,
   type CloudflareWorkerHandler,
+  type ScheduledController,
 } from '../../adapter/cloudflare/runtime'

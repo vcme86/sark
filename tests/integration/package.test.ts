@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -9,6 +10,26 @@ import { sark } from '../../src/tooling/vite'
 import { createProject } from '../helpers/project'
 
 describe('Contract: Built Package Exports', () => {
+  it('loads the Node Vite entry without loading the optional Wrangler SDK', () => {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+      import { registerHooks } from 'node:module'
+      registerHooks({ resolve(specifier, context, next) {
+        if (specifier === 'wrangler') throw new Error('Node tooling loaded Wrangler')
+        return next(specifier, context)
+      } })
+      await import('@olivaw/sark/vite')
+    `,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    )
+    expect(child.status, child.stderr).toBe(0)
+  })
+
   it('imports @olivaw/sark/server from build output', async () => {
     const server = await import('@olivaw/sark/server')
     expect(server.createApp).toBeDefined()

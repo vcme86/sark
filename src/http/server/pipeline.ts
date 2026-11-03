@@ -12,6 +12,10 @@ import { TrieRouter } from 'hono/router/trie-router'
 import { getCurrentScope, type RequestScope, runInScope } from '../../core/context'
 import { getLogger } from '../../core/logging'
 import type { AppInstance } from '../../core/types'
+import { checkCloudflareRateLimit } from '../../services/rate-limit/cloudflare'
+import { rateLimit as createRateLimitMiddleware } from '../../services/rate-limit/middleware'
+import { resolveClientIp } from '../../services/rate-limit/node'
+import type { RateLimitConfig } from '../../services/rate-limit/types'
 import { createClient } from '../client/client'
 import type { ResolvedHttpConfig } from '../config'
 import { HttpError } from '../error'
@@ -63,18 +67,63 @@ function preflightMethod(request: Request): string | undefined {
     : undefined
 }
 
-function compilePolicy(effective: ReturnType<typeof computeEffectivePolicy>): RequestPolicy {
-  const csrfMiddleware = effective.csrf === false ? undefined : csrf(effective.csrf)
-  const bodyLimit =
-    effective.bodyLimit === false ? undefined : requestBodyLimit(effective.bodyLimit)
-  let admission = csrfMiddleware ?? bodyLimit
-  if (csrfMiddleware && bodyLimit) {
-    admission = async (ctx, next) => {
-      await csrfMiddleware(ctx, async () => {
-        await bodyLimit(ctx, next)
-      })
+function createPipelineRateLimitMiddleware(
+  options: RateLimitConfig | ((env: unknown) => RateLimitConfig),
+): MiddlewareHandler {
+  if (typeof options === 'function') {
+    return async (ctx, next) => {
+      const scope = getCurrentScope()
+      if (scope?.isInternal) return next()
+      const env = (ctx as any).env ?? scope?.env
+      const resolved = options(env)
+      const key = resolved.key ? await resolved.key(ctx) : resolveClientIp(ctx)
+      const allowed = await checkCloudflareRateLimit(ctx, resolved as any, key)
+      if (!allowed) {
+        throw new HttpError(429, 'Too Many Requests', { code: 'rate_limit_exceeded' })
+      }
+      return next()
     }
   }
+  return createRateLimitMiddleware(options)
+}
+
+function compilePolicy(
+  effective: ReturnType<typeof computeEffectivePolicy>,
+  baseRateLimit?: RateLimitConfig | ((env: unknown) => RateLimitConfig),
+  baseRateLimitMiddleware?: MiddlewareHandler,
+): RequestPolicy {
+  const csrfMiddleware = effective.csrf === false ? undefined : csrf(effective.csrf)
+  const rateLimitMiddleware = effective.rateLimit
+    ? effective.rateLimit === baseRateLimit && baseRateLimitMiddleware
+      ? baseRateLimitMiddleware
+      : createPipelineRateLimitMiddleware(effective.rateLimit)
+    : undefined
+  const bodyLimit =
+    effective.bodyLimit === false ? undefined : requestBodyLimit(effective.bodyLimit)
+
+  let admission: MiddlewareHandler | undefined
+  const chain: MiddlewareHandler[] = []
+  if (csrfMiddleware) chain.push(csrfMiddleware)
+  if (rateLimitMiddleware) chain.push(rateLimitMiddleware)
+  if (bodyLimit) chain.push(bodyLimit)
+
+  if (chain.length === 1) {
+    admission = chain[0]
+  } else if (chain.length > 1) {
+    admission = async (ctx, next) => {
+      let idx = 0
+      const dispatch = async (): Promise<void> => {
+        if (idx < chain.length) {
+          const mw = chain[idx++]
+          await mw(ctx, dispatch)
+        } else {
+          await next()
+        }
+      }
+      await dispatch()
+    }
+  }
+
   return {
     cors: effective.cors === false ? undefined : cors(effective.cors),
     admission,
@@ -137,11 +186,28 @@ export function buildHttpApp(
     readonly prefixes: readonly string[]
     handle(ctx: Context): Promise<Response | null> | Response | null
   },
+  baseRateLimit?: RateLimitConfig | ((env: unknown) => RateLimitConfig),
 ): Hono<any> {
   const getConfig = typeof config === 'function' ? config : () => config
   const orderedRoutes = routes.toSorted((a, b) => compareRoutes(a.routePath, b.routePath))
   const uniqueRoutes = new Map<string, RouteEntry>()
   for (const entry of orderedRoutes) {
+    if (!baseRateLimit) {
+      if (
+        entry.kind !== 'page' &&
+        entry.declaration.options.rateLimit !== undefined &&
+        entry.declaration.options.rateLimit !== false
+      ) {
+        throw new Error('Cannot declare route/scope rateLimit without application defineRateLimit.')
+      }
+      if (
+        entry.scopes?.some(
+          (s) => s.options?.rateLimit !== undefined && s.options.rateLimit !== false,
+        )
+      ) {
+        throw new Error('Cannot declare route/scope rateLimit without application defineRateLimit.')
+      }
+    }
     if (
       entry.kind !== 'page' &&
       entry.routePath.isWs &&
@@ -195,6 +261,10 @@ export function buildHttpApp(
   const requestPolicies = new WeakMap<Context, RequestPolicies>()
   const methodRouter = new TrieRouter<IndexedRoute>()
 
+  const baseRateLimitMiddleware = baseRateLimit
+    ? createPipelineRateLimitMiddleware(baseRateLimit)
+    : undefined
+
   const policyCache = new WeakMap<
     ResolvedHttpConfig,
     {
@@ -207,7 +277,11 @@ export function buildHttpApp(
   function getPoliciesForConfig(cfg: ResolvedHttpConfig) {
     let cached = policyCache.get(cfg)
     if (!cached) {
-      const applicationPolicy = compilePolicy(cfg)
+      const applicationPolicy = compilePolicy(
+        computeEffectivePolicy(cfg, {}, [], baseRateLimit),
+        baseRateLimit,
+        baseRateLimitMiddleware,
+      )
       cached = {
         defaultPolicy: { cors: applicationPolicy.cors, csrf: applicationPolicy.csrf },
         applicationPolicy,
@@ -222,17 +296,26 @@ export function buildHttpApp(
     const { routePolicies, applicationPolicy } = getPoliciesForConfig(cfg)
     let policy = routePolicies.get(entry)
     if (!policy) {
+      const isWs = entry.routePath.isWs
+
       const effective = computeEffectivePolicy(
         cfg,
-        entry.kind === 'page' ? undefined : entry.declaration.options,
+        entry.kind === 'page'
+          ? undefined
+          : {
+              ...entry.declaration.options,
+              rateLimit: isWs ? false : entry.declaration.options.rateLimit,
+            },
         entry.scopes,
+        baseRateLimit,
       )
       policy =
         effective.bodyLimit === cfg.bodyLimit &&
         effective.cors === cfg.cors &&
-        effective.csrf === cfg.csrf
+        effective.csrf === cfg.csrf &&
+        effective.rateLimit === baseRateLimit
           ? applicationPolicy
-          : compilePolicy(effective)
+          : compilePolicy(effective, baseRateLimit, baseRateLimitMiddleware)
       routePolicies.set(entry, policy)
     }
     return policy
@@ -392,7 +475,7 @@ export function buildHttpApp(
       throw new HttpError(503, 'Application is shutting down', { code: 'application_draining' })
     }
     const requestUrl = new URL(ctx.req.url)
-    const publicUrl = new URL(scope!.externalOrigin!)
+    const publicUrl = new URL(scope?.externalOrigin ?? `${requestUrl.protocol}//${requestUrl.host}`)
     publicUrl.pathname = requestUrl.pathname
     publicUrl.search = requestUrl.search
     const policies = policiesFor(ctx)

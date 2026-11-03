@@ -92,11 +92,12 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
   const env = args[0] ?? process.env
   try {
     const config = resolveNodeRuntime(runtimeDecl, env)
+    applicationLifecycles.get(instance)!.configureShutdown(config.shutdown)
 
     const deliveryApp = new Hono()
 
     // Probes bypass business admission and compression, including during draining.
-    mountNodeProbes(deliveryApp, instance, config.probes)
+    mountNodeProbes(deliveryApp, instance, config.probes, env)
 
     const compressors = new WeakMap<ResolvedCompressionOptions, MiddlewareHandler>()
     deliveryApp.use('*', async (ctx, next) => {

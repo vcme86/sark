@@ -49,6 +49,18 @@ export interface AppDefinitionInput {
   assets?: StaticAssets
   /** Runtime directory mounts declared via defineAssets from @olivaw/sark/assets/node. */
   assetMounts?: AssetMountAssembly
+  /** Optional health declaration created via defineHealth. */
+  health?: unknown
+  /** Optional logging declaration created via defineLogging. */
+  logging?: unknown
+  /** Optional rateLimit declaration created via defineRateLimit. */
+  rateLimit?: unknown
+  /** Optional jobs declaration created via defineJobs. */
+  jobs?: unknown
+  /** Triggers configuration for deployment platforms (e.g. Cloudflare Workers crons). */
+  triggers?: {
+    readonly crons?: readonly string[]
+  }
 }
 
 /** Application declarations and routes assembled for runtime creation. */
@@ -58,11 +70,27 @@ export type AppDefinition<
   TPage = unknown,
   TResources = Record<string, ResourceAssembly<any>> | undefined,
   TServices = Record<string, ServiceAssembly<any>> | undefined,
+  THealth = unknown,
+  TLogging = unknown,
+  TRateLimit = unknown,
+  TJobs = unknown,
 > = {
   /** Root application declaration or `undefined` if none provided. */
   readonly app?: TApp
   /** Optional page declaration created via `definePage`. */
   readonly page?: TPage
+  /** Optional health declaration created via defineHealth. */
+  readonly health?: THealth
+  /** Optional logging declaration created via defineLogging. */
+  readonly logging?: TLogging
+  /** Optional rateLimit declaration created via defineRateLimit. */
+  readonly rateLimit?: TRateLimit
+  /** Optional jobs declaration created via defineJobs. */
+  readonly jobs?: TJobs
+  /** Triggers configuration for deployment platforms (e.g. Cloudflare Workers crons). */
+  readonly triggers?: {
+    readonly crons?: readonly string[]
+  }
   /** Assembled instance and event resources. */
   readonly resources?: TResources
   /** Assembled domain services. */
@@ -84,7 +112,7 @@ export type AppDefinition<
   /** Discriminant flag identifying a compiled application definition. */
   readonly isDefinition: true
 } & EnvironmentRequirement<
-  readonly [TApp, TPage, ...Declarations],
+  readonly [TApp, TPage, THealth, TLogging, TRateLimit, TJobs, ...Declarations],
   (TResources extends undefined ? {} : TResources) & (TServices extends undefined ? {} : TServices)
 >
 
@@ -93,7 +121,11 @@ type DefinitionFromInput<T extends AppDefinitionInput> = AppDefinition<
   T extends { declarations: infer D extends readonly unknown[] } ? D : [],
   T extends { page: infer P } ? P : undefined,
   T extends { resources: infer Res } ? Res : undefined,
-  T extends { services: infer Services } ? Services : undefined
+  T extends { services: infer Services } ? Services : undefined,
+  T extends { health: infer H } ? H : undefined,
+  T extends { logging: infer L } ? L : undefined,
+  T extends { rateLimit: infer RL } ? RL : undefined,
+  T extends { jobs: infer J } ? J : undefined
 >
 
 /**
@@ -119,6 +151,11 @@ export function createDefinition<const T extends AppDefinitionInput>(
     createPageConfigResolver: input.createPageConfigResolver,
     assets: input.assets,
     assetMounts: input.assetMounts,
+    health: input.health,
+    logging: input.logging,
+    rateLimit: input.rateLimit,
+    jobs: input.jobs,
+    triggers: input.triggers,
     isDefinition: true,
   } as DefinitionFromInput<T>
 }

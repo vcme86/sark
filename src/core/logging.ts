@@ -1,8 +1,10 @@
 /**
- * Baseline LogTape configuration and request-correlated application logging.
+ * Baseline LogTape configuration, logging ownership tracking, and request-correlated application logging.
  *
  * @module
  */
+
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import {
   configureSync,
@@ -12,7 +14,68 @@ import {
   lazy,
 } from '@logtape/logtape'
 
-import { getRequestId } from './context'
+import { getCurrentScope, getRequestId } from './context'
+
+/** Default sensitive field names redacted from structured properties. */
+export const DEFAULT_REDACT = [
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'password',
+  'token',
+  'secret',
+] as const
+
+/** AsyncLocalStorage carrier used by LogTape for scoped configurations. */
+export const sarkContextLocalStorage = new AsyncLocalStorage<Record<string, unknown>>()
+
+let basicLoggingConfig: unknown = null
+let activeLoggingOwner: object | null = null
+let activeLoggingConfig: unknown = null
+let activeLoggingRedactFields: readonly string[] = DEFAULT_REDACT
+
+/** Reserves logging ownership before asynchronous setup and rejects host or application conflicts. */
+export function acquireLoggingOwnership(owner: object): void {
+  const currentConfig = getConfig()
+  if (
+    currentConfig &&
+    currentConfig !== basicLoggingConfig &&
+    currentConfig !== activeLoggingConfig
+  ) {
+    throw new Error(
+      'Host already configured LogTape logging. Cannot overwrite existing external logging configuration.',
+    )
+  }
+  if (activeLoggingOwner && activeLoggingOwner !== owner) {
+    throw new Error(
+      'Another active Sark application instance already configured LogTape logging. Cannot overwrite existing active logging configuration.',
+    )
+  }
+  activeLoggingOwner = owner
+}
+
+/** Commits logging ownership to an application instance after LogTape is configured. */
+export function commitLoggingOwnership(owner: object, redactFields: readonly string[]): void {
+  activeLoggingOwner = owner
+  activeLoggingConfig = getConfig()
+  activeLoggingRedactFields = redactFields
+}
+
+/** Releases logging ownership if the caller is the current active owner. */
+export function releaseLoggingOwnership(owner: object): boolean {
+  if (activeLoggingOwner === owner) {
+    activeLoggingOwner = null
+    activeLoggingConfig = null
+    activeLoggingRedactFields = DEFAULT_REDACT
+    return true
+  }
+  return false
+}
+
+/** Gets the active redact field list for structured property masking. */
+export function getActiveLoggingRedactFields(): readonly string[] {
+  return activeLoggingRedactFields
+}
 
 /**
  * Installs default console logging when no LogTape configuration exists.
@@ -31,6 +94,30 @@ export function ensureBasicLogging(): void {
         sinks: ['console'],
       },
     ],
+    contextLocalStorage: sarkContextLocalStorage,
+  })
+  basicLoggingConfig = getConfig()
+}
+
+/** Redacts sensitive fields from a structured record using configured redact keys. */
+export function redactStructuredProperties(
+  properties: Record<string, unknown>,
+  redactFields: readonly string[] = DEFAULT_REDACT,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  const redactSet = new Set(redactFields.map((f) => f.toLowerCase()))
+  for (const [key, value] of Object.entries(properties)) {
+    result[key] = redactSet.has(key.toLowerCase()) ? '[REDACTED]' : value
+  }
+  return result
+}
+
+function redactLogArgs(args: readonly unknown[], redactFields: readonly string[]): unknown[] {
+  return args.map((arg) => {
+    if (arg && typeof arg === 'object' && !Array.isArray(arg) && !(arg instanceof Error)) {
+      return redactStructuredProperties(arg as Record<string, unknown>, redactFields)
+    }
+    return arg
   })
 }
 
@@ -78,20 +165,30 @@ class RequestLogger implements Logger {
     })
   }
 
+  private formatArgs(args: unknown[]): Record<string, unknown> | undefined {
+    if (!args.length) return undefined
+    const scope = getCurrentScope()
+    const scopeRedact = (
+      scope?.resources?.logging as { redactFields?: readonly string[] } | undefined
+    )?.redactFields
+    const redactFields = scopeRedact ?? getActiveLoggingRedactFields()
+    return { args: redactLogArgs(args, redactFields) }
+  }
+
   info(message: string, ...args: unknown[]): void {
-    this.logger.info(message, args.length ? { args } : undefined)
+    this.logger.info(message, this.formatArgs(args))
   }
 
   warn(message: string, ...args: unknown[]): void {
-    this.logger.warn(message, args.length ? { args } : undefined)
+    this.logger.warn(message, this.formatArgs(args))
   }
 
   error(message: string, ...args: unknown[]): void {
-    this.logger.error(message, args.length ? { args } : undefined)
+    this.logger.error(message, this.formatArgs(args))
   }
 
   debug(message: string, ...args: unknown[]): void {
-    this.logger.debug(message, args.length ? { args } : undefined)
+    this.logger.debug(message, this.formatArgs(args))
   }
 }
 

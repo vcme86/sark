@@ -20,6 +20,12 @@ import {
 import { formatErrorResponse, preserveResponseCookies } from './output'
 import { wsUpgradeCarrierMap, type WsUpgradeState } from './websocket'
 
+/** Response metadata retaining request identity and scope for deferred completion callbacks. */
+export const responseMetadata = new WeakMap<
+  Response,
+  { clientIp: string; requestId: string; scope?: RequestScope }
+>()
+
 function getPeerIp(ctx: Context, isWorkers: boolean): string {
   if (isWorkers) {
     return (
@@ -126,6 +132,8 @@ export function requestContext(
         : rawReq.signal
 
     let headersCommitted = false
+    let resolvedClientIp = '127.0.0.1'
+    let responseScope: RequestScope | undefined
     const serviceBindings: Record<string, ServiceBinding> = {}
     const isHeadersCommitted = () =>
       headersCommitted || Boolean(isInternal && parent.isHeadersCommitted?.())
@@ -133,14 +141,15 @@ export function requestContext(
     try {
       validateHost(ctx.req.header('host') || reqUrl.host, effectiveConfig.hosts)
       const inherited = isInternal ? (parent as RequestScope) : undefined
+      resolvedClientIp = inherited
+        ? inherited.clientIp
+        : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1'
       const scope = {
         requestId,
         request: rawReq,
         app: instance,
         isInternal,
-        clientIp: inherited
-          ? inherited.clientIp
-          : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1',
+        clientIp: resolvedClientIp,
         externalOrigin: inherited
           ? inherited.externalOrigin
           : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin,
@@ -170,6 +179,7 @@ export function requestContext(
         env,
         executionCtx,
       } satisfies RequestScope
+      responseScope = scope
       if (scope.resources) {
         for (const [key, val] of Object.entries(scope.resources)) {
           ctx.set(key, val)
@@ -201,6 +211,13 @@ export function requestContext(
     ctx.header('X-Request-Id', requestId)
     applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
     headersCommitted = true
+    if (ctx.res) {
+      responseMetadata.set(ctx.res, {
+        clientIp: resolvedClientIp,
+        requestId,
+        scope: responseScope,
+      })
+    }
   }
 }
 

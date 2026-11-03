@@ -4,7 +4,9 @@ import type { Context } from 'hono'
 
 import type { ResolvedHttpConfig } from '../http/config'
 import type { RouteEntry } from '../http/server/types'
-import type { ResourceAssembly } from './resource'
+import type { ShutdownContext } from './lifecycle'
+import type { DisposalContext, ResourceAssembly } from './resource'
+import type { AppInstance } from './types'
 
 /** Request facilities shared with an optional domain. */
 export interface RequestBindingContext {
@@ -35,13 +37,26 @@ export interface ServiceInitResult<TService = unknown> {
   readonly createBinding?: ServiceBindingFactory
 }
 
+/** Lifecycle context passed to onReady service callbacks upon application readiness. */
+export interface ServiceReadyContext {
+  readonly app: AppInstance<any>
+  readonly services: Readonly<Record<string, unknown>>
+}
+
 /** Context passed when creating resource-bound services. */
 export interface ServiceCreateContext {
   readonly env?: unknown
   readonly target: 'node' | 'cloudflare'
   readonly resourceDeclarations: Readonly<Record<string, ResourceAssembly>>
   readonly signal: AbortSignal
-  readonly registerDispose: (name: string, dispose: () => Promise<void> | void) => void
+  readonly drainingSignal?: AbortSignal
+  /** Live Node host budget and current shutdown deadline; absent for event hosts. */
+  readonly shutdown?: ShutdownContext
+  readonly onReady?: (callback: (readyContext: ServiceReadyContext) => void | Promise<void>) => void
+  readonly registerDispose: (
+    name: string,
+    dispose: (context: DisposalContext) => Promise<void> | void,
+  ) => void
   readonly logger: Logger
   /** Tracks noncritical work until it settles before disposing its resources. */
   readonly waitUntil: (promise: Promise<unknown>) => void
