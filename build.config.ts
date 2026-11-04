@@ -46,6 +46,11 @@ export default defineBuildConfig({
 
         'src/entries/visitors.ts',
 
+        'src/entries/stats.ts',
+        'src/entries/stats/sqlite.ts',
+        'src/entries/stats/postgres.ts',
+        'src/entries/stats/d1.ts',
+
         'src/entries/vite.ts',
         'src/tooling/cli.ts',
 
@@ -76,6 +81,7 @@ export default defineBuildConfig({
         'src/entries/runtime/jobs-cloudflare.ts',
 
         'src/entries/runtime/visitors.ts',
+        'src/entries/runtime/stats.ts',
       ],
     },
   ],

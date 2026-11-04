@@ -49,11 +49,15 @@ it('enforces platform boundary by rejecting Node runtime declarations for Cloudf
 })
 
 it.each(['node', 'cloudflare'] as const)(
-  'rejects unimplemented capabilities during %s discovery',
+  'generates stats assembly for %s without optional identity facilities',
   (target) => {
     withTempDir((root) => {
-      writeFileSync(join(root, 'app.ts'), 'export const stats = {}')
-      expect(() => generateProject(root, { target, apiDir: false, webDir: false })).toThrow('stats')
+      writeFileSync(
+        join(root, 'app.ts'),
+        `import { defineStats } from '@olivaw/sark/stats'
+export const stats = defineStats({ counters: { hits: { uniqueBy: false } }, store: { create() { throw new Error('build must not create a store') } } })`,
+      )
+      expect(() => generateProject(root, { target, apiDir: false, webDir: false })).not.toThrow()
     })
   },
 )

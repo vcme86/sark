@@ -51,6 +51,7 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 /**
  * Compares every stored digest using the host's timing-safe primitive.
+ *
  * @param inputCode - Entered recovery code; separators and letter case are normalized.
  * @param hashes - Stored SHA-256 digests for this subject.
  * @returns The matching index, if any; persistence consumes it separately under revision control.

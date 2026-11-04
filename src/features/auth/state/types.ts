@@ -4,7 +4,7 @@
  * @module
  */
 import type { ResourceAssembly } from '../../../app/resource'
-import type { StoreDeclaration } from '../store'
+import type { StoreDeclaration } from '../../../app/store'
 
 export type AuthFlowPurpose =
   | 'sign-in'

@@ -1,5 +1,5 @@
 /** Shared serialization and bounded cleanup scheduling for SQL challenge stores. */
-import type { StoreContext } from '../store'
+import type { StoreContext } from '../../../app/store'
 import type { AuthFlow } from './types'
 
 export interface StoredFlow {

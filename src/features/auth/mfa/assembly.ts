@@ -1,11 +1,11 @@
 /** MFA policy composition using explicitly selected factor implementations. */
 import { evaluateDeclaration } from '../../../app/declaration'
 import type { ServiceAssembly } from '../../../app/service'
+import { initializeStore, type StoreContext } from '../../../app/store'
 import type { AuthCheckContext } from '../contracts'
 import type { FactorAssembly, FactorInstance } from '../factor'
 import type { RequestAuth } from '../session/types'
 import { memoryState } from '../state/memory'
-import { initializeStore, type StoreContext } from '../store'
 import { resolveMfaConfig } from './config'
 import type { MfaDeclaration } from './declaration'
 import { MfaService } from './service'

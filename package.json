@@ -144,6 +144,22 @@
       "types": "./dist/entries/visitors.d.mts",
       "import": "./dist/entries/visitors.mjs"
     },
+    "./stats": {
+      "types": "./dist/entries/stats.d.mts",
+      "import": "./dist/entries/stats.mjs"
+    },
+    "./stats/sqlite": {
+      "types": "./dist/entries/stats/sqlite.d.mts",
+      "import": "./dist/entries/stats/sqlite.mjs"
+    },
+    "./stats/postgres": {
+      "types": "./dist/entries/stats/postgres.d.mts",
+      "import": "./dist/entries/stats/postgres.mjs"
+    },
+    "./stats/d1": {
+      "types": "./dist/entries/stats/d1.d.mts",
+      "import": "./dist/entries/stats/d1.mjs"
+    },
     "./vite": {
       "types": "./dist/entries/vite.d.mts",
       "import": "./dist/entries/vite.mjs"
@@ -223,6 +239,10 @@
     "./runtime/visitors": {
       "types": "./dist/entries/runtime/visitors.d.mts",
       "import": "./dist/entries/runtime/visitors.mjs"
+    },
+    "./runtime/stats": {
+      "types": "./dist/entries/runtime/stats.d.mts",
+      "import": "./dist/entries/runtime/stats.mjs"
     }
   },
   "scripts": {

@@ -4,7 +4,7 @@
  * @module
  */
 
-import { validateStoreDeclaration } from '../store'
+import { validateStoreDeclaration } from '../../../app/store'
 import type { MfaConfig, ResolvedMfaConfig, SignInPolicy } from './types'
 
 export function resolveMfaConfig(config?: MfaConfig): ResolvedMfaConfig {

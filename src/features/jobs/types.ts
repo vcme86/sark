@@ -7,12 +7,20 @@
 import type { BaseDeclaration } from '../../app/declaration'
 import type { Logger } from '../../app/logging'
 import type { Register } from '../../app/types'
+import type { ScopedStatsService, StatsService } from '../stats/types'
 
 type RegisteredResources = Register extends { resources: infer R } ? R : {}
 
 /** Instance services available outside an HTTP request; excludes request-bound identities. */
 type RegisteredJobServices = Register extends { services: infer S }
-  ? Pick<S, Extract<keyof S, 'cache' | 'metrics'>>
+  ? Pick<S, Extract<keyof S, 'cache' | 'metrics'>> &
+      ('stats' extends keyof S
+        ? {
+            readonly stats: S['stats'] extends ScopedStatsService<infer C>
+              ? StatsService<C>
+              : StatsService
+          }
+        : {})
   : {}
 
 /** Execution context supplied to a background job handler. */

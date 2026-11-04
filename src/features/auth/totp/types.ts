@@ -4,8 +4,8 @@
  * @module
  */
 import type { ResourceAssembly } from '../../../app/resource'
+import type { StoreDeclaration } from '../../../app/store'
 import type { AuthCheckContext } from '../contracts'
-import type { StoreDeclaration } from '../store'
 import type { TotpAlgorithm } from './config'
 
 /** Stored TOTP enrollment record for one user. */
@@ -31,6 +31,7 @@ export interface TotpStore {
   read: (sub: string, context: AuthCheckContext) => Promise<TotpRecord | null>
   /**
    * Inserts only when expectedRevision is null, otherwise replaces or deletes that version.
+   *
    * @returns False for a version/uniqueness conflict; storage failures must throw.
    */
   commit: (
@@ -49,6 +50,7 @@ export interface RequestTotp {
   beginEnrollment(): Promise<{ challenge: string; uri: string }>
   /**
    * Confirms the pending factor with an OTP and conditionally consumes its enrollment flow.
+   *
    * @param challenge - Opaque handle from beginEnrollment.
    * @param code - Authenticator code generated from the displayed URI.
    * @returns Success only after both the factor and flow transitions succeed.
@@ -64,6 +66,7 @@ export interface RequestTotp {
 export interface TotpMaintenance {
   /**
    * Re-encrypts one subject's factor using the current key, preserving replay state.
+   *
    * @param sub - Subject selected by application maintenance code.
    * @returns True if already current or updated; false if absent or changed concurrently.
    */

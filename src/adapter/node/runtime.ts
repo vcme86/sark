@@ -45,6 +45,7 @@ export interface NodeRuntimeConfig {
     /**
      * Total shutdown or development handoff budget in milliseconds. Manual close rejects on timeout;
      * signal-triggered shutdown exits the process when close completes or fails.
+     *
      * @default 10000 (10 seconds)
      */
     deadline?: number
@@ -53,6 +54,7 @@ export interface NodeRuntimeConfig {
      * Time in milliseconds reserved within the deadline for cancellation and resource disposal
      * after the graceful request-draining window.
      * Must be strictly greater than 0 and less than `deadline`.
+     *
      * @default 2000 (2 seconds)
      */
     reserve?: number
@@ -69,12 +71,14 @@ export interface NodeRuntimeConfig {
     | {
         /**
          * Liveness endpoint path; returns HTTP 200 regardless of application state.
+         *
          * @default '/livez'
          */
         liveness?: string
 
         /**
          * Readiness endpoint path; returns HTTP 200 only when ready, HTTP 503 otherwise.
+         *
          * @default '/readyz'
          */
         readiness?: string

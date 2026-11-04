@@ -5,7 +5,7 @@
  */
 
 import type { BaseDeclaration, RequiresEnv } from '../../../app/declaration'
-import { validateStoreDeclaration } from '../store'
+import { validateStoreDeclaration } from '../../../app/store'
 import type { TotpStoreDeclaration } from './types'
 
 export type TotpAlgorithm = 'SHA1' | 'SHA256' | 'SHA512'

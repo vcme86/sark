@@ -1,19 +1,20 @@
 /** SQLite authentication persistence; the application owns the borrowed database. */
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
+import type { StoreContext, StoreDeclaration } from '../../../../app/store'
 import {
   assertDatabaseDriver,
   type CompatibleTable,
   getDatabase,
   resolveTable,
-} from '../../database'
-import type { StoreContext, StoreDeclaration } from '../../store'
+} from '../../../db/store'
 import { recoveryCodeSets } from '../schema/sqlite'
 import type { RecoveryStore, SqlRecoveryOptions } from '../types'
 import { SqlRecoveryStore } from './sql'
 
 /**
  * Declares persistence using a database owned by the application.
+ *
  * @param options - Database declaration and optional compatible table mappings.
  * @returns A store declaration initialized after application resources are ready.
  * @throws If the database driver or mapped columns are incompatible.

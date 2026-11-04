@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { StoreDeclaration } from '../store'
+import type { StoreDeclaration } from '../../../app/store'
 import type { AuthAttemptLimit, AuthFlow, AuthStateStore, ClaimResult } from './types'
 
 export interface MemoryAuthStateConfig {

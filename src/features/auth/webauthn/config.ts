@@ -4,7 +4,7 @@
  * @module
  */
 
-import { validateStoreDeclaration } from '../store'
+import { validateStoreDeclaration } from '../../../app/store'
 import type { ResolvedWebAuthnConfig, WebAuthnConfig } from './types'
 
 export function resolveWebAuthnConfig(config: WebAuthnConfig): ResolvedWebAuthnConfig {

@@ -18,9 +18,7 @@ import { resolveOAuthProviders } from '../../src/features/auth/oauth/config'
 import { createAuthAssembly } from '../../src/features/auth/session/assembly'
 import { parseApiFilePath } from '../../src/http/path'
 
-/**
- * Contract tests for OAuth 2.0 and OIDC third-party authentication.
- */
+/** Contract tests for OAuth 2.0 and OIDC third-party authentication. */
 
 const COOKIE_SECRET = 'super-secret-cookie-signing-key-123456!'
 

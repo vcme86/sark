@@ -31,7 +31,7 @@ export type {
   RecoveryStoreDeclaration,
 } from '../../features/auth/recovery/types'
 
-export type { StoreContext, StoreDeclaration, StoreInitResult } from '../../features/auth/store'
+export type { StoreContext, StoreDeclaration, StoreInitResult } from '../../app/store'
 
 export type { FactorKind, FactorProof } from '../../features/auth/factor'
 

@@ -36,6 +36,8 @@ describe('Contract: Built Package Exports', () => {
     '/page',
     '/client',
     '/visitors',
+    '/stats',
+    '/runtime/stats',
     '/runtime/cloudflare',
     '/runtime/page-server',
   ])('loads the %s entry without unselected SDKs or initialization', (entry) => {
@@ -226,23 +228,27 @@ if (entry.endsWith('/node')) {
 })
 
 it.each([
-  'db/d1',
   '',
   'node',
   'middleware',
-  'auth',
-  'jobs',
-  'logging',
+  'db/d1',
   'storage/r2',
-  'vite',
+  'auth',
   'auth/oauth',
   'auth/mfa',
   'auth/totp',
-  'auth/webauthn',
   'auth/totp/d1',
+  'auth/webauthn',
   'auth/webauthn/d1',
   'auth/recovery/d1',
   'auth/state/d1',
+  'logging',
+  'jobs',
+  'stats',
+  'stats/sqlite',
+  'stats/postgres',
+  'stats/d1',
+  'vite',
 ])('rejects the server capability %s in a real browser build', async (entry) => {
   const project = createProject()
   project.write(
@@ -264,13 +270,17 @@ it.each([
   }
 })
 
-it('allows erased database types and the page declaration in a browser build', async () => {
+it('allows erased server types and the page declaration in a browser build', async () => {
   const project = createProject()
   project.write(
     'entry.ts',
     `import type { D1Config } from '@olivaw/sark/db/d1'
+import type { StatsService } from '@olivaw/sark/stats'
+import type { D1StatsOptions } from '@olivaw/sark/stats/d1'
 import { definePage } from '@olivaw/sark/page'
 export const options: D1Config | null = null
+export const stats: StatsService | null = null
+export const store: D1StatsOptions | null = null
 export const page = definePage({})`,
   )
   try {

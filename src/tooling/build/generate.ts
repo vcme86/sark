@@ -432,6 +432,7 @@ const page404Handler = createPage404Handler(
   const hasRateLimit = appExports.exports.includes('rateLimit')
   const hasPageCache = appExports.exports.includes('pageCache')
   const hasMetrics = appExports.exports.includes('metrics')
+  const hasStats = appExports.exports.includes('stats')
 
   const runtimeImports: string[] = []
   const appBindings = new Set<string>()
@@ -569,6 +570,19 @@ const page404Handler = createPage404Handler(
     serviceTypeImports.push("import type { MetricsService } from '@olivaw/sark/node'")
     serviceTypeFields.push('  readonly metrics: MetricsService')
   }
+  if (hasStats) {
+    appBindings.add('stats')
+    declItems.push('stats')
+    runtimeImports.push("import { createStatsAssembly } from '@olivaw/sark/runtime/stats'")
+    serviceEntries.push(
+      `stats: createStatsAssembly(stats, { visitors: ${hasVisitors}, auth: ${hasAuth} })`,
+    )
+    serviceTypeImports.push(
+      "import type { ScopedStatsService, InferStatsCounters } from '@olivaw/sark/stats'",
+    )
+    serviceTypeImports.push("import type { stats } from '../app'")
+    serviceTypeFields.push('  readonly stats: ScopedStatsService<InferStatsCounters<typeof stats>>')
+  }
   if (hasJobs) {
     appBindings.add('jobs')
     declItems.push('jobs')
@@ -684,6 +698,7 @@ ${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth'" : ''}
 ${hasVisitors ? "export type { RequestVisitor } from '@olivaw/sark/visitors'" : ''}
 ${hasPageCache ? "export type { PageCacheService } from '@olivaw/sark/page/cache'" : ''}
 ${hasMetrics ? "export type { MetricsService } from '@olivaw/sark/node'" : ''}
+${hasStats ? "export type { ScopedStatsService, StatsService } from '@olivaw/sark/stats'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
 

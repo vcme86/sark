@@ -1,8 +1,8 @@
 /** TOTP-only runtime selection; importing it never loads another factor's SDK. */
 import { evaluateDeclaration } from '../../../app/declaration'
 import type { ServiceAssembly } from '../../../app/service'
+import { initializeStore } from '../../../app/store'
 import type { FactorAssembly } from '../factor'
-import { initializeStore } from '../store'
 import { resolveTotpConfig, type TotpDeclaration } from './config'
 import { TotpService } from './service'
 import type { TotpMaintenance } from './types'

@@ -2,13 +2,13 @@
 import { and, eq } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 
+import type { StoreContext, StoreDeclaration } from '../../../../app/store'
 import {
   assertDatabaseDriver,
   type CompatibleTable,
   getDatabase,
   resolveTable,
-} from '../../database'
-import type { StoreContext, StoreDeclaration } from '../../store'
+} from '../../../db/store'
 import { webauthnCredentials, webauthnSubjects } from '../schema/postgres'
 import type { SqlWebAuthnOptions, WebAuthnRecord, WebAuthnStore } from '../store'
 
@@ -119,6 +119,7 @@ export class PostgresWebAuthnStore implements WebAuthnStore {
 
 /**
  * Declares persistence using a database owned by the application.
+ *
  * @param options - Database declaration and optional compatible table mappings.
  * @returns A store declaration initialized after application resources are ready.
  * @throws If the database driver or mapped columns are incompatible.

@@ -2,8 +2,8 @@
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server'
 
 import { evaluateDeclaration } from '../../../app/declaration'
+import { initializeStore } from '../../../app/store'
 import type { FactorAssembly } from '../factor'
-import { initializeStore } from '../store'
 import { resolveWebAuthnConfig } from './config'
 import type { WebAuthnDeclaration } from './declaration'
 import { authenticationCredentialId, WebAuthnService } from './service'

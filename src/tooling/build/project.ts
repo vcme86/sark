@@ -51,6 +51,7 @@ export async function generateConfiguredProject(
  *
  * @param config - Resolved options and absolute discovery paths.
  * @param base - Final Vite resource base; omitted during early entry generation.
+ * @param appExports - Previously discovered application exports; discovered here when omitted.
  * @returns Discovered page metadata, or undefined when page discovery is disabled.
  * @throws If discovery detects conflicts or generation cannot write its artifacts.
  */

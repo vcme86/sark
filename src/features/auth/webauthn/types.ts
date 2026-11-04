@@ -13,9 +13,9 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/server'
 
+import type { StoreDeclaration } from '../../../app/store'
 import type { AuthCheckContext } from '../contracts'
 import type { SessionOptions, SignInInput } from '../session/types'
-import type { StoreDeclaration } from '../store'
 import type { WebAuthnStore } from './store'
 
 export type WebAuthnIdentity = Pick<SignInInput, 'sub' | 'ver' | 'roles' | 'claims'>
@@ -86,6 +86,7 @@ export interface RequestWebAuthn {
   }>
   /**
    * Verifies a registration response against server-stored protocol expectations.
+   *
    * @param challenge - Opaque enrollment handle, distinct from the WebAuthn protocol challenge.
    * @param response - Browser SDK registration response.
    * @returns The credential identifier after conditional insertion and flow consumption.
@@ -96,6 +97,7 @@ export interface RequestWebAuthn {
   ): Promise<{ credentialId: string }>
   /**
    * Obtains protocol options without replacing expectations already bound to a pending challenge.
+   *
    * @param challenge - Handle from MFA beginSignIn/beginStepUp or WebAuthn beginSignIn.
    * @returns Browser options detached from the stored protocol snapshot.
    * @throws AuthError if the challenge is expired, unavailable, or changed concurrently.
@@ -103,6 +105,7 @@ export interface RequestWebAuthn {
   beginAuthentication(challenge: string): Promise<PublicKeyCredentialRequestOptionsJSON>
   /**
    * Starts discoverable-credential login without a client-supplied account identifier.
+   *
    * @param options - Session delivery options retained until successful completion.
    * @returns A handle and browser options; submit the signed response through mfa.complete.
    */

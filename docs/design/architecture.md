@@ -52,18 +52,18 @@ Sark 围绕 Hono、Vite、Node.js 与 React 19 组织全栈能力及外围基础
 - `jobs`：defineJobs 及任务契约
 - `visitors`：defineVisitors、ensureVisitor、VisitorError 及请求和浏览器初始化契约
 - `stats`：defineStats 与计数契约
-- `stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats
+- `stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats 与默认表定义
 - `vite`：sark 构建插件
 
 认证能力声明可以使用自定义 store；各 SQL 后端入口只提供所属适配及表定义，不重复提供声明构造，也不聚合兄弟后端或其他因素。服务端配置按需分别选择能力与后端。WebAuthn 浏览器 SDK 与后端实现分开，普通页面不加载该 SDK。
 
-浏览器可导入 page、client、visitors 和 auth/webauthn/browser；包根、node、middleware、auth 及其余后端、jobs、logging、db、storage、vite 和 page/cache 是服务端或工具入口。类型导入按 TypeScript 正常擦除；库的纯声明不包含秘密，应用 app.ts 中的实际秘密配置仍只在服务端。浏览器构建检查完整入口与子路径边界，不用条件导出让同一路径在两端交付不同 API。
+浏览器可导入 page、client、visitors 和 auth/webauthn/browser；包根、node、middleware、auth 及其余后端、jobs、logging、stats 及其 SQL 后端、db、storage、vite 和 page/cache 是服务端或工具入口。类型导入按 TypeScript 正常擦除；库的纯声明不包含秘密，应用 app.ts 中的实际秘密配置仍只在服务端。浏览器构建检查完整入口与子路径边界，不用条件导出让同一路径在两端交付不同 API。
 
 认证 SQL 适配与 schema 的精确路径分别由 [mfa.md](mfa.md)、[totp.md](totp.md)、[webauthn.md](webauthn.md) 定义；统计 schema 路径由 [stats.md](stats.md) 定义。这些路径在 package.json 中逐项枚举，不使用顶层通配符暴露内部文件。
 
 恢复码的运行代码和 SQL 实现集中在 features/auth/recovery；恢复契约由 auth/mfa 交付，SQL 适配与表定义由独立 auth/recovery 后端入口交付。应用通过 mfa.recovery 选择它，不额外声明顶层 recovery。共同短期状态服务于绑定、第二步及无密码认证，不属于某一种因素。
 
-`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/page-cache`、`runtime/rate-limit`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/storage`、`runtime/logging`、`runtime/health`、`runtime/metrics`、`runtime/jobs-node`、`runtime/jobs-cloudflare`、`runtime/visitors` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
+`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/page-cache`、`runtime/rate-limit`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/storage`、`runtime/logging`、`runtime/health`、`runtime/metrics`、`runtime/jobs-node`、`runtime/jobs-cloudflare`、`runtime/visitors`、`runtime/stats` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
 
 ## 依赖方向
 
@@ -112,6 +112,7 @@ sark/
 │   │   ├── logging.ts                  LogTape 基础诊断与关联
 │   │   ├── resource.ts                 资源创建、交付与释放契约
 │   │   ├── service.ts                  服务准备、创建与请求绑定契约
+│   │   ├── store.ts                    专用存取的延迟创建与释放契约
 │   │   ├── types.ts                    基础实例、生命周期与资源注册
 │   │   └── http/                       服务端 HTTP 声明、装配与执行
 │   │       ├── types.ts                上下文、路由声明与 endpoint 派生
@@ -174,7 +175,6 @@ sark/
 │   │   │   ├── contracts.ts            共享身份、认证结果及资源检查上下文
 │   │   │   ├── factor.ts               因素验证、请求绑定和创建契约
 │   │   │   ├── verification.ts         共同证明消费与会话完成
-│   │   │   ├── store.ts                专用存取的创建及释放约定
 │   │   │   ├── error.ts                因素认证错误分类
 │   │   │   ├── mfa/                    共同登录、再次认证、挑战策略与完成协调
 │   │   │   ├── state/                  memory、postgres、d1 短期状态及 SQL schema
@@ -192,7 +192,7 @@ sark/
 │   │   │       └── schema/             各后端的 Drizzle 表定义
 │   │   ├── visitors/                   声明、访客标识、初始化端点与浏览器助手
 │   │   ├── stats/                      具名计数、主体解析、专用存取与 SQL 适配
-│   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
+│   │   ├── db/                         数据库声明、资源及共用表映射/关联助手
 │   │   ├── storage/                    local、s3、r2 后端及独立 presign 接入
 │   │   ├── jobs/                       共同执行、Node 调度、CF 事件映射
 │   │   ├── logging/                    完整日志配置、输出与访问记录
@@ -221,6 +221,8 @@ sark/
 │       ├── logging.ts
 │       ├── jobs.ts
 │       ├── visitors.ts                 访客声明、请求契约与浏览器初始化
+│       ├── stats.ts                    业务计数声明、错误类型与契约
+│       ├── stats/                      SQLite、PostgreSQL、D1 存取适配与 schema
 │       ├── vite.ts
 │       └── runtime/                    同版本生成代码的内部接入
 ├── tests/

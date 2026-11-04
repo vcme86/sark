@@ -1,8 +1,8 @@
+import type { StoreContext } from '../../app/store'
 /** Shared factor verification and request binding contracts, independent of factor SDKs. */
 import type { AuthCheckContext, Identity } from './contracts'
 import type { IssuedSession, SessionOptions, SignInInput } from './session/types'
 import type { AuthFlow, AuthStateStore } from './state/types'
-import type { StoreContext } from './store'
 
 /** Common management requirements consumed by factor implementations. */
 export interface FactorPolicy {

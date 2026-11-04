@@ -2,8 +2,13 @@
 import { and, eq, gt, inArray, lt, or, sql } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 
-import { assertDatabaseDriver, type CompatibleTable, getDatabase, resolveTable } from '../database'
-import type { StoreContext, StoreDeclaration } from '../store'
+import type { StoreContext, StoreDeclaration } from '../../../app/store'
+import {
+  assertDatabaseDriver,
+  type CompatibleTable,
+  getDatabase,
+  resolveTable,
+} from '../../db/store'
 import { authAttemptWindows, authChallenges } from './schema/postgres'
 import { createCleanupGate, decodeFlow, encodeFlowData } from './sql'
 import type {

@@ -78,6 +78,7 @@ export type SignInResult =
 export interface RequestMfa<Proof extends FactorProof = FactorProof> {
   /**
    * Continues authentication after the application verifies the first step.
+   *
    * @param input - Server-verified identity and authentication facts, never an unvalidated request body.
    * @param options - Session delivery options retained until successful completion.
    * @returns A session, or an opaque challenge and the account's available methods.
@@ -87,6 +88,7 @@ export interface RequestMfa<Proof extends FactorProof = FactorProof> {
   beginStepUp(options?: SessionOptions): Promise<{ challenge: string; methods: FactorKind[] }>
   /**
    * Verifies a proof, conditionally consumes its state, and then issues a session.
+   *
    * @param challenge - Handle returned by beginSignIn, beginStepUp, or WebAuthn beginSignIn.
    * @param proof - Proof for a method selected by this application.
    * @returns The session issued after all required state transitions succeed.
@@ -95,6 +97,7 @@ export interface RequestMfa<Proof extends FactorProof = FactorProof> {
   complete(challenge: string, proof: Proof): Promise<IssuedSession>
   /**
    * Replaces the current subject's recovery set after recent factor authentication or enrollment.
+   *
    * @returns New plaintext codes, available only in this response; the previous set is invalidated.
    * @throws AuthError if recovery is disabled, authorization fails, or the stored set changes.
    */

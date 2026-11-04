@@ -47,6 +47,7 @@ export interface AppConfig {
 
     /**
      * Default SameSite attribute for cookies issued by the application.
+     *
      * @default 'lax'
      */
     sameSite?: 'lax' | 'strict' | 'none'

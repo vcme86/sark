@@ -205,6 +205,8 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           id === '@olivaw/sark/middleware' ||
           id === '@olivaw/sark/jobs' ||
           id === '@olivaw/sark/logging' ||
+          id === '@olivaw/sark/stats' ||
+          id.startsWith('@olivaw/sark/stats/') ||
           id === '@olivaw/sark/page/cache' ||
           id === '@olivaw/sark/vite' ||
           (id.startsWith('@olivaw/sark/runtime/') && id !== '@olivaw/sark/runtime/page-browser'))

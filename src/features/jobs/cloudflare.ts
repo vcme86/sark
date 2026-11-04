@@ -98,6 +98,7 @@ export async function dispatchCloudflareJobs(
           logger: jobLogger,
           ...parentScope?.resources,
           ...(parentScope?.services?.cache ? { cache: parentScope.services.cache } : {}),
+          ...(parentScope?.services?.stats ? { stats: parentScope.services.stats } : {}),
         }
 
         try {

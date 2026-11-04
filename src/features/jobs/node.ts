@@ -125,6 +125,7 @@ export function createNodeJobsManager(
         ...currentResources,
         ...(currentServices.metrics ? { metrics: currentServices.metrics } : {}),
         ...(currentServices.cache ? { cache: currentServices.cache } : {}),
+        ...(currentServices.stats ? { stats: currentServices.stats } : {}),
       }
 
       const currentExecution = runInScope(scope, async () => {

@@ -44,7 +44,7 @@ identities: {
 
 签名为 `(context: StatsIdentityContext) => string | null | Promise<string | null>`。上下文包含当前 Request、logger、signal 及已声明资源；不反向依赖整个 stats 服务。返回的是服务端已验证的调用方 ID，不能把未经验证的任意请求头直接称为身份。
 
-visitor/user 分别需要 visitors/auth 声明，client 需要上述映射，缺少依赖在资源创建前拒绝。subject 和 false 不要求任何请求身份能力。
+visitor/user 分别需要 visitors/auth 声明，client 需要上述映射，缺少依赖在资源创建前拒绝。生成装配向 stats 传入已声明的身份来源，stats 在所属配置准备阶段完成检查，不让核心维护领域依赖图。subject 和 false 不要求任何请求身份能力。
 
 ## 请求与服务级入口
 
@@ -60,7 +60,7 @@ const result = await ctx.var.stats.read('articleViews', {
 })
 ```
 
-key 是应用资源键，period 是应用选择的非空周期标识；省略 period 表示累计范围。框架不指定业务时区、不解析这些字符串，也不默认最近七天。key 使用应用选定的资源标识，站点级统计也使用明确的 key。
+name、key 与显式 period 均为不含空字符（NUL）的非空字符串，不额外限制业务字符串长度。key 是应用资源键，period 是应用选择的周期标识；省略 period 表示累计范围。框架不指定业务时区、不解析这些字符串，也不默认最近七天。key 使用应用选定的资源标识，站点级统计也使用明确的 key。
 
 显式主体结构为 `{ kind: string; id: string }`，visitor/user/client 是保留的对应身份类别，其他类别由应用命名。subject 模式的 increment 必须提供 subject；普通计数不接收 subject；自动模式的请求调用不允许覆盖绑定身份。
 
@@ -106,25 +106,29 @@ interface StatsStore {
 
 这是统计领域存取契约，不规定物理表、ORM 或保留策略。已有关系表可实现此接口；自定义 store 不需创建官方表，且不能只用普通 get/set 声称已满足并发保证。
 
-store 声明使用 [application.md](application.md) 的延迟 create(context) 约定，在资源可用后返回 { value: StatsStore, dispose? }，可以直接借用 context.db；不能在模块导入时自行连接数据库。
+store 声明使用 [application.md](application.md) 的延迟 create(context) 约定，在资源可用后返回 { value: StatsStore, dispose? }，可以直接借用 context.resources.db；不能在模块导入时自行连接数据库。
 
 框架在装配时解析 stats 计数声明，再向该领域的创建上下文提供 `requirements: { unique: boolean }`。任一计数项的 uniqueBy 不为 false 时，unique 为 true；创建器据此初始化所需存储。只传这项存取需求，不复制全部计数配置，也不依赖完整 AppInstance。该字段属于 StatsStoreDeclaration 的创建契约，record/read 的操作接口不变。
 
 ## 官方 SQL 与 schema
 
-stats/sqlite、stats/postgres、stats/d1 导出 sqlStats({ database, tables?: { counters, subjects? } })。对应 /schema 导出默认 statsCounters 与 statsSubjects，物理名分别为 stats_counters、stats_subjects。
+stats/sqlite、stats/postgres、stats/d1 导出 sqlStats({ database, tables?: { counters, subjects? } })，并导出默认表定义 statsCounters 与 statsSubjects，物理名分别为 stats_counters、stats_subjects。
 
 未传 tables 时使用默认 counters，requirements.unique=true 时再使用默认 subjects。显式 tables 表示整组自定义映射：counters 必需；unique=true 时 subjects 也必需，遗漏在服务创建阶段报配置错误，不静默混用默认 subjects。unique=false 不要求或查询 subjects。
 
-计数记录按 (name,key,period) 唯一；主体标记按该范围加 (kind,id) 唯一。省略 period 由适配编码为累计专用值，显式 period 不与它碰撞。索引覆盖精确范围读取与主体计数，不为任意维度建立索引。
+计数记录按 (name,key,period) 唯一；主体标记按该范围加 (kind,id) 唯一。省略 period 由适配编码为累计专用值，显式 period 不与它碰撞。主体复合主键的前导列同时支持精确范围读取与主体计数，不再为相同前缀建立重复索引。
 
-count 使用原子 upsert 加一，主体标记冲突忽略；同次 record 放入目标数据库真实事务/batch。uniqueCount 根据主体标记记录计算，不另维护可能与标记不同步的累计值。D1 零行冲突不是失败，不拿它冒充回滚条件。
+count 使用原子 upsert 加一，主体标记冲突忽略；包含主体的同次 record 放入目标数据库真实事务/batch。只有普通计数时直接执行单条原子 upsert，不另开显式事务。uniqueCount 根据主体标记记录计算，不另维护可能与标记不同步的累计值。D1 零行冲突不是失败，不拿它冒充回滚条件。
 
 只有普通计数时，只需 counters 表与迁移，不查询/要求 subjects；包含去重项时才纳入 subjects。应用的 schema 入口选择实际需要的导出。提供自有兼容 Drizzle 表对象可改物理名；不接受拼接表/列名字符串来代替映射。
 
 默认适配、schema、迁移接入与契约测试一起提供，借用已有数据库资源，不额外建立连接。前缀、冲突和迁移责任沿 [database.md](database.md)。
 
-装配只检查表对象映射、必要逻辑列及可知的结构兼容性；表对象不证明迁移已执行，database.schema 也不代表实际数据库的表清单。框架不为此在启动或每次请求探表。实际缺表/缺列通过部署迁移及数据库操作错误报告，保留表与操作定位，不自动建表或返回零值冒充成功。
+映射入口检查必要逻辑列、数据类型与非空属性，不要求表对象重复声明物理库已有的主键或唯一索引。
+
+应用迁移必须建立上述唯一约束。使用 Drizzle schema 生成迁移时，所用 schema 必须声明相应主键或唯一索引；只用于查询的映射可省略这些约束元数据。表对象中的约束声明不证明迁移已执行，database.schema 也不代表实际数据库的表清单，框架不在启动或每次请求探表。
+
+实际缺表、缺列或缺少冲突目标约束时，数据库操作直接报告错误，事务/batch 按既定原子性回滚，不自动建表或返回零值冒充成功。
 
 ## 保留与容量
 

@@ -24,6 +24,7 @@ export type DefaultApi = Register extends { api: infer A } ? A : unknown
 export interface ClientOptions {
   /**
    * Base URL prefix for all requests (e.g. `'/api'` or `'https://api.example.com'`).
+   *
    * @default '/api'
    */
   baseUrl?: string
@@ -31,6 +32,7 @@ export interface ClientOptions {
   /**
    * Credentials mode for outgoing requests (`'same-origin'`, `'include'`, or `'omit'`).
    * Defaults to fetch standard `'same-origin'`.
+   *
    * @default 'same-origin'
    */
   credentials?: RequestCredentials

@@ -2,8 +2,13 @@
 import { and, eq, exists, gt, inArray, lt, sql } from 'drizzle-orm'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 
-import { assertDatabaseDriver, type CompatibleTable, getDatabase, resolveTable } from '../database'
-import type { StoreContext, StoreDeclaration } from '../store'
+import type { StoreContext, StoreDeclaration } from '../../../app/store'
+import {
+  assertDatabaseDriver,
+  type CompatibleTable,
+  getDatabase,
+  resolveTable,
+} from '../../db/store'
 import { authAttemptWindows, authChallenges } from './schema/d1'
 import { createCleanupGate, decodeFlow, encodeFlowData } from './sql'
 import type {

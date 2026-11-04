@@ -6,36 +6,42 @@ import { DEFAULT_API_PREFIX } from '../http/defaults'
 export interface PluginOptions {
   /**
    * Deployment target platform.
+   *
    * @default 'node'
    */
   target?: 'node' | 'cloudflare'
 
   /**
    * Application definition entry file name or relative path.
+   *
    * @default 'app.ts'
    */
   appEntry?: string
 
   /**
    * Directory scanned for API routes, or `false` to disable API route discovery.
+   *
    * @default 'api'
    */
   apiDir?: string | false
 
   /**
    * Base URL path prefix prepended to all discovered API routes.
+   *
    * @default '/api'
    */
   apiPrefix?: string
 
   /**
    * Website route directory, or `false` to disable page discovery.
+   *
    * @default 'app'
    */
   webDir?: string | false
 
   /**
    * Website URL prefix shared by server and browser page routes.
+   *
    * @default '/'
    */
   webPrefix?: string
