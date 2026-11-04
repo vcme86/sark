@@ -30,24 +30,41 @@ describe('Contract: Built Package Exports', () => {
     expect(child.status, child.stderr).toBe(0)
   })
 
-  it.each(['', '/client', '/node', '/page', '/visitors'])(
-    'loads the %s entry without unselected SDKs or initialization',
-    (entry) => {
-      const child = spawnSync(
-        process.execPath,
-        [
-          '--input-type=module',
-          '-e',
-          `
+  it.each([
+    '',
+    '/node',
+    '/page',
+    '/client',
+    '/visitors',
+    '/runtime/cloudflare',
+    '/runtime/page-server',
+  ])('loads the %s entry without unselected SDKs or initialization', (entry) => {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 const entry = ${JSON.stringify('@olivaw/sark')} + ${JSON.stringify(entry)}
-const optional = ['@aws-sdk/', '@simplewebauthn/', '@otplib/', 'drizzle-orm', 'better-sqlite3', 'postgres', 'openid-client', 'croner']
+const optional = [
+  '@aws-sdk/',
+  '@simplewebauthn/',
+  '@otplib/',
+  'drizzle-orm',
+  'better-sqlite3',
+  'postgres',
+  'openid-client',
+  'croner',
+  '@prometheus-io/',
+  'lru-cache',
+]
 registerHooks({ resolve(specifier, context, next) {
   if (optional.some(name => specifier === name || specifier.startsWith(name.endsWith('/') ? name : name + '/'))) {
     throw new Error('Unselected dependency loaded by ' + entry + ': ' + specifier)
   }
-  if (entry !== '@olivaw/sark/page' && (specifier === 'react' || specifier.startsWith('react/') || specifier.startsWith('react-dom'))) {
+  if (entry !== '@olivaw/sark/page' && entry !== '@olivaw/sark/runtime/page-server' && (specifier === 'react' || specifier.startsWith('react/') || specifier.startsWith('react-dom'))) {
     throw new Error('Non-page entry loaded React: ' + entry)
   }
   return next(specifier, context)
@@ -60,12 +77,11 @@ if (entry.endsWith('/node')) {
   assert.equal(api.defineNodeRuntime({ port: 0 }).value.port, 0)
 }
 `,
-        ],
-        { encoding: 'utf8', timeout: 10000 },
-      )
-      expect(child.status, child.stderr).toBe(0)
-    },
-  )
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    )
+    expect(child.status, child.stderr).toBe(0)
+  })
 
   it('uses the standalone HTTP client and Cookie helpers from one entry', async () => {
     const {

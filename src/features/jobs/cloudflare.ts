@@ -97,6 +97,7 @@ export async function dispatchCloudflareJobs(
           signal: abortController.signal,
           logger: jobLogger,
           ...parentScope?.resources,
+          ...(parentScope?.services?.cache ? { cache: parentScope.services.cache } : {}),
         }
 
         try {

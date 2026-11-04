@@ -9,6 +9,7 @@ export default defineBuildConfig({
         'src/entries/node.ts',
 
         'src/entries/page.ts',
+        'src/entries/page-cache.ts',
         'src/entries/client.ts',
         'src/entries/middleware.ts',
 
@@ -55,6 +56,7 @@ export default defineBuildConfig({
 
         'src/entries/runtime/page-server.ts',
         'src/entries/runtime/page-browser.ts',
+        'src/entries/runtime/page-cache.ts',
 
         'src/entries/runtime/rate-limit.ts',
 
@@ -68,6 +70,7 @@ export default defineBuildConfig({
 
         'src/entries/runtime/logging.ts',
         'src/entries/runtime/health.ts',
+        'src/entries/runtime/metrics.ts',
 
         'src/entries/runtime/jobs-node.ts',
         'src/entries/runtime/jobs-cloudflare.ts',

@@ -33,6 +33,8 @@ const ALLOWED_EXPORTS = new Set([
   'rateLimit',
   'logging',
   'health',
+  'pageCache',
+  'metrics',
 ])
 
 /** Module resolution supplied by Vite under the server target's conditions. */

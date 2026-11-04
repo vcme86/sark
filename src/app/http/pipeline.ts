@@ -22,7 +22,13 @@ import type { ResolvedHttpConfig } from '../config'
 import { getCurrentScope, type RequestScope, runInScope } from '../context'
 import { getLogger } from '../logging'
 import type { AppInstance } from '../types'
-import type { HttpEnv, PageRequestHandler, RouteAdmission, RouteEntry } from './assembly'
+import type {
+  HttpEnv,
+  PageRequestHandler,
+  RouteAdmission,
+  RouteEntry,
+  SystemEndpoint,
+} from './assembly'
 import { bodyLimit as requestBodyLimit } from './body-limit'
 import { parseAndValidateInput } from './input'
 import {
@@ -122,11 +128,12 @@ async function finalizeResponse(ctx: Context, output: unknown): Promise<Response
  * 1. Establish the execution scope, request ID, source metadata, and Cookie collector.
  * 2. Apply the selected CORS policy, including target-method preflight handling.
  * 3. Check lifecycle admission and GET/HEAD URL normalization.
- * 4. Bind request services, inheriting same-application internal request state.
- * 5. Apply the selected route's policy, or application policy for a runtime mount.
- * 6. Run application, directory-scope, and route middleware in that order.
- * 7. Parse declared inputs, execute the handler, and format its response.
- * 8. Serve runtime files, resolve unmatched methods as 405, then render an applicable HTML 404.
+ * 4. Dispatch an eligible system endpoint without entering the business pipeline.
+ * 5. Bind request services, inheriting same-application internal request state.
+ * 6. Apply the selected route's policy, or application policy for a runtime mount.
+ * 7. Run application, directory-scope, and route middleware in that order.
+ * 8. Parse declared inputs, execute the handler, and format its response.
+ * 9. Serve runtime files, resolve unmatched methods as 405, then render an applicable HTML 404.
  *
  * CORS precedes admission so rejections retain applicable CORS headers. Request
  * context awaits domain header-commit hooks before sealing the Cookie collector,
@@ -141,6 +148,7 @@ async function finalizeResponse(ctx: Context, output: unknown): Promise<Response
  * @param webPrefix - Resolved website route prefix, including its HTML 404 scope.
  * @param assetMounts - Prepared Node runtime mounts and their URL prefixes.
  * @param getAdmission - Selected domain policy for the current instance or event.
+ * @param endpoints - Prepared system endpoints sharing public checks but bypassing business admission.
  * @returns Fully compiled Hono application instance.
  */
 export function buildHttpApp(
@@ -154,11 +162,33 @@ export function buildHttpApp(
     handle(ctx: Context): Promise<Response | null> | Response | null
   },
   getAdmission?: () => RouteAdmission,
+  endpoints?: readonly SystemEndpoint[],
 ): Hono<any> {
   const getConfig = typeof config === 'function' ? config : () => config
+  const normalizeUrlPath = (pathname: string) => {
+    const trimmed = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+    return getConfig().caseSensitive ? trimmed : trimmed.toLowerCase()
+  }
   const orderedRoutes = routes.toSorted((a, b) => compareRoutes(a.routePath, b.routePath))
   const uniqueRoutes = new Map<string, RouteEntry>()
   for (const entry of orderedRoutes) {
+    if (endpoints) {
+      for (const endpoint of endpoints) {
+        const isMethodConflict =
+          entry.routePath.method === 'ALL' ||
+          endpoint.method === 'ALL' ||
+          entry.routePath.method === endpoint.method
+        if (
+          isMethodConflict &&
+          (routeShape(entry.routePath.urlPath) === routeShape(endpoint.path) ||
+            normalizeUrlPath(entry.routePath.urlPath) === normalizeUrlPath(endpoint.path))
+        ) {
+          throw new Error(
+            `Route conflict: ${entry.routePath.method} ${entry.routePath.urlPath} between ${entry.source ?? entry.routePath.urlPath} and system endpoint ${endpoint.path}`,
+          )
+        }
+      }
+    }
     if (!getAdmission) {
       if (
         entry.kind !== 'page' &&
@@ -322,15 +352,38 @@ export function buildHttpApp(
       route: selected,
       preflight: preflightPolicy,
     }
+    const scope = getCurrentScope()
+    if (scope) scope.route = selectedEntry?.routePath.urlPath
     requestPolicies.set(ctx, policies)
     return policies
   }
 
-  const pathResolver = createRequestPathResolver(orderedRoutes, getConfig, (pathname, method) => {
-    const entry = methodRouter.match(method === 'HEAD' ? 'GET' : method, pathname)[0][0]?.[0].entry
-    if (!entry) return
-    return entry.kind === 'page' ? 'page' : 'api'
-  })
+  const pathResolver = createRequestPathResolver(
+    [
+      ...orderedRoutes,
+      ...(endpoints ?? []).map((endpoint) => ({
+        routePath: {
+          urlPath: endpoint.path,
+          clientPath: endpoint.path,
+          shapeKey: routeShape(endpoint.path),
+          method: endpoint.method,
+          segments: endpoint.path
+            .split('/')
+            .filter(Boolean)
+            .map((raw) => ({ kind: 'static' as const, raw })),
+          isWs: false,
+          isSse: false,
+        },
+      })),
+    ],
+    getConfig,
+    (pathname, method) => {
+      const entry = methodRouter.match(method === 'HEAD' ? 'GET' : method, pathname)[0][0]?.[0]
+        .entry
+      if (!entry) return
+      return entry.kind === 'page' ? 'page' : 'api'
+    },
+  )
   const getPath = (request: Request): string => pathResolver(request, preflightMethod(request))
 
   const preparedRoutes = orderedRoutes.map((entry) => {
@@ -468,6 +521,15 @@ export function buildHttpApp(
       }
     }
   })
+
+  // System endpoints share public checks but do not enter business admission or bindings.
+  for (const endpoint of endpoints ?? []) {
+    app.on(endpoint.method, endpoint.path, async (ctx) => {
+      const scope = getCurrentScope() as RequestScope
+      scope.route = endpoint.path
+      return finalizeResponse(ctx, await endpoint.handle(ctx, scope))
+    })
+  }
 
   app.use('*', bindRequestServices)
 

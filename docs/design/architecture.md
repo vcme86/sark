@@ -63,13 +63,15 @@ Sark 围绕 Hono、Vite、Node.js 与 React 19 组织全栈能力及外围基础
 
 恢复码的运行代码和 SQL 实现集中在 features/auth/recovery；恢复契约由 auth/mfa 交付，SQL 适配与表定义由独立 auth/recovery 后端入口交付。应用通过 mfa.recovery 选择它，不额外声明顶层 recovery。共同短期状态服务于绑定、第二步及无密码认证，不属于某一种因素。
 
-`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/rate-limit`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/storage`、`runtime/logging`、`runtime/health`、`runtime/jobs-node`、`runtime/jobs-cloudflare`、`runtime/visitors` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
+`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/page-cache`、`runtime/rate-limit`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/storage`、`runtime/logging`、`runtime/health`、`runtime/metrics`、`runtime/jobs-node`、`runtime/jobs-cloudflare`、`runtime/visitors` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
 
 ## 依赖方向
 
 生成的应用定义是组合根，显式引用所选核心、领域能力和宿主。核心使用这些装配结果，不维护包含所有能力的配置联合或运行时注册表。
 
 ServiceAssembly 提供准备、创建和请求绑定契约，不声明依赖图。生成器检查固定能力组合并输出创建顺序：auth → mfa → totp 维护；运行时直接消费该顺序，不重复检查因素集合或排序。应用不通过配置导出顺序安排这些内部步骤。
+
+已启用的服务可以随创建结果提供固定的同步执行观察者，由同一次装配收集、随实例或事件传递。HTTP/WS 和任务模块在已有完成点通知执行事实，具体计量归所属服务；核心不依赖指标名或 SDK。观察者不接管工作和资源生命周期，不增加应用配置、任意事件、运行时订阅或请求级服务扫描。
 
 - 领域运行代码依赖必要的底层契约和上游库，不导入生成组合根
 - 页面传输复用 client 与共享 HTTP 协议；服务端渲染接入应用的执行作用域、日志与页面终端契约，app/http 不导入页面实现

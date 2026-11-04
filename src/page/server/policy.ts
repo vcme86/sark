@@ -2,11 +2,20 @@ import type { Context } from 'hono'
 
 import type { PageCacheConfig, ServerPageScope } from '../types'
 
-type PageHttpCache = Pick<PageCacheConfig, 'ttl' | 'staleWhileRevalidate' | 'vary'>
+/** Inherited response policy; tag declarations remain unevaluated until route parameters are known. */
+export interface PageHttpCache extends Pick<
+  PageCacheConfig,
+  'ttl' | 'staleWhileRevalidate' | 'vary'
+> {
+  readonly tags?: readonly (
+    | readonly string[]
+    | ((params: Record<string, string | string[]>) => readonly string[])
+  )[]
+}
 
 /**
- * Resolves inherited HTTP cache policy without creating storage or evaluating tags.
- * false resets inheritance; later fields override earlier fields and vary names accumulate.
+ * Resolves inherited HTTP cache policy without creating storage.
+ * false resets inheritance; later fields override earlier fields; vary and tags accumulate.
  *
  * @param scopes - Layout-to-page declarations in inheritance order.
  * @returns Effective HTTP cache fields, or undefined when no declaration remains enabled.
@@ -15,14 +24,18 @@ type PageHttpCache = Pick<PageCacheConfig, 'ttl' | 'staleWhileRevalidate' | 'var
 export function resolvePageCache(scopes: readonly ServerPageScope[]): PageHttpCache | undefined {
   let current: PageHttpCache | undefined
   for (const scope of scopes) {
-    if (scope.cache === false) current = undefined
-    else if (scope.cache !== undefined) {
+    if (scope.cache === false) {
+      current = undefined
+    } else if (scope.cache !== undefined) {
       const value = scope.cache
       for (const field of ['ttl', 'staleWhileRevalidate'] as const) {
         if (value[field] !== undefined && (!Number.isFinite(value[field]) || value[field]! < 0)) {
           throw new Error(`Page cache ${field} must be a non-negative number.`)
         }
       }
+      const existingTags = current?.tags ?? []
+      const newTags = value.tags !== undefined ? [...existingTags, value.tags] : existingTags
+
       current = {
         ...current,
         ttl: value.ttl === undefined ? current?.ttl : value.ttl,
@@ -30,11 +43,73 @@ export function resolvePageCache(scopes: readonly ServerPageScope[]): PageHttpCa
           value.staleWhileRevalidate === undefined
             ? current?.staleWhileRevalidate
             : value.staleWhileRevalidate,
+        tags: newTags.length ? newTags : undefined,
         vary: [...new Set([...(current?.vary ?? []), ...(value.vary ?? [])])],
       }
     }
   }
   return current
+}
+
+/**
+ * Evaluates declared cache tags with matched route parameters.
+ *
+ * @param cache - Resolved page cache policy.
+ * @param params - Parsed route parameters.
+ * @returns Deduplicated list of cache tag strings.
+ */
+export function resolveCacheTags(
+  cache: PageHttpCache | undefined,
+  params: Record<string, string | string[]>,
+): string[] {
+  if (!cache?.tags || cache.tags.length === 0) return []
+  const result = new Set<string>()
+  for (const item of cache.tags) {
+    if (typeof item === 'function') {
+      const tags = item(params)
+      for (const tag of tags) result.add(tag)
+    } else if (Array.isArray(item)) {
+      for (const tag of item) result.add(tag)
+    }
+  }
+  return [...result]
+}
+
+/**
+ * Parses effective TTL and SWR from explicit Cache-Control response headers or declared policy.
+ * s-maxage takes precedence over max-age; both override declared ttl.
+ *
+ * @param cacheControl - Cache-Control header string.
+ * @param declaredTtl - Declared page TTL in seconds.
+ * @param declaredSwr - Declared stale-while-revalidate in seconds.
+ * @returns Resolved freshness and SWR durations in seconds.
+ */
+export function parseCacheDirectives(
+  cacheControl: string | null,
+  declaredTtl: number | undefined,
+  declaredSwr: number | undefined,
+): { ttl: number; staleWhileRevalidate: number } {
+  let ttl = declaredTtl ?? 0
+  let staleWhileRevalidate = declaredSwr ?? 0
+
+  if (cacheControl) {
+    const sMaxAgeMatch = /\bs-maxage=(\d+)\b/i.exec(cacheControl)
+    const maxAgeMatch = /\bmax-age=(\d+)\b/i.exec(cacheControl)
+    const swrMatch = /\bstale-while-revalidate=(\d+)\b/i.exec(cacheControl)
+
+    if (sMaxAgeMatch?.[1]) {
+      ttl = Number.parseInt(sMaxAgeMatch[1], 10)
+    } else if (maxAgeMatch?.[1]) {
+      ttl = Number.parseInt(maxAgeMatch[1], 10)
+    }
+
+    if (swrMatch?.[1]) {
+      staleWhileRevalidate = Number.parseInt(swrMatch[1], 10)
+    }
+  }
+
+  if (/\b(?:must-revalidate|proxy-revalidate)\b/i.test(cacheControl ?? '')) staleWhileRevalidate = 0
+  return { ttl, staleWhileRevalidate }
 }
 
 /**

@@ -24,5 +24,12 @@ export function cors(options: CorsOptions): MiddlewareHandler {
     throw new Error('CORS requires an explicit origin configuration.')
   }
   const upstreamCors = honoCors(options)
-  return (ctx, next) => (getCurrentScope()?.isInternal ? next() : upstreamCors(ctx, next))
+  return (ctx, next) => {
+    const scope = getCurrentScope()
+    if (scope?.isInternal) return next()
+    return upstreamCors(ctx, async () => {
+      await next()
+      if (scope) scope.contentVary = ctx.res.headers.get('vary')
+    })
+  }
 }

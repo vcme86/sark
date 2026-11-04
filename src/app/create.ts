@@ -19,7 +19,7 @@ import {
 } from './context'
 import type { EnvironmentArgs } from './declaration'
 import type { AppDefinition } from './definition'
-import type { RouteEntry } from './http/assembly'
+import type { RouteEntry, SystemEndpoint } from './http/assembly'
 import { requestDeliveries, trackResponseCompletion } from './http/delivery'
 import { formatErrorResponse } from './http/output'
 import { buildHttpApp } from './http/pipeline'
@@ -27,7 +27,12 @@ import { applyResponseHeaders, responseMetadata } from './http/request-context'
 import { getWsUpgradeState } from './http/websocket'
 import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { applicationLogging, ensureBasicLogging, type ExecutionLogging } from './logging'
-import type { ServiceBindingFactory, ServiceCreateContext, ServicePreparation } from './service'
+import type {
+  ExecutionObserver,
+  ServiceBindingFactory,
+  ServiceCreateContext,
+  ServicePreparation,
+} from './service'
 import type { AppInstance } from './types'
 
 /** Internal symbol for dispatching scheduled platform events within assembled event context. */
@@ -101,17 +106,19 @@ export async function assembleApp<D extends AppDefinition>(
     async function prepareServices(env: unknown, config: ResolvedHttpConfig) {
       const preparations = new Map<string, ServicePreparation<unknown>>()
       const routes = [...definition.routes]
+      const endpoints: SystemEndpoint[] = []
       for (const [name, runtime] of serviceRuntimes) {
         const preparation = await runtime.prepare(env, config)
         preparations.set(name, preparation)
         routes.push(...(preparation.routes ?? []))
+        endpoints.push(...(preparation.endpoints ?? []))
       }
       const admission = admissionRuntime?.prepare(
         env,
         routes,
         options.kind === 'static' ? 'node' : 'cloudflare',
       )
-      return { preparations, routes, admission }
+      return { preparations, routes, endpoints, admission }
     }
 
     const staticPlan =
@@ -140,6 +147,7 @@ export async function assembleApp<D extends AppDefinition>(
             definition.webPrefix,
             staticAssetMountHandler,
             staticPlan!.admission ? () => staticPlan!.admission! : undefined,
+            staticPlan!.endpoints,
           )
         : undefined
     let cachedEventHonoApp: Hono<any> | undefined
@@ -182,6 +190,7 @@ export async function assembleApp<D extends AppDefinition>(
           logger,
           waitUntil: trackStaticWork,
           signal: lifecycle.signal,
+          backgroundSignal: lifecycle.signal,
           drainingSignal: lifecycle.drainingSignal,
           shutdown: lifecycle.shutdown,
           onReady: (cb) => readyCallbacks.push(cb),
@@ -201,6 +210,7 @@ export async function assembleApp<D extends AppDefinition>(
     interface EventScopeContext {
       readonly resources: Readonly<Record<string, unknown>>
       readonly services: Readonly<Record<string, unknown>>
+      readonly observers?: readonly ExecutionObserver[]
       readonly serviceBindingFactories: Readonly<Record<string, ServiceBindingFactory>>
       readonly effectiveConfig: ResolvedHttpConfig
       readonly httpApp?: Hono<any>
@@ -229,7 +239,7 @@ export async function assembleApp<D extends AppDefinition>(
         )?.waitUntil?.(tracked)
       }
       const cleanup = async () => {
-        await Promise.all(eventWork)
+        while (eventWork.size) await Promise.all(eventWork)
         const errors: unknown[] = []
         while (eventDisposals.length) {
           try {
@@ -258,6 +268,7 @@ export async function assembleApp<D extends AppDefinition>(
               definition.webPrefix,
               undefined,
               admissionRuntime ? () => getCurrentScope()!.admission! : undefined,
+              eventPlan.endpoints,
             )
             cachedEventRoutes = routes
           }
@@ -278,6 +289,7 @@ export async function assembleApp<D extends AppDefinition>(
           logger,
           waitUntil: trackEventWork,
           signal,
+          backgroundSignal: lifecycle.signal,
           registerDispose: (_name, dispose) => {
             eventDisposals.push(() => dispose({ signal }))
           },
@@ -286,6 +298,7 @@ export async function assembleApp<D extends AppDefinition>(
         return {
           resources,
           services: eventServices.services,
+          observers: eventServices.observers,
           serviceBindingFactories: eventServices.factories,
           effectiveConfig,
           admission: eventPlan.admission,
@@ -406,6 +419,11 @@ export async function assembleApp<D extends AppDefinition>(
           : (eventScope?.admission ?? staticPlan?.admission)
         const logging = currentResources.logging as ExecutionLogging | undefined
         const shouldLogAccess = !isInternal && logging?.recordAccess !== undefined
+        const observers = isInternal
+          ? undefined
+          : options.kind === 'static'
+            ? staticServices!.observers
+            : eventScope!.observers
 
         const dispatch = async (finishEvent?: () => Promise<void>): Promise<Response> => {
           const requestScope: ExecutionScope = {
@@ -423,6 +441,8 @@ export async function assembleApp<D extends AppDefinition>(
             env: options.kind === 'event' ? requestEnv : options.env,
             executionCtx,
           }
+          if (observers) for (const observer of observers) observer.onRequestStart?.()
+
           let response: Response
           try {
             response = await runInScope(requestScope, () =>
@@ -438,6 +458,10 @@ export async function assembleApp<D extends AppDefinition>(
             outcome: 'ok' | 'error' | 'aborted',
             status: number | undefined,
           ) => {
+            const duration = performance.now() - requestStartTime
+            if (observers)
+              for (const observer of observers)
+                observer.onRequestEnd?.(request.method, meta?.route, status, duration)
             if (shouldLogAccess)
               logging!.recordAccess!(
                 {
@@ -447,15 +471,17 @@ export async function assembleApp<D extends AppDefinition>(
                   clientIp: meta?.clientIp || '127.0.0.1',
                 },
                 status,
-                performance.now() - requestStartTime,
+                duration,
                 outcome,
               )
           }
           if (upgrade) {
-            let recorded = false
+            let handshake: 'pending' | 'accepted' | 'failed' = 'pending'
             upgrade.complete = AsyncLocalStorage.bind((status, outcome) => {
-              if (recorded) return
-              recorded = true
+              if (handshake !== 'pending') return
+              handshake = status === 101 ? 'accepted' : 'failed'
+              if (handshake === 'accepted' && observers)
+                for (const observer of observers) observer.onSocketOpen?.()
               recordAccess(outcome, status)
             })
             lifecycle.beginRequest()
@@ -464,6 +490,8 @@ export async function assembleApp<D extends AppDefinition>(
               () =>
                 (released ??= (async () => {
                   try {
+                    if (handshake === 'accepted' && observers)
+                      for (const observer of observers) observer.onSocketClose?.()
                     upgrade.complete?.(undefined, 'aborted')
                     await finishEvent?.()
                   } finally {
@@ -490,7 +518,7 @@ export async function assembleApp<D extends AppDefinition>(
               .catch((error) => logger.error('Delivery completion failed: {error}', { error }))
             return response
           }
-          if (!shouldLogAccess && !finishEvent) return response
+          if (!shouldLogAccess && !observers && !finishEvent) return response
           return runInScope(meta?.scope ?? requestScope, () =>
             trackResponseCompletion(response, (outcome) => {
               recordAccess(outcome, response.status)
@@ -641,6 +669,7 @@ export async function assembleApp<D extends AppDefinition>(
     const readyContext = {
       app: instance,
       services: staticServices?.services ?? {},
+      observers: staticServices?.observers,
     }
     for (const cb of readyCallbacks) {
       await cb(readyContext)
@@ -691,10 +720,12 @@ async function createServices(
 ) {
   const services: Record<string, unknown> = {}
   const factories: Record<string, ServiceBindingFactory> = {}
+  let observers: ExecutionObserver[] | undefined
   for (const [name, preparation] of preparations) {
     const result = await preparation.create(resources, context)
     if (result.service !== undefined) services[name] = result.service
     if (result.createBinding) factories[name] = result.createBinding
+    if (result.observer) (observers ??= []).push(result.observer)
   }
-  return { services, factories }
+  return { services, factories, observers }
 }

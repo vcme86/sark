@@ -181,6 +181,11 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
         'Cloudflare Workers target does not support Node health probes ("health"). Probes are managed by the deployment platform.',
       )
     }
+    if (appExports.exports.includes('metrics')) {
+      throw new Error(
+        'Cloudflare Workers target does not support Node Prometheus metrics ("metrics"). Use Cloudflare platform analytics.',
+      )
+    }
     if (appExports.exports.includes('assets')) {
       throw new Error(
         'Cloudflare Workers target does not support Node asset mounts ("assets"). Use static assets or R2 object storage.',
@@ -425,6 +430,8 @@ const page404Handler = createPage404Handler(
   const hasHealth = appExports.exports.includes('health')
   const hasLogging = appExports.exports.includes('logging')
   const hasRateLimit = appExports.exports.includes('rateLimit')
+  const hasPageCache = appExports.exports.includes('pageCache')
+  const hasMetrics = appExports.exports.includes('metrics')
 
   const runtimeImports: string[] = []
   const appBindings = new Set<string>()
@@ -546,6 +553,22 @@ const page404Handler = createPage404Handler(
     runtimeImports.push("import { createRateLimitAssembly } from '@olivaw/sark/runtime/rate-limit'")
     definitionFields.push('admission: createRateLimitAssembly(rateLimit),')
   }
+  if (hasPageCache) {
+    appBindings.add('pageCache')
+    declItems.push('pageCache')
+    runtimeImports.push("import { createPageCacheAssembly } from '@olivaw/sark/runtime/page-cache'")
+    serviceEntries.push('cache: createPageCacheAssembly(pageCache)')
+    serviceTypeImports.push("import type { PageCacheService } from '@olivaw/sark/page/cache'")
+    serviceTypeFields.push('  readonly cache: PageCacheService')
+  }
+  if (hasMetrics) {
+    appBindings.add('metrics')
+    declItems.push('metrics')
+    runtimeImports.push("import { createMetricsAssembly } from '@olivaw/sark/runtime/metrics'")
+    serviceEntries.push('metrics: createMetricsAssembly(metrics)')
+    serviceTypeImports.push("import type { MetricsService } from '@olivaw/sark/node'")
+    serviceTypeFields.push('  readonly metrics: MetricsService')
+  }
   if (hasJobs) {
     appBindings.add('jobs')
     declItems.push('jobs')
@@ -659,6 +682,8 @@ ${hasDatabase ? "export type { Db } from './resources-types'" : ''}
 ${hasStorage ? "export type { Storage } from './resources-types'" : ''}
 ${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth'" : ''}
 ${hasVisitors ? "export type { RequestVisitor } from '@olivaw/sark/visitors'" : ''}
+${hasPageCache ? "export type { PageCacheService } from '@olivaw/sark/page/cache'" : ''}
+${hasMetrics ? "export type { MetricsService } from '@olivaw/sark/node'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
 

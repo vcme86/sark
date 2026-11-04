@@ -10,7 +10,7 @@ import { waitUntil as waitForDeadline } from '../../adapter/node/deadline'
 import { runInScope } from '../../app/context'
 import type { ShutdownContext } from '../../app/lifecycle'
 import { getLogger } from '../../app/logging'
-import type { ServiceReadyContext } from '../../app/service'
+import type { ExecutionObserver, ServiceReadyContext } from '../../app/service'
 import type { AppInstance } from '../../app/types'
 import type { JobContext, JobHandle, JobsManager, ResolvedNodeJobDefinition } from './types'
 
@@ -54,6 +54,7 @@ export function createNodeJobsManager(
 
   const currentResources = options.resources
   let currentServices: Readonly<Record<string, unknown>>
+  let observers: readonly ExecutionObserver[] | undefined
   const currentEnv = options.env
 
   const handles = new Map<string, InternalJobHandle>()
@@ -84,6 +85,7 @@ export function createNodeJobsManager(
       }
       if (job.preventOverlap && activeExecutions.size > 0) {
         jobLogger.warn(`Job "${job.name}" skipped: previous execution still in progress`)
+        if (observers) for (const observer of observers) observer.onJobSkip?.(job.name)
         return
       }
 
@@ -121,10 +123,14 @@ export function createNodeJobsManager(
         signal: abortController.signal,
         logger: jobLogger,
         ...currentResources,
+        ...(currentServices.metrics ? { metrics: currentServices.metrics } : {}),
+        ...(currentServices.cache ? { cache: currentServices.cache } : {}),
       }
 
       const currentExecution = runInScope(scope, async () => {
         const startTime = performance.now()
+        if (observers) for (const observer of observers) observer.onJobStart?.(job.name)
+        let result: 'success' | 'error' = 'success'
         jobLogger.info(`Job "${job.name}" started`)
         try {
           await job.handler(jobContext)
@@ -132,11 +138,13 @@ export function createNodeJobsManager(
           jobLogger.info(`Job "${job.name}" completed in ${durationMs}ms`)
         } catch (error) {
           const durationMs = Math.round(performance.now() - startTime)
+          result = 'error'
           jobLogger.error(`Job "${job.name}" failed after ${durationMs}ms: ${error}`, {
             error,
           })
           if (isManual) throw error
         } finally {
+          if (observers) for (const observer of observers) observer.onJobEnd?.(job.name, result)
           if (timeoutTimer) clearTimeout(timeoutTimer)
           signal.removeEventListener('abort', onSignalAbort)
           activeControllers.delete(abortController)
@@ -315,6 +323,7 @@ export function createNodeJobsManager(
       defaultLogger.debug('Jobs manager is starting')
       currentInstance = context.app
       currentServices = context.services
+      observers = context.observers
       for (const start of startCallbacks) {
         start()
       }

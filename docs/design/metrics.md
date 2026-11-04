@@ -52,6 +52,8 @@ interface Gauge {
 }
 ```
 
+配置在所属实例的服务准备阶段求值一次，端点和 Registry 共享该结果；复用同一应用定义创建新实例时重新解析，不继承前一实例的环境。独立端点由服务准备结果交付，宿主检查同一实际路由表，不扫描资源对象的隐式字段。
+
 服务提供 counter(spec)、histogram(spec)、gauge(spec)。Counter 处理 _total 后缀，声明标签后每次必须提供同名标签；同规格重复声明复用，同名不同类型/标签/桶在实际注册时诊断。
 
 框架标签采用有限集合：http_requests_total 的 method/route/status；http_request_duration_seconds 的 method/route；http_active_requests；ws_connections_active；jobs_runs_total、jobs_running、jobs_skipped_total 的 job/结果。未匹配路由记 `/*`，不把原始 URL 参数或用户 ID 放进标签。
@@ -65,6 +67,12 @@ interface Gauge {
 第一次启用 runtime 时开始；关闭应用只移除其端点/业务 Registry，已经启动的进程采集继续到宿主退出。改变运行时采集配置或彻底停止需重启宿主。上游没有统一 dispose，清 Registry 不等于关 observer；不调用私有接口伪装完成释放。
 
 HTTP 结束时记录外部 HTTP 请求，流结束计时，内部 API 不重复增加外部活跃请求。任务/WS 只在其实际启用时接计量，任务生命周期不依赖指标。
+
+所属服务通过既有装配返回固定的同步执行观察者。核心只通知请求开始/交付结束和 WS 接受/释放；任务模块通知执行开始/结束及重叠跳过。计数器、标签、状态映射和单位换算由 metrics 模块负责，不按服务名称猜测对象形状，也不提供任意事件或运行时订阅。未启用时不创建观察集合或采集器。
+
+WS 活跃连接只从宿主确认 101 后开始计数，到所属连接实际释放为止；待握手和失败握手不算已连接。
+
+状态标签使用宿主确认的 HTTP 状态码；交付或 WS 握手在状态可确认前失败时记为 unknown，不使用准备阶段的 Response 状态代替实际交付结果。
 
 ## 暴露
 

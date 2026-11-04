@@ -24,6 +24,10 @@
       "types": "./dist/entries/page.d.mts",
       "import": "./dist/entries/page.mjs"
     },
+    "./page/cache": {
+      "types": "./dist/entries/page-cache.d.mts",
+      "import": "./dist/entries/page-cache.mjs"
+    },
     "./client": {
       "types": "./dist/entries/client.d.mts",
       "import": "./dist/entries/client.mjs"
@@ -164,6 +168,10 @@
       "types": "./dist/entries/runtime/page-browser.d.mts",
       "import": "./dist/entries/runtime/page-browser.mjs"
     },
+    "./runtime/page-cache": {
+      "types": "./dist/entries/runtime/page-cache.d.mts",
+      "import": "./dist/entries/runtime/page-cache.mjs"
+    },
     "./runtime/rate-limit": {
       "types": "./dist/entries/runtime/rate-limit.d.mts",
       "import": "./dist/entries/runtime/rate-limit.mjs"
@@ -199,6 +207,10 @@
     "./runtime/health": {
       "types": "./dist/entries/runtime/health.d.mts",
       "import": "./dist/entries/runtime/health.mjs"
+    },
+    "./runtime/metrics": {
+      "types": "./dist/entries/runtime/metrics.d.mts",
+      "import": "./dist/entries/runtime/metrics.mjs"
     },
     "./runtime/jobs-node": {
       "types": "./dist/entries/runtime/jobs-node.d.mts",
@@ -248,6 +260,7 @@
     "@otplib/plugin-crypto-web": "^13.5.0",
     "@otplib/totp": "^13.5.0",
     "@otplib/uri": "^13.5.0",
+    "@prometheus-io/client": "^0.16.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.3",
     "@types/better-sqlite3": "^9.6.0",
@@ -260,6 +273,7 @@
     "better-sqlite3": "^13.0.3",
     "croner": "^11.0.0",
     "drizzle-orm": "^0.45.4",
+    "lru-cache": "^11.5.3",
     "obuild": "^0.4.45",
     "openid-client": "^6.8.8",
     "oxfmt": "^0.74.0",
@@ -284,12 +298,14 @@
     "@otplib/plugin-crypto-web": "^13.5.0",
     "@otplib/totp": "^13.5.0",
     "@otplib/uri": "^13.5.0",
+    "@prometheus-io/client": "^0.16.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.3",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.0",
     "croner": "^11.0.0",
     "drizzle-orm": "^0.45.0",
+    "lru-cache": "^11.5.3",
     "openid-client": "^6.8.8",
     "postgres": "^3.4.0",
     "react": "^19.3.1",
@@ -330,6 +346,9 @@
     "@otplib/uri": {
       "optional": true
     },
+    "@prometheus-io/client": {
+      "optional": true
+    },
     "@simplewebauthn/browser": {
       "optional": true
     },
@@ -346,6 +365,9 @@
       "optional": true
     },
     "drizzle-orm": {
+      "optional": true
+    },
+    "lru-cache": {
       "optional": true
     },
     "openid-client": {

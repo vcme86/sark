@@ -10,6 +10,11 @@ import type { Register } from '../../app/types'
 
 type RegisteredResources = Register extends { resources: infer R } ? R : {}
 
+/** Instance services available outside an HTTP request; excludes request-bound identities. */
+type RegisteredJobServices = Register extends { services: infer S }
+  ? Pick<S, Extract<keyof S, 'cache' | 'metrics'>>
+  : {}
+
 /** Execution context supplied to a background job handler. */
 export type JobContext<TResources = RegisteredResources> = {
   /** Name of the executing job. */
@@ -18,7 +23,8 @@ export type JobContext<TResources = RegisteredResources> = {
   readonly signal: AbortSignal
   /** Dedicated logger for the job with structured properties. */
   readonly logger: Logger
-} & TResources
+} & TResources &
+  RegisteredJobServices
 
 /** Job schedule: either a 5-part cron pattern or a fixed delay in milliseconds. */
 export type JobSchedule = string | { readonly interval: number }

@@ -2,6 +2,7 @@
 import type { Context } from 'hono'
 
 import type { ParsedRoutePath } from '../../http/path'
+import type { HttpMethod } from '../../http/types'
 import type { RequestScope } from '../context'
 import type { MiddlewareHandler, RouteDeclaration, RouteScope, SseDeclaration } from './types'
 import type { WsUpgradeState } from './websocket'
@@ -36,6 +37,13 @@ export type PageRequestHandler = (
   scope: RequestScope,
   production: boolean,
 ) => Promise<Response>
+
+/** A prepared endpoint outside application middleware and business service bindings. */
+export interface SystemEndpoint {
+  readonly path: string
+  readonly method: HttpMethod
+  readonly handle: (context: Context, scope: RequestScope) => Response | Promise<Response>
+}
 
 /** Parsed route entry pairing URL path metadata with its runtime handler declaration. */
 interface RouteEntryBase {

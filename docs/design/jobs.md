@@ -23,6 +23,8 @@ name 唯一。共同字段为 name、handler、可选 timeout（毫秒）。hand
 
 未声明能力就没有对应属性。任务不是 HTTP 请求，不带隐式 Cookie、登录身份或 visitor；需要 stats 去重时显式提供可信主体。instance.stats 与 JobContext.stats 为同一应用的服务级入口。
 
+生成类型分别注册资源和服务。JobContext 合并资源与适用于后台任务的实例服务；cache、metrics 属于服务，不为复用类型而登记成资源，也不把请求绑定服务整体注入任务。
+
 ## Node 调度
 
 Node 字段为 schedule、timezone、preventOverlap、runOnInit：

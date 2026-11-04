@@ -17,6 +17,10 @@ import type { AppInstance } from './types'
 export interface ExecutionScope {
   /** Request identifier shared by the root request and its internal calls. */
   readonly requestId: string
+  /** Selected route template, assigned before service binding or business admission. */
+  route?: string
+  /** Application Vary value captured before framework CORS adds delivery metadata. */
+  contentVary?: string | null
   /** Original request identity retained when middleware replaces the body stream. */
   readonly request?: Request
   /** Reference to the Sark application instance executing this scope. */
@@ -71,6 +75,8 @@ export interface RequestScope extends ExecutionScope {
   readonly isHeadersCommitted: () => boolean
   readonly appendCookies: NonNullable<ExecutionScope['appendCookies']>
   readonly commitResponseHeaders: NonNullable<ExecutionScope['commitResponseHeaders']>
+  /** Optional observer installed only when a consumer needs the final middleware response. */
+  onResponse?: (response: Response) => void
 }
 
 const storage = new AsyncLocalStorage<ExecutionScope>()

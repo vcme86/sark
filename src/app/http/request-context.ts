@@ -7,7 +7,7 @@
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
 import type { ResolvedHttpConfig } from '../config'
-import { getCurrentScope, type RequestScope, runInScope } from '../context'
+import { type ExecutionScope, getCurrentScope, type RequestScope, runInScope } from '../context'
 import { applicationLifecycles } from '../lifecycle'
 import type { RequestBindingContext, ServiceBinding } from '../service'
 import type { AppInstance } from '../types'
@@ -18,7 +18,7 @@ import { wsUpgradeCarrierMap, type WsUpgradeState } from './websocket'
 /** Response metadata retaining request identity and scope for deferred completion callbacks. */
 export const responseMetadata = new WeakMap<
   Response,
-  { clientIp: string; requestId: string; scope?: RequestScope }
+  { clientIp: string; requestId: string; scope?: RequestScope; route?: string }
 >()
 
 function getPeerIp(ctx: Context, isWorkers: boolean): string {
@@ -126,12 +126,8 @@ export function requestContext(
         ? AbortSignal.any([rawReq.signal, shutdownSignal])
         : rawReq.signal
 
-    let headersCommitted = false
     let resolvedClientIp = '127.0.0.1'
     let responseScope: RequestScope | undefined
-    const serviceBindings: Record<string, ServiceBinding> = {}
-    const isHeadersCommitted = () =>
-      headersCommitted || Boolean(isInternal && parent.isHeadersCommitted?.())
     ctx.set('requestId', requestId)
     try {
       validateHost(ctx.req.header('host') || reqUrl.host, effectiveConfig.hosts)
@@ -139,9 +135,9 @@ export function requestContext(
       resolvedClientIp = inherited
         ? inherited.clientIp
         : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1'
-      const scope = {
+      const scope = createRequestScope(ctx, {
+        ...parent,
         requestId,
-        request: rawReq,
         app: instance,
         isInternal,
         clientIp: resolvedClientIp,
@@ -149,38 +145,11 @@ export function requestContext(
           ? inherited.externalOrigin
           : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin,
         signal: requestSignal,
-        appendCookies(cookies) {
-          if (cookies.length && isHeadersCommitted())
-            throw new Error(
-              'Cannot forward API cookies after response headers have been committed.',
-            )
-          for (const cookie of cookies) ctx.header('Set-Cookie', cookie, { append: true })
-        },
-        async commitResponseHeaders() {
-          if (headersCommitted) return
-          for (const binding of Object.values(serviceBindings)) await binding.onCommitHeaders?.()
-          headersCommitted = true
-        },
-        isHeadersCommitted,
-        dedupStore: isInternal ? parent.dedupStore : new Map(),
         config: effectiveConfig,
-        admission: parent?.admission,
-        pageConfig: parent?.pageConfig,
-        resources: parent?.resources,
-        services: parent?.services,
-        serviceBindings,
-        parentBindings: isInternal ? parent.serviceBindings : undefined,
-        serviceBindingFactories: parent?.serviceBindingFactories,
-        httpApp: parent?.httpApp,
         env,
         executionCtx,
-      } satisfies RequestScope
+      })
       responseScope = scope
-      if (scope.resources) {
-        for (const [key, val] of Object.entries(scope.resources)) {
-          ctx.set(key, val)
-        }
-      }
       await runInScope(scope, async () => {
         await next()
         await scope.commitResponseHeaders()
@@ -200,23 +169,25 @@ export function requestContext(
       } else {
         ctx.header('X-Request-Id', requestId)
         applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
-        headersCommitted = true
         responseMetadata.set(ctx.res, {
           clientIp: resolvedClientIp,
           requestId,
           scope: responseScope,
+          route: responseScope?.route ?? '/*',
         })
+        responseScope?.onResponse?.(ctx.res)
         return
       }
     }
     ctx.header('X-Request-Id', requestId)
     applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
-    headersCommitted = true
+    responseScope?.onResponse?.(ctx.res)
     if (ctx.res) {
       responseMetadata.set(ctx.res, {
         clientIp: resolvedClientIp,
         requestId,
         scope: responseScope,
+        route: responseScope?.route ?? '/*',
       })
     }
   }
@@ -244,4 +215,44 @@ export async function bindRequestServices(ctx: Context, next: Next): Promise<voi
     scope.serviceBindings[name] = await factory(bindingContext)
   }
   await next()
+}
+
+/**
+ * Creates fresh mutable HTTP state from already resolved execution metadata.
+ * The caller owns routing/admission; background page rendering uses the same binding contract.
+ *
+ * @param ctx - Real Hono context for this execution, including writable response headers.
+ * @param source - Validated metadata and shared instance/event resources.
+ * @returns Independent bindings and Cookie state; internal API calls inherit their parent's bindings.
+ */
+export function createRequestScope(
+  ctx: Context,
+  source: ExecutionScope & Pick<RequestScope, 'signal' | 'config' | 'clientIp' | 'externalOrigin'>,
+): RequestScope {
+  let committed = false
+  const bindings: Record<string, ServiceBinding> = {}
+  const scope: RequestScope = {
+    ...source,
+    request: ctx.req.raw,
+    onResponse: undefined,
+    serviceBindings: bindings,
+    parentBindings: source.isInternal ? source.serviceBindings : undefined,
+    dedupStore: source.isInternal ? source.dedupStore : new Map(),
+    isHeadersCommitted: () =>
+      committed || Boolean(source.isInternal && source.isHeadersCommitted?.()),
+    appendCookies(cookies) {
+      if (cookies.length && scope.isHeadersCommitted()) {
+        throw new Error('Cannot forward API cookies after response headers have been committed.')
+      }
+      for (const cookie of cookies) ctx.header('Set-Cookie', cookie, { append: true })
+    },
+    async commitResponseHeaders() {
+      if (committed) return
+      for (const binding of Object.values(bindings)) await binding.onCommitHeaders?.()
+      committed = true
+    },
+  }
+  ctx.set('requestId', scope.requestId)
+  for (const [name, value] of Object.entries(scope.resources ?? {})) ctx.set(name, value)
+  return scope
 }

@@ -261,3 +261,42 @@ describe('node delivery', () => {
     }
   })
 })
+
+it('records real Node WebSocket handshake and connection lifetime metrics', async () => {
+  const { WebSocket } = await import('ws')
+  const { defineMetrics } = await import('../../src/entries/node')
+  const { createMetricsAssembly } = await import('../../src/entries/runtime/metrics')
+  const app = await createApp(
+    createDefinition({
+      services: { metrics: createMetricsAssembly(defineMetrics({ runtime: false })) },
+      routes: [
+        entry(
+          'echo.ws.ts',
+          route().handler(() => ({
+            onMessage(socket: import('../../src/entries/root').Socket, data: string | Uint8Array) {
+              socket.send(data)
+            },
+          })),
+        ),
+      ],
+    }),
+  )
+  const server = await startNodeServer(app, defineNodeRuntime({ port: 0 }))
+  const origin = `http://127.0.0.1:${server.port}`
+  const socket = new WebSocket(origin.replace(/^http/, 'ws') + '/api/echo')
+  const scrape = async () => (await fetch(origin + '/metrics')).text()
+  try {
+    await once(socket, 'open')
+    expect(await scrape()).toContain('ws_connections_active 1')
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    await expect.poll(scrape).toContain('ws_connections_active 0')
+    expect(await scrape()).toContain(
+      'http_requests_total{method="GET",route="/api/echo",status="101"} 1',
+    )
+  } finally {
+    socket.terminate()
+    await server.close()
+  }
+})

@@ -52,10 +52,8 @@ it.each(['node', 'cloudflare'] as const)(
   'rejects unimplemented capabilities during %s discovery',
   (target) => {
     withTempDir((root) => {
-      for (const name of ['stats', 'pageCache', 'metrics']) {
-        writeFileSync(join(root, 'app.ts'), `export const ${name} = {}`)
-        expect(() => generateProject(root, { target, apiDir: false, webDir: false })).toThrow(name)
-      }
+      writeFileSync(join(root, 'app.ts'), 'export const stats = {}')
+      expect(() => generateProject(root, { target, apiDir: false, webDir: false })).toThrow('stats')
     })
   },
 )
