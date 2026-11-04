@@ -7,7 +7,7 @@
 本模块不自动注册登录、退出或注册端点。应用在 API 路由中实现这些业务接口，在页面目录中实现登录等界面；第三方授权入口与回调的挂载规则见 [oauth.md](oauth.md)。
 
 ```ts
-import { defineAuth } from '@olivaw/sark/auth/session'
+import { defineAuth } from '@olivaw/sark/auth'
 
 type Env = NodeJS.ProcessEnv
 
@@ -153,7 +153,7 @@ function verifyToken(
 
 ## Cookie 与自动续期
 
-会话 Cookie 直接存放 JWT，默认 HttpOnly、SameSite=Lax、生产 Secure，不再套通用签名；只需认证密钥。Path 默认 /，其他专用属性按公开应用部署配置，不把内部 API DNS 写入 Domain。
+会话 Cookie 直接存放 JWT，默认 HttpOnly、SameSite=Lax、生产 Secure，不再套通用签名；只需认证密钥。Path 默认 /，其他专用属性按公开应用部署配置，不把内部 API DNS 写入 Domain。所属配置解析器用 Hono serialize 一次检查固定 Cookie 名称、属性和前缀组合，不签发令牌或复制上游校验；实际写入仍由上游序列化。
 
 有效 Cookie 剩余期限不足 expiresIn 一半时，在提交响应头前准备换发。新过期时间为当前时刻加 expiresIn；保留 sub、ver、jti、amr、authTime、auth、业务 claims 与首次 iat。这是延长会话有效期，不是再次认证，也不提供绝对最长会话时长。
 
@@ -183,7 +183,7 @@ signOut 清 Cookie，本身不能撤销已复制的 JWT。单次撤销由应用�
 
 ## 再次认证守卫
 
-auth/session 导出 requireStepUp({ maxAge, amr? })，maxAge 为毫秒。它检查已有身份、authTime 是否足够近，以及指定的全部 amr；不满足返回 403，错误码为 step_up_required，不自动导航或执行业务授权检查。
+auth 导出 requireStepUp({ maxAge, amr? })，maxAge 为毫秒。它检查已有身份、authTime 是否足够近，以及指定的全部 amr；不满足返回 403，错误码为 step_up_required，不自动导航或执行业务授权检查。
 
 MFA 成功后记录本次认证方式及验证结果，普通续期不刷新这些记录。SignInInput 中的认证结果来自应用已验证的流程，不接受浏览器自报认证方式。
 

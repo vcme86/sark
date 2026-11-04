@@ -4,7 +4,7 @@ import {
   generateRecoveryCodes,
   hashRecoveryCode,
   verifyRecoveryCode,
-} from '../../src/services/auth/recovery/service'
+} from '../../src/features/auth/recovery/service'
 
 describe('Recovery Codes Mechanism', () => {
   it('formats 80-bit random recovery codes in hexadecimal groups', () => {

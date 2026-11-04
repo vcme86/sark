@@ -27,11 +27,11 @@ function expectCompiled(result: Awaited<ReturnType<typeof compileFixture>>) {
   expect(result.status, result.output).toBe(0)
 }
 
-describe('Jobs generated type contracts (P10)', () => {
+describe('Jobs generated type contracts', () => {
   it('supplies declared resources to JobContext and strictly excludes HTTP services', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
 import { defineJobs } from '@olivaw/sark/jobs'
 import { defineVisitors } from '@olivaw/sark/visitors'
@@ -78,10 +78,12 @@ export const jobs = defineJobs([
             triggers: { crons: ['0 * * * *'] },
           }),
         },
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineJobs } from '@olivaw/sark/jobs'
 
 export const app = defineApp({ hosts: 'localhost' })
+// @ts-expect-error A declaration cannot combine Workers onCron with Node schedule.
+defineJobs([{ name: 'invalid', onCron: '0 * * * *', schedule: '0 * * * *', handler() {} }])
 export const jobs = defineJobs([
   {
     name: 'cf-task',
@@ -93,7 +95,7 @@ export const jobs = defineJobs([
       // @ts-expect-error HTTP visitor is not in JobContext
       ctx.visitor
 
-      // @ts-expect-error onCron cannot be paired with schedule
+      // @ts-expect-error JobContext does not expose scheduling controls.
       ctx.schedule
     },
   },

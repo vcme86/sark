@@ -1,4 +1,4 @@
-import { createApp } from '@olivaw/sark/server'
+import { createApp } from '@olivaw/sark'
 import { createServer } from 'vite'
 import { expect, it } from 'vitest'
 
@@ -14,12 +14,12 @@ it.each(['/service/v2/', '/'])(
     try {
       project.write(
         'config/application.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({ headers: { 'X-Project': 'custom' } })`,
       )
       project.write(
         'handlers/item.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ item: 42 }))`,
       )
       server = await createServer({

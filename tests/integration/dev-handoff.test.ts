@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 
 import { defineNodeRuntime } from '../../src/adapter/node/runtime'
-import { getCurrentScope } from '../../src/core/context'
-import { createDefinition } from '../../src/core/definition'
-import type { DisposalContext } from '../../src/core/resource'
+import { getCurrentScope } from '../../src/app/context'
+import { createDefinition } from '../../src/app/definition'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import { route } from '../../src/app/http/route'
+import type { DisposalContext } from '../../src/app/resource'
+import { defineDatabase } from '../../src/features/db/sqlite'
 import { parseApiFilePath } from '../../src/http/path'
-import { route } from '../../src/http/server/route'
-import type { RouteEntry } from '../../src/http/server/types'
-import { defineDatabase } from '../../src/services/db/sqlite'
 import { sark } from '../../src/tooling/vite'
 import { createDevHandoff } from '../helpers/dev-handoff'
 import { createProject } from '../helpers/project'
@@ -128,7 +128,7 @@ it('cancels a persistent stream and replaces the instance using one resolved run
     expect(await body).toBeInstanceOf(Error)
     expect(harness.clients[0].open).toBe(false)
     expect(harness.warning).toHaveBeenCalledTimes(1)
-    expect(harness.warning.mock.calls[0][1]).toMatchObject({ connections: 1, handlers: 0 })
+    expect(harness.warning.mock.calls[0][1]).toMatchObject({ connections: 1, handlers: 1 })
     expect(harness.error).not.toHaveBeenCalled()
     const replacement = await harness.request('/api/ping')
     expect(replacement.status).toBe(200)

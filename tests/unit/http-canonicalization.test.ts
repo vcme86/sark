@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest'
 
-import { route } from '../../src/entries/server'
-import { resolveHttpConfig } from '../../src/http/config'
+import { resolveHttpConfig } from '../../src/app/config'
+import { buildHttpApp } from '../../src/app/http/pipeline'
+import { route } from '../../src/entries/root'
 import { createRequestPathResolver, parseApiFilePath } from '../../src/http/path'
-import { buildHttpApp } from '../../src/http/server/pipeline'
 
 it('applies later event policies without changing parameter case', async () => {
   let config = resolveHttpConfig({ caseSensitive: true })

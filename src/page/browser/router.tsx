@@ -1,7 +1,7 @@
 import { createElement, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 
-import { createClient, type HttpClient } from '../../http/client/client'
+import { createClient, type HttpClient } from '../../client/client'
 import type { BootstrapData } from '../bootstrap'
 import { DefaultError, ScopedErrorBoundary } from '../components/error'
 import { registerPrefetchCoordinator } from '../components/link'
@@ -18,9 +18,16 @@ interface RouterRootProps {
   readonly history: BrowserHistory
   readonly client: HttpClient<unknown>
   readonly bootstrapJson: string
+  readonly dispose: () => void
 }
 
-function ClientRouterRoot({ controller, history, client, bootstrapJson }: RouterRootProps) {
+function ClientRouterRoot({
+  controller,
+  history,
+  client,
+  bootstrapJson,
+  dispose,
+}: RouterRootProps) {
   const { view, navigation } = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
@@ -36,7 +43,9 @@ function ClientRouterRoot({ controller, history, client, bootstrapJson }: Router
             key: scope.id,
             scopeId: scope.id,
             resetKey:
-              view.retryId === undefined || view.retryId === scope.id ? view.revision : undefined,
+              view.resetScopes === undefined || view.resetScopes.has(scope.id)
+                ? view.revision
+                : undefined,
             errorComponent: scope.errorComponent ?? DefaultError,
             initialError: snapshot?.status === 'error' ? snapshot.error : undefined,
             onRetry: () => void controller.retryScope(scope.id),
@@ -57,17 +66,7 @@ function ClientRouterRoot({ controller, history, client, bootstrapJson }: Router
   useLayoutEffect(() => {
     history.applyPosition()
   }, [history, view.revision])
-  useEffect(() => {
-    const unlisten = history.listen((url, target) => {
-      void controller.navigate(url, {}, target)
-    }, controller.hasBlockers)
-    const unregister = registerBrowserNavigation(controller.reload, controller.setIdentity)
-    return () => {
-      unlisten()
-      unregister()
-      controller.dispose()
-    }
-  }, [controller, history])
+  useEffect(() => dispose, [dispose])
   useEffect(
     () =>
       registerPrefetchCoordinator((to) => {
@@ -114,7 +113,13 @@ export async function hydratePageApplication(
   fallbackClient?: HttpClient<unknown>,
 ): Promise<void> {
   const json = document.getElementById('__PAGE_CONTEXT__')?.textContent
-  if (!json) return
+  if (!json) {
+    console.error(
+      'Page hydration could not start: bootstrap data is missing; preserving server HTML.',
+    )
+    return
+  }
+  let dispose: (() => void) | undefined
   try {
     const payload = JSON.parse(json) as BootstrapData
     const url = new URL(location.href)
@@ -137,11 +142,36 @@ export async function hydratePageApplication(
       { ...payload.request, url: url.href },
       payload.policy,
     )
+    const unlisten = history.listen((destination, target) => {
+      void controller.navigate(destination, {}, target)
+    }, controller.hasBlockers)
+    const unregister = registerBrowserNavigation(controller.reload, controller.setIdentity)
+    let disposed = false
+    dispose = () => {
+      if (disposed) return
+      disposed = true
+      unlisten()
+      unregister()
+      controller.dispose()
+    }
     hydrateRoot(
       document,
-      createElement(ClientRouterRoot, { controller, history, client, bootstrapJson: json }),
+      createElement(ClientRouterRoot, {
+        controller,
+        history,
+        client,
+        bootstrapJson: json,
+        dispose,
+      }),
+      {
+        onUncaughtError(error) {
+          dispose?.()
+          console.error('Page hydration failed.', error)
+        },
+      },
     )
   } catch (error) {
+    dispose?.()
     console.error('Page hydration could not start; preserving server HTML.', error)
   }
 }

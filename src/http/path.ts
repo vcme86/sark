@@ -298,19 +298,34 @@ export function checkUrlNormalization(
  *
  * @param routes - Routes in dispatch priority order.
  * @param getConfig - Already resolved HTTP settings for the current application or event.
+ * @param routeKind - Optional existing dispatch index, used only to recover page URLs with repeated slashes.
  * @returns A resolver that decodes once, trims the terminal slash, and canonicalizes static segments.
  */
 export function createRequestPathResolver(
   routes: readonly { readonly routePath: ParsedRoutePath }[],
   getConfig: () => { readonly caseSensitive: boolean },
+  routeKind?: (pathname: string, method: string) => 'page' | 'api' | undefined,
 ): (request: Request, method?: string) => string {
   let canonicalizer: RouteCanonicalizer | undefined
-  return (request, method = request.method) => {
+  const normalize = (request: Request, method: string) => {
     let pathname = getRequestPath(request)
     if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1)
     if (!getConfig().caseSensitive) {
       canonicalizer ??= createRouteCanonicalizer(routes)
       pathname = canonicalizer.findCanonical(pathname, method) ?? pathname
+    }
+    return pathname
+  }
+  return (request, method = request.method) => {
+    const pathname = normalize(request, method)
+    if (routeKind && (method === 'GET' || method === 'HEAD')) {
+      const url = new URL(request.url)
+      if (url.pathname.includes('//') && routeKind(pathname, method) !== 'api') {
+        // Collapse literal separators before decoding; encoded slashes retain their meaning.
+        url.pathname = url.pathname.replace(/\/{2,}/g, '/')
+        const candidate = normalize(new Request(url, { method }), method)
+        if (routeKind(candidate, method) === 'page') return candidate
+      }
     }
     return pathname
   }

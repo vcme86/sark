@@ -1,11 +1,11 @@
 import { expect, it } from 'vitest'
 
-import { defineApp, resolveAppConfig } from '../../src/core/config'
-import { getCurrentScope } from '../../src/core/context'
-import { assembleApp, createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
+import { defineApp, resolveAppConfig } from '../../src/app/config'
+import { getCurrentScope } from '../../src/app/context'
+import { assembleApp, createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { route } from '../../src/app/http/route'
 import { parseApiFilePath } from '../../src/http/path'
-import { route } from '../../src/http/server/route'
 
 it('cancels initialization before disposing acquired resources in reverse order', async () => {
   const failure = new Error('Later resource initialization failed')

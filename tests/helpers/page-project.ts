@@ -5,7 +5,7 @@ export function createPageProject(target: 'node' | 'cloudflare') {
   const project = createProject()
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({
   csrf: false,
   headers: { 'X-Application': 'sark' },
@@ -15,17 +15,17 @@ export const app = defineApp({
   )
   project.write(
     'api/posts.[id].get.ts',
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(ctx => ({ title: 'Post ' + ctx.req.param('id') }))`,
   )
   project.write(
     'api/save.post.ts',
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ saved: true }))`,
   )
   project.write(
     'app/_root.tsx',
-    `import { Head, Outlet, Scripts } from '@olivaw/sark/client'
+    `import { Head, Outlet, Scripts } from '@olivaw/sark/page'
 import './_global.css'
 export default function Root() { return <html lang="en"><head><Head /></head><body><Outlet /><Scripts /></body></html> }`,
   )
@@ -37,7 +37,7 @@ export default function ErrorPage({ error, retry }: ErrorProps) { return <main><
   )
   project.write(
     'app/posts/[id].tsx',
-    `import { Link, useAction, useBlocker, useNavigate } from '@olivaw/sark/client'
+    `import { Link, useAction, useBlocker, useNavigate } from '@olivaw/sark/page'
 import { useState } from 'react'
 import type { LoaderArgs, ActionArgs, MetaArgs } from '@olivaw/sark/page'
 import styles from '../_post.module.css'
@@ -95,7 +95,11 @@ export default {
         main: '.build/worker.ts',
         compatibility_date: '2026-10-01',
         compatibility_flags: ['nodejs_compat'],
-        assets: { binding: 'ASSETS', run_worker_first: true, html_handling: 'none' },
+        assets: {
+          base_path: '/resources',
+          run_worker_first: ['/*', '!/resources/*'],
+          html_handling: 'none',
+        },
       }),
     )
   return project

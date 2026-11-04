@@ -13,7 +13,7 @@ for (const target of ['node', 'cloudflare'] as const) {
       project = createProject()
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { observations } from './progress'
 export const app = defineApp({
   csrf: false, bodyLimit: 256,
@@ -27,14 +27,14 @@ export const app = defineApp({
       for (const kind of ['json', 'text', 'form'])
         project.write(
           `api/${kind}.post.ts`,
-          `import { route, z } from '@olivaw/sark/server'
+          `import { route, z } from '@olivaw/sark'
 import { observations } from '../progress'
 export default route().validate({ ${kind}: ${kind === 'text' ? 'z.string()' : 'z.object({ value: z.string() })'} })
   .handler((ctx, input) => { observations.get(ctx.req.header('X-Case')!)!.handler = true; return input.${kind} })`,
         )
       project.write(
         'api/disabled.post.ts',
-        `import { route, z } from '@olivaw/sark/server'
+        `import { route, z } from '@olivaw/sark'
 export default route({ bodyLimit: false }).validate({ text: z.string() })
   .handler((_ctx, input) => ({ size: input.text.length }))`,
       )
@@ -46,19 +46,19 @@ export const observations = new Map<string, { length: string | null; handler: bo
       )
       project.write(
         'api/observation.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 import { observations } from '../progress'
 export default route().handler(ctx => observations.get(ctx.req.query('id')!) ?? null)`,
       )
       project.write(
         'api/progress.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 import { progress } from '../progress'
 export default route().handler(() => progress.promise)`,
       )
       project.write(
         'api/stream.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 import { progress } from '../progress'
 export default route().handler(async ctx => {
   const reader = ctx.req.raw.body!.getReader()

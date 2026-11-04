@@ -14,7 +14,7 @@ function application(target: 'node' | 'cloudflare') {
   const apiPrefix = target === 'cloudflare' ? '/service/v2/api' : '/api'
   project.write(
     appEntry,
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp((env: { RELEASE?: string }) => ({
   headers: { 'X-Release': env.RELEASE ?? 'node' },
 }))`,
@@ -29,12 +29,12 @@ export default createMiddleware(async (ctx, next) => {
   )
   project.write(
     `${apiDir}/users/get.ts`,
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ users: [] }))`,
   )
   project.write(
     `${apiDir}/users/[id].get.ts`,
-    `import { route, z } from '@olivaw/sark/server'
+    `import { route, z } from '@olivaw/sark'
 export default route().validate({ params: z.object({ id: z.string() }) }).handler((ctx, input) => {
   let hasWaitUntil = false
   try { hasWaitUntil = typeof ctx.executionCtx.waitUntil === 'function' } catch {}
@@ -44,18 +44,18 @@ export default route().validate({ params: z.object({ id: z.string() }) }).handle
   )
   project.write(
     `${apiDir}/users/post.ts`,
-    `import { route, z } from '@olivaw/sark/server'
+    `import { route, z } from '@olivaw/sark'
 export default route().validate({ json: z.object({ name: z.string(), role: z.enum(['admin', 'member']) }) })
 .handler((_ctx, input) => ({ created: true, user: input.json }))`,
   )
   project.write(
     `${apiDir}/client-info.get.ts`,
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ ok: true }))`,
   )
   project.write(
     `${apiDir}/mode.get.ts`,
-    `import { route, setCookie } from '@olivaw/sark/server'
+    `import { route, setCookie } from '@olivaw/sark'
 export default route().handler(ctx => {
   setCookie(ctx, 'mode', 'current')
   return { ok: true }
@@ -63,7 +63,7 @@ export default route().handler(ctx => {
   )
   project.write(
     `${apiDir}/events.sse.ts`,
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().events<{ ping: { value: string } }>({ heartbeat: false }).handler(() => ({
   async onOpen(stream) {
     await stream.send('ping', { value: 'from-stream' })
@@ -73,7 +73,7 @@ export default route().events<{ ping: { value: string } }>({ heartbeat: false })
   )
   project.write(
     `${apiDir}/echo.ws.ts`,
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({
   onOpen(socket) {
     socket.send('cf-ws-open')

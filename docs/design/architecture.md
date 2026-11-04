@@ -20,50 +20,133 @@ Sark 围绕 Hono、Vite、Node.js 与 React 19 组织全栈能力及外围基础
 
 新增可选能力只扩展所属领域和框架的构建期装配规则，不往核心 AppConfig 增加字段，也不要求应用维护插件列表和初始化顺序。
 
+## 公开包入口
+
+包根 `@olivaw/sark` 提供应用核心 API，子路径按完整使用场景、独立能力和实际依赖边界组织。根入口适用于 Node 和 Workers，不是浏览器通用入口，也不聚合所有增强。内部目录按实现职责组织，不逐项映射为公开子路径；entries 直接筛选所属实现，不建立 index 转发链。
+
+同组能力没有额外 SDK 或资源初始化边界时适当聚合，如页面组件与声明、Node 宿主声明、访客声明与浏览器助手。数据库驱动、认证 SQL 后端、浏览器凭据 SDK 和可选签名仍保持隔离；不能依赖应用构建裁剪来保证原生 ESM 不加载未选后端。
+
+一个 npm 包通过显式 exports 交付。package.json 与构建入口按相同用途排序：应用核心与 Node 宿主、页面、HTTP 客户端、中间件、数据库、存储、认证、日志、任务、访客与计数、构建工具；内部 runtime 入口统一放在最后。不提供空的 db/storage 父入口，也不保留旧路径别名。组内先列主入口，再紧邻列出子入口；同类后端统一按 SQLite、PostgreSQL、D1，存储按 local、s3、r2、presign 排列。以下列出主要导出，精确类型由对应专项定义：
+
+- `.`：defineApp、createApp、route、z、SOCKET_READY_STATE、HttpError、请求 Cookie 助手、dedup、getLogger；Context、MiddlewareHandler 保留本应用声明的资源与请求服务类型，Register 注册这些资源与服务
+- `node`：defineNodeRuntime、defineAssets、defineHealth、defineMetrics 及其类型；Prometheus 实现仅在声明 metrics 时装配
+- `page`：definePage、DefaultRoot、Head、Outlet、Scripts、Link、错误边界、useClient、useAction、useNavigate、useNavigation、useBlocker、reload、setIdentity、redirect、notFound 及页面类型；具体契约见 [pages.md](pages.md)
+- `page/cache`：服务端 definePageCache、revalidatePath、revalidateTag 及缓存类型；不进入浏览器 page 入口
+- `client`：createClient、HTTP/SSE/WS 客户端契约、HttpError、API Register，以及 parseCookie、parseSignedCookie、serializeCookie、serializeSignedCookie；不加载 React，确切契约见 [http.md](http.md)
+- `middleware`：cors、csrf、compress、defineRateLimit、rateLimit 及其类型
+- `db/sqlite`、`db/postgres`、`db/d1`：各自的 defineDatabase；不设置默认数据库
+- `storage/local`：defineStorage、saveUploadFile 及本地文件契约
+- `storage/s3`、`storage/r2`：各自的 defineStorage 与对应对象存储契约
+- `storage/presign`：独立启用的 definePresign，不是第四种存储后端
+- `auth`：defineAuth、signToken、verifyToken、requireStepUp 及第一方认证与会话类型；不加载其他认证增强
+- `auth/oauth`：defineOAuth 及第三方登录契约
+- `auth/mfa`：defineMfa、memoryState 及共同认证契约
+- `auth/totp`：defineTotp 及 TOTP 契约
+- `auth/totp/sqlite`、`auth/totp/postgres`、`auth/totp/d1`：sqlTotp、totpFactors
+- `auth/webauthn`：defineWebAuthn 及 WebAuthn 契约
+- `auth/webauthn/browser`：浏览器凭据交互 SDK 接入，具体符号见 [webauthn.md](webauthn.md)
+- `auth/webauthn/sqlite`、`auth/webauthn/postgres`、`auth/webauthn/d1`：sqlWebAuthn、webauthnSubjects、webauthnCredentials
+- `auth/recovery/sqlite`、`auth/recovery/postgres`、`auth/recovery/d1`：sqlRecovery、recoveryCodeSets
+- `auth/state/postgres`、`auth/state/d1`：sqlAuthState、authChallenges、authAttemptWindows
+- `logging`：defineLogging 及输出配置
+- `jobs`：defineJobs 及任务契约
+- `visitors`：defineVisitors、ensureVisitor、VisitorError 及请求和浏览器初始化契约
+- `stats`：defineStats 与计数契约
+- `stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats
+- `vite`：sark 构建插件
+
+认证能力声明可以使用自定义 store；各 SQL 后端入口只提供所属适配及表定义，不重复提供声明构造，也不聚合兄弟后端或其他因素。服务端配置按需分别选择能力与后端。WebAuthn 浏览器 SDK 与后端实现分开，普通页面不加载该 SDK。
+
+浏览器可导入 page、client、visitors 和 auth/webauthn/browser；包根、node、middleware、auth 及其余后端、jobs、logging、db、storage、vite 和 page/cache 是服务端或工具入口。类型导入按 TypeScript 正常擦除；库的纯声明不包含秘密，应用 app.ts 中的实际秘密配置仍只在服务端。浏览器构建检查完整入口与子路径边界，不用条件导出让同一路径在两端交付不同 API。
+
+认证 SQL 适配与 schema 的精确路径分别由 [mfa.md](mfa.md)、[totp.md](totp.md)、[webauthn.md](webauthn.md) 定义；统计 schema 路径由 [stats.md](stats.md) 定义。这些路径在 package.json 中逐项枚举，不使用顶层通配符暴露内部文件。
+
+恢复码的运行代码和 SQL 实现集中在 features/auth/recovery；恢复契约由 auth/mfa 交付，SQL 适配与表定义由独立 auth/recovery 后端入口交付。应用通过 mfa.recovery 选择它，不额外声明顶层 recovery。共同短期状态服务于绑定、第二步及无密码认证，不属于某一种因素。
+
+`runtime/core`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/rate-limit`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/storage`、`runtime/logging`、`runtime/health`、`runtime/jobs-node`、`runtime/jobs-cloudflare`、`runtime/visitors` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
+
+## 依赖方向
+
+生成的应用定义是组合根，显式引用所选核心、领域能力和宿主。核心使用这些装配结果，不维护包含所有能力的配置联合或运行时注册表。
+
+ServiceAssembly 提供准备、创建和请求绑定契约，不声明依赖图。生成器检查固定能力组合并输出创建顺序：auth → mfa → totp 维护；运行时直接消费该顺序，不重复检查因素集合或排序。应用不通过配置导出顺序安排这些内部步骤。
+
+- 领域运行代码依赖必要的底层契约和上游库，不导入生成组合根
+- 页面传输复用 client 与共享 HTTP 协议；服务端渲染接入应用的执行作用域、日志与页面终端契约，app/http 不导入页面实现
+- 页面可按用途引用应用声明和路由类型；浏览器运行代码不导入应用执行器、平台适配或可选能力的初始化实现
+- 同构 Loader 与 Action 不导入 HTTP 服务端、数据库和身份初始化服务
+- 第一方 session 不导入 OAuth、TOTP、WebAuthn；MFA 使用 session 的会话契约及注入的认证因素验证器
+- 配置回调使用资源类型，实例服务在后续合成，避免资源 → 服务 → 配置的类型循环
+- 运行代码不导入 Vite、构建片段或 CLI；浏览器不导入服务端配置和驱动
+- 分组目录不建立提前加载所有子能力的聚合 index
+
+HTTP 路由装配与页面终端的共同契约放在 app/http/assembly.ts，装配器和领域端点不从执行器文件借用类型。页面的导航、作用域快照和 Action 结果等共同类型放在 page/types.ts；React Context 负责向组件树交付这些状态，不作为页面执行器或启动载荷的类型来源。
+
+page 公开入口统一提供页面声明、React 组件、Hooks 和同构信号，允许 SSR、Loader 与浏览器导入，不加载应用秘密配置、驱动或服务初始化。导入 definePage 也会加载页面组件及 React；纯 API 应用与独立 HTTP 消费方不导入 page。HTTP 客户端由 client 提供，页面 useClient 复用同一实现与 API 类型注册。
+
+全部配置入口及后续能力遵循 [configuration.md](configuration.md) 的解析、合并与传递机制。各领域在所属入口提供完整的已解析配置，下游直接消费，不自行补默认值或掩盖配置缺失。
+
+app/config.ts 统一定义 AppConfig、应用声明、已解析配置、默认值与解析函数；defineApp 保存声明，resolveAppConfig 求值后调用 resolveHttpConfig，完整结果交给下游。app/http/policy 只应用局部覆盖；app/create 负责创建与生命周期；app/http/pipeline 执行已经确定的请求链。
+
+app/http 直接使用内建 CORS、CSRF；这两个中间件读取 app/context 识别内部调用和执行来源，不调用应用创建。可选 rate-limit 的实现归 middleware/rate-limit，app/http 只消费已准备的 RouteAdmission 和必要类型。依赖按具体职责判断，不强制所有目录形成单向层级。
+
+共享 http 保存 Endpoint、HttpMethod、Jsonify 等协议类型及路径、URL、错误、ETag 和资源描述，不依赖应用初始化。client 独立实现 HTTP/SSE/WS 传输，客户端入口可以类型导出服务端路由的派生契约，不将其变为运行时导入。
+
 ## 目录与文件职责
 
-以下是新项目的目标组织，仅列出主要目录与文件。sark/ 表示仓库根目录；src、tests、examples 和 docs 均位于仓库根目录下。源码按职责分组；只在相应能力实施时创建实际文件，不预建空模块。
+以下列出主要目录与文件。sark/ 表示仓库根目录；src、tests、examples 和 docs 均位于仓库根目录下，源码按职责分组。
 
 ```text
 sark/
 ├── src/
-│   ├── core/
-│   │   ├── declaration.ts              声明与环境工厂的基础类型
+│   ├── app/                            应用运行时
+│   │   ├── config.ts                   原始配置、声明、完整结果与解析
+│   │   ├── create.ts                   创建实例、执行接入与失败回滚
 │   │   ├── definition.ts               同版本应用定义的内部构造
-│   │   ├── config.ts                   defineApp，组合 HTTP 配置
-│   │   ├── create.ts                   创建实例、登记资源与失败回滚
 │   │   ├── context.ts                  所属应用、取消与执行作用域
+│   │   ├── declaration.ts              声明与环境工厂的基础类型
 │   │   ├── dedup.ts                    请求内函数结果复用
 │   │   ├── lifecycle.ts                就绪、排空与逆序释放
 │   │   ├── logging.ts                  LogTape 基础诊断与关联
-│   │   └── types.ts                    基础实例及生命周期契约
-│   ├── http/
-│   │   ├── config.ts                   HTTP 选项、默认值与校验
-│   │   ├── types.ts                    endpoint 与 API 类型注册
-│   │   ├── path.ts                     共同路径规则
+│   │   ├── resource.ts                 资源创建、交付与释放契约
+│   │   ├── service.ts                  服务准备、创建与请求绑定契约
+│   │   ├── types.ts                    基础实例、生命周期与资源注册
+│   │   └── http/                       服务端 HTTP 声明、装配与执行
+│   │       ├── types.ts                上下文、路由声明与 endpoint 派生
+│   │       ├── assembly.ts             路由装配、入口准入与页面终端契约
+│   │       ├── route.ts                路由、SSE 与 WebSocket 声明
+│   │       ├── schema.ts               输入 schema 及验证接口选择
+│   │       ├── body-limit.ts           正文长度检查与流式计数
+│   │       ├── input.ts                正文、查询和参数解析
+│   │       ├── output.ts               JSON 协商与错误响应
+│   │       ├── policy.ts               应用、作用域、路由的策略合并
+│   │       ├── pipeline.ts             已装配请求链的准入与分发
+│   │       ├── request-context.ts      请求作用域、来源解析和响应头
+│   │       ├── delivery.ts             响应正文与实际交付完成跟踪
+│   │       ├── public.ts               宿主交付的公开请求元数据
+│   │       ├── proxy.ts                可信代理规则编译与匹配
+│   │       ├── cookie.ts               配置感知的 Hono Cookie 接入
+│   │       ├── sse.ts                  事件流、背压与关闭
+│   │       └── websocket.ts            升级准备、连接状态与回调执行
+│   ├── http/                           跨工具链、运行时及客户端的共同规则
+│   │   ├── types.ts                    Endpoint、HttpMethod 与 Jsonify
+│   │   ├── path.ts                     文件路由、匹配与请求路径规则
 │   │   ├── url.ts                      两端 URL 规范化规则
 │   │   ├── error.ts                    同构 HttpError
-│   │   ├── cookie.ts                   配置感知的 Hono Cookie 接入
-│   │   ├── server/
-│   │   │   ├── route.ts                路由声明与类型声明
-│   │   │   ├── body-limit.ts           正文长度检查与流式计数
-│   │   │   ├── input.ts                正文、查询和参数解析
-│   │   │   ├── output.ts               JSON 协商与错误响应
-│   │   │   ├── policy.ts               应用、作用域、路由的策略合并
-│   │   │   ├── pipeline.ts             已装配请求链的准入与分发
-│   │   │   ├── types.ts                路由装配与页面终端的共同契约
-│   │   │   ├── request-context.ts      请求作用域、来源解析和响应头
-│   │   │   └── sse.ts                  事件流、背压与关闭
-│   │   ├── client/
-│   │   │   ├── client.ts               typed client 与传输
-│   │   │   ├── encode.ts               路径、查询、头与正文编码
-│   │   │   ├── decode.ts               成功与错误解码
-│   │   │   └── sse.ts                  订阅、解析与重连
-│   │   └── middleware/
-│   │       ├── cors.ts
-│   │       ├── csrf.ts
-│   │       ├── compress.ts
-│   │       └── rate-limit/             声明、Node 计数、CF binding 与装配
+│   │   ├── etag.ts                     ETag 与条件请求
+│   │   ├── defaults.ts                 共用默认值
+│   │   └── assets.ts                   静态资源与构建产物描述
+│   ├── client/                         独立 HTTP 客户端
+│   │   ├── client.ts                   类型安全调用、传输与 API Register
+│   │   ├── encode.ts                   路径、查询、头与正文编码
+│   │   ├── decode.ts                   成功与错误解码
+│   │   └── sse.ts                      订阅、解析与重连
+│   ├── middleware/
+│   │   ├── cors.ts                     CORS 类型与内建处理
+│   │   ├── csrf.ts                     来源与请求凭据防护
+│   │   ├── compress.ts                 显式压缩中间件
+│   │   ├── compression.ts              Node 与中间件共用的压缩配置解析
+│   │   └── rate-limit/                 声明、继承、Node 计数与 CF binding
 │   ├── page/
 │   │   ├── config.ts                   页面 API 传输与身份快照配置
 │   │   ├── bootstrap.ts                SSR 与浏览器共用的启动载荷契约
@@ -72,7 +155,8 @@ sark/
 │   │   ├── meta.ts                     元数据合并
 │   │   ├── serialize.ts                启动载荷序列化
 │   │   ├── server/                     流式渲染、载荷、样式与 API 传输
-│   │   │   └── cache/                  声明、资格、键、LRU、填充、正文缓冲和失效
+│   │   │   ├── response-policy.ts      API 响应对外层页面缓存的限制
+│   │   │   └── cache/                  声明、资格、键、LRU、填充与失效
 │   │   ├── browser/                    水合、路由视图、导航、历史、守卫和资源准备
 │   │   ├── context.tsx
 │   │   ├── hooks.tsx
@@ -80,9 +164,10 @@ sark/
 │   │   ├── storage.ts                  浏览器 Storage 的 SSR 接入
 │   │   ├── build.ts
 │   │   └── types.ts
-│   ├── ws/                             连接、事件、类型与按需装配
-│   ├── assets/                         构建静态交付、Node 目录挂载与装配
-│   ├── services/
+│   ├── adapter/
+│   │   ├── node/                       runtime、监听、来源、升级、env、探针与目录挂载
+│   │   └── cloudflare/                 Fetch、Scheduled、bindings、升级和事件执行期限
+│   ├── features/                       独立可选的功能模块，无全量加载入口
 │   │   ├── auth/
 │   │   │   ├── contracts.ts            共享身份、认证结果及资源检查上下文
 │   │   │   ├── factor.ts               因素验证、请求绑定和创建契约
@@ -103,29 +188,39 @@ sark/
 │   │   │       ├── service.ts          恢复码签发与单次消费
 │   │   │       ├── db/                 SQLite、PostgreSQL、D1 存取适配
 │   │   │       └── schema/             各后端的 Drizzle 表定义
-│   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
-│   │   ├── storage/                    local、r2、s3 后端及独立 presign 接入
-│   │   ├── visitors/                   声明、访客标识与初始化端点
+│   │   ├── visitors/                   声明、访客标识、初始化端点与浏览器助手
 │   │   ├── stats/                      具名计数、主体解析、专用存取与 SQL 适配
-│   │   └── jobs/                       共同执行、Node 调度、CF 事件映射
-│   ├── observability/
+│   │   ├── db/                         SQLite、PostgreSQL、D1 声明与资源
+│   │   ├── storage/                    local、s3、r2 后端及独立 presign 接入
+│   │   ├── jobs/                       共同执行、Node 调度、CF 事件映射
 │   │   ├── logging/                    完整日志配置、输出与访问记录
 │   │   ├── metrics/                    Node Registry、运行时采集与导出
 │   │   └── health/                     readiness 检查、缓存与独立准入
 │   ├── tooling/
+│   │   ├── config.ts                   工程选项、目录与前缀解析
 │   │   ├── build/
 │   │   │   ├── discover/               配置导出、路由、页面和冲突
 │   │   │   ├── generate.ts             应用、类型、浏览器及宿主入口生成
-│   │   │   ├── capabilities.ts         官方能力的构建期装配登记
 │   │   │   ├── project.ts              按有效工程配置发现、校验并生成
-│   │   │   ├── bundle.ts
-│   │   │   └── types.ts
+│   │   │   ├── assets.ts               开发与生产资源清单
+│   │   │   └── cloudflare-assets.ts    Workers Static Assets 规则与响应头
 │   │   ├── vite.ts                     插件、Node 开发、CF 官方插件与 HMR
 │   │   └── cli.ts                      generate、dev、build、start 命令
-│   ├── adapter/
-│   │   ├── node/                       runtime 配置、监听、来源、升级、env 和基础探针
-│   │   └── cloudflare/                 Fetch、Scheduled、bindings、升级和事件执行期限
-│   └── entries/                        集中定义公开接口的薄导出
+│   └── entries/                        集中筛选公开符号，直接导出所属实现
+│       ├── root.ts                     包根：应用创建、路由、上下文与请求助手
+│       ├── node.ts                     Node runtime、目录挂载与健康检查声明
+│       ├── page.ts                     页面声明、React 组件、Hooks 与信号
+│       ├── client.ts                   HTTP 客户端、协议类型与纯 Cookie 工具
+│       ├── middleware.ts               HTTP 中间件与限流声明
+│       ├── db/                         数据库后端入口
+│       ├── storage/                    存储后端与可选签名入口
+│       ├── auth.ts                     第一方认证与会话
+│       ├── auth/                       认证增强与各后端的具名入口文件
+│       ├── logging.ts
+│       ├── jobs.ts
+│       ├── visitors.ts                 访客声明、请求契约与浏览器初始化
+│       ├── vite.ts
+│       └── runtime/                    同版本生成代码的内部接入
 ├── tests/
 │   ├── unit/
 │   ├── contract/                       内存协议、存取契约和生命周期
@@ -139,74 +234,21 @@ sark/
 └── package.json                        包元数据、公开导出与标准命令
 ```
 
-文件按一项完整职责组织，可以包含多个协作函数。需要进一步分组时才建目录，不要求相邻模块深度一致。每项能力的配置、类型、运行代码和构建片段相邻维护；构建片段不由运行入口导出。
+文件按一项完整职责组织，可以包含多个协作函数。需要进一步分组时才建目录，不要求相邻模块深度一致。每项能力拥有配置、类型和运行代码；生成器在普通能力分支集中组织关联输出，不建立能力注册中心或装配 DSL。普通资源和服务使用既有装配契约；只有真实宿主、HTTP 接入需要的准备结果保留具名字段。
 
-services/db 负责数据库声明、连接及资源生命周期；认证模块内的 db 目录负责所属领域的存取适配，schema 目录保存相应表定义。适配借用已声明的数据库，不另建连接。SQLite/D1 共用相同的 SQLite 表定义，PG 使用独立定义；内部不为相同 schema 建复制或转发文件。
+features/db 负责数据库声明、连接及资源生命周期；认证模块内的 db 目录负责所属领域的存取适配，schema 目录保存相应表定义。适配借用已声明的数据库，不另建连接。SQLite/D1 共用 SQLite 表定义及 TOTP、恢复码、WebAuthn 领域查询，直接使用 Drizzle 的 sync/async SQLite API；PG 保留独立表和查询。AuthState 保留 PG 事务/行锁与 D1 条件更新/batch，不用通用 SQL 抽象抹平原子语义。
 
 ## 命名约定
 
 名称依据实际对象、职责、生命周期和存储单位选择，同一概念在定义、导出和消费处使用相同名称。内部局部变量可以利用所属模块的上下文缩短；自有符号在公开入口直接按定义名导出，不另造一套短名/全名。上游通用符号可以按用途限定，如 `parse` → `parseCookie`；导入同名符号或区分测试中的默认/自定义对象时，允许有实际区分作用的局部别名。
 
-- 目录按职责命名，如 core、http、page、auth；集合名称沿用所属领域与项目惯例，如 services、entries。平台适配使用既有 adapter，不强制全部目录采用单数或复数。文件使用小写和连字符，以实际内容命名；不为统一字面形式改变已有职责划分或增加目录层级
+- 目录按职责命名，如 app、http、client、middleware、page、auth；集合名称沿用所属领域与项目惯例，如 features、entries。平台适配使用既有 adapter，不强制全部目录采用单数或复数。文件使用小写和连字符，以实际内容命名；不为统一字面形式改变已有职责划分或增加目录层级
 - TypeScript 类型、类与组件使用 PascalCase，函数、字段和变量使用 camelCase，模块级固定默认值使用 UPPER_SNAKE_CASE。App、Auth、Http、Sql、Totp 等自有领域词按既有惯用缩写统一，如 AuthFacts、AuthFlow、Identity.auth；OAuth、WebAuthn、D1、S3、R2 及上游公开类型保留专名或原名。动作短语按语义命名，如 completeAuthentication，authenticate 等动词不机械截短
 - Config 表示能力或应用声明配置，ResolvedConfig 表示默认值和校验已完成的配置；Options 表示调用控制项或上游接入选项，Input 表示调用方资料，Args 表示框架回调参数，Context 表示执行设施。名称先体现实际用途，不给所有对象机械添加后缀
 - Declaration 表示延迟声明，Assembly 表示内部装配，InitResult 表示创建结果。RequestAuth、RequestVisitor、RequestMfa 等 Request 前缀表示请求绑定接口；实例维护单独命名，如 TotpMaintenance。认证请求接口的实现使用 MfaService 等领域服务名；类型后缀表达实际角色，不使用 PublicInstance 等泛称
 - 动作函数以动词表达实际行为，如 listPublicFiles、createProductionAssets、writeBuildAssets；资源名称覆盖真实使用范围，纯 API 应用也使用的构建产物不冠以 page。登录统一使用 signIn、beginSignIn 与 SignInResult 等词根，协议规定的字段和上游动作名称保持原名
 - 持久化类型和表名反映实际存储单位：认证尝试记录是账户/用途的计数窗口，恢复码记录是一组带版本的摘要集合。默认 schema 使用 authAttemptWindows、recoveryCodeSets 等同名定义和导出；SQL 使用对应 snake_case 复数表名，索引采用所属表名、索引列和 idx 后缀
 - 领域限定词用于区分实际对象，如 authChallenges、totpFactors；不添加框架品牌前缀。标准协议字段、上游类型、平台 binding 与浏览器共享命名空间按其契约保留，不为形式一致改写外部协议
-
-## 依赖方向
-
-生成的应用定义是组合根，显式引用所选核心、领域能力和宿主。核心使用这些装配结果，不维护包含所有能力的配置联合或运行时注册表。
-
-内部 ServiceAssembly 通过 requires 声明所需服务名称。createDefinition 只对本次选中的服务检查缺失与循环，并按依赖排序，随后才创建资源；不在每次请求重新排序。MFA 依赖 auth，TOTP 维护服务依赖本次因素初始化所属的 mfa。应用不通过配置导出顺序安排这些内部步骤。
-
-- 领域运行代码依赖必要的底层契约和上游库，不导入生成组合根
-- 页面只依赖 HTTP 客户端与协议；HTTP 不依赖页面
-- 同构 Loader 与 Action 不导入 HTTP 服务端、数据库和身份初始化服务
-- 第一方 session 不导入 OAuth、TOTP、WebAuthn；MFA 使用 session 的会话契约及注入的认证因素验证器
-- 配置回调使用资源类型，实例服务在后续合成，避免资源 → 服务 → 配置的类型循环
-- 运行代码不导入 Vite、构建片段或 CLI；浏览器不导入服务端配置和驱动
-- 分组目录不建立提前加载所有子能力的聚合 index
-
-HTTP 路由装配与页面终端的共同契约放在 http/server/types.ts，装配器和领域端点不从执行器文件借用类型。页面的导航、作用域快照和 Action 结果等共同类型放在 page/types.ts；React Context 负责向组件树交付这些状态，不作为页面执行器或启动载荷的类型来源。
-
-page 公开入口仅含同构信号、类型和 definePage 纯声明构造，允许 Loader/浏览器导入，不加载应用配置、驱动或服务初始化；client 复用同一信号实现。
-
-全部配置入口及后续能力遵循 [configuration.md](configuration.md) 的解析、合并与传递机制。各领域在所属入口提供完整的已解析配置，下游直接消费，不自行补默认值或掩盖配置缺失。
-
-core/config 定义 AppConfig 与应用声明；http/config 维护 HTTP 默认值与解析结果，直接接收 AppConfig，不另设同义输入类型。policy 只应用局部覆盖；create 负责创建与生命周期；pipeline 执行已经确定的请求链。
-
-## 公开包入口
-
-entries 按使用场景限定公开符号，不镜像实现目录。可选能力的加载隔离优先于入口数量：认证 SQL 入口按能力和数据库区分，同一入口交付该能力的适配及表定义，不聚合其他因素或恢复码。公开路径的层级不要求源码逐层建目录，入口文件采用扁平具名文件。只启用 TOTP 时，不加载 WebAuthn 的适配、表定义、SDK 或类型；原生 Node ESM 接入也必须成立，不依赖应用构建裁剪。
-
-一个 npm 包通过显式 exports 交付。源码分组、应用配置导出和包子路径不一一对应。以下按用途列出入口及主要运行时导出；选项、上下文、服务接口和协议类型由对应专项定义，不在这里重复全部类型清单。
-
-- `server`：defineApp、createApp、route、HttpError、z、dedup、getLogger，以及 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie；Context、MiddlewareHandler 类型保留本应用声明的资源与请求服务
-- `http`：createClient、HttpError 与协议类型；无 React 依赖
-- `client`：Head、Outlet、Scripts、Link、useClient、useAction、useNavigate、useNavigation、useBlocker、reload、setIdentity、redirect、notFound；复用同一 HTTP 客户端，具体契约见 [pages.md](pages.md)
-- `page`：definePage、redirect、notFound 及页面类型；`page/cache`：definePageCache、revalidatePath、revalidateTag 及缓存类型
-- `server/node`：defineNodeRuntime 与 NodeRuntimeConfig；`assets/node`：defineAssets
-- `db/sqlite`、`db/postgres`、`db/d1`：各自的 defineDatabase
-- `storage/local`：defineStorage、saveUploadFile；`storage/r2`、`storage/s3`：各自的 defineStorage；`storage/presign`：definePresign
-- `auth/session`：defineAuth、signToken、verifyToken、requireStepUp 及会话类型
-- `auth/oauth`：defineOAuth；`auth/totp`：defineTotp；`auth/webauthn`：defineWebAuthn；`auth/mfa`：defineMfa、memoryState 及共同认证契约。WebAuthn 浏览器接入从 `auth/webauthn/browser` 导入，具体符号由 [webauthn.md](webauthn.md) 定义
-- `auth/totp/sqlite`、`auth/totp/postgres`、`auth/totp/d1`：sqlTotp、totpFactors
-- `auth/webauthn/sqlite`、`auth/webauthn/postgres`、`auth/webauthn/d1`：sqlWebAuthn、webauthnSubjects、webauthnCredentials
-- `auth/recovery/sqlite`、`auth/recovery/postgres`、`auth/recovery/d1`：sqlRecovery、recoveryCodeSets
-- `auth/state/postgres`、`auth/state/d1`：sqlAuthState、authChallenges、authAttemptWindows
-- `visitors`：defineVisitors；`visitors/browser`：ensureVisitor
-- `stats`：defineStats 与计数契约；`stats/sqlite`、`stats/postgres`、`stats/d1`：sqlStats
-- `jobs`：defineJobs；`logging`：defineLogging；`metrics`：defineMetrics；`health`：defineHealth，及各自的选项、服务和上下文类型
-- `middleware`：cors、csrf、compress；`middleware/rate-limit`：defineRateLimit 声明、rateLimit 中间件及其选项类型
-- `vite`：sark；`utils`：parseCookie、parseSignedCookie、serializeCookie、serializeSignedCookie 及相关类型，确切契约见 [http.md](http.md)
-
-认证 SQL 适配与 schema 的精确路径分别由 [mfa.md](mfa.md)、[totp.md](totp.md)、[webauthn.md](webauthn.md) 定义；统计 schema 路径由 [stats.md](stats.md) 定义。这些路径在 package.json 中逐项枚举，不使用顶层通配符暴露内部文件。
-
-恢复码的运行代码和 SQL 实现集中在 services/auth/recovery；恢复契约由 auth/mfa 交付，SQL 适配与表定义由独立 auth/recovery 后端入口交付。应用通过 mfa.recovery 选择它，不额外声明顶层 recovery。共同短期状态服务于绑定、第二步及无密码认证，不属于某一种因素。
-
-`runtime/core`、`runtime/auth`、`runtime/oauth`、`runtime/mfa`、`runtime/totp`、`runtime/webauthn`、`runtime/visitors`、`runtime/node`、`runtime/cloudflare`、`runtime/page-server`、`runtime/page-browser`、`runtime/websocket`、`runtime/jobs-node`、`runtime/jobs-cloudflare` 仅供同版本生成物接入。应用使用生成的定义，不手写这些内部装配字段。
 
 ## 上游与框架承担的工作
 

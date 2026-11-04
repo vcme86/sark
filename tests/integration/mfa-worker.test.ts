@@ -1,3 +1,5 @@
+import { join, relative } from 'node:path'
+
 import { ScureBase32Plugin } from '@otplib/plugin-base32-scure'
 import { WebCryptoPlugin } from '@otplib/plugin-crypto-web'
 import { TOTP } from '@otplib/totp'
@@ -9,7 +11,7 @@ import { authAttemptWindows, authChallenges } from '../../src/entries/auth/state
 import { totpFactors } from '../../src/entries/auth/totp-d1'
 import { webauthnCredentials, webauthnSubjects } from '../../src/entries/auth/webauthn-d1'
 import { sqliteTableMetadata } from '../helpers/auth-schema'
-import { createProject, runProjectCli, serverUrl } from '../helpers/project'
+import { createProject, projectRoot, runProjectCli, serverUrl } from '../helpers/project'
 import { createCredential } from '../helpers/webauthn'
 
 const json = async (response: Response) => {
@@ -23,9 +25,9 @@ it('executes generated MFA, signed WebAuthn and D1 account transitions in real w
   let server: PreviewServer | undefined
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/d1'
-import { defineAuth } from '@olivaw/sark/auth/session'
+import { defineAuth } from '@olivaw/sark/auth'
 import { defineMfa } from '@olivaw/sark/auth/mfa'
 import { defineTotp } from '@olivaw/sark/auth/totp'
 import { defineWebAuthn } from '@olivaw/sark/auth/webauthn'
@@ -41,11 +43,19 @@ export const mfa = defineMfa({ state: sqlAuthState({ database }), recovery: { st
 export const totp = defineTotp({ issuer: 'Test', keys: { current: { id: 'key', key: new Uint8Array(32).fill(1) } }, store: sqlTotp({ database }) })
 export const webauthn = defineWebAuthn({ rpId: 'auth.example.com', rpName: 'Test', origins: ['https://auth.example.com'], user: sub => ({ userName: sub, displayName: sub }), store: sqlWebAuthn({ database }), identity: sub => ({ sub, roles: ['reader'], claims: { plan: 'basic' } }) })`,
   )
+  const storeContractsPath = relative(
+    join(project.root, 'api'),
+    join(projectRoot, 'tests/helpers/auth-store-contracts'),
+  ).replace(/\\/g, '/')
   project.write(
     'api/test.post.ts',
-    `import { route, getLogger } from '@olivaw/sark/server'
+    `import { route, getLogger } from '@olivaw/sark'
 import { sqlAuthState } from '@olivaw/sark/auth/state/d1'
 import { database } from '../app'
+import { sqlTotp } from '@olivaw/sark/auth/totp/d1'
+import { sqlRecovery } from '@olivaw/sark/auth/recovery/d1'
+import { sqlWebAuthn } from '@olivaw/sark/auth/webauthn/d1'
+import { checkAuthStores } from ${JSON.stringify(storeContractsPath)}
 export default route().handler(async c => {
   const input = await c.req.json()
   switch(input.op) {
@@ -63,6 +73,14 @@ export default route().handler(async c => {
       ]
       await c.var.db.$client.batch(statements.map(statement => c.var.db.$client.prepare(statement)))
       return { ready: true }
+    }
+    case 'store-contracts': {
+      const context = { env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare' as const, logger: getLogger(), signal: c.req.raw.signal, waitUntil: p => c.executionCtx.waitUntil(p) }
+      const totp = await sqlTotp({ database }).create(context)
+      const recovery = await sqlRecovery({ database }).create(context)
+      const webauthn = await sqlWebAuthn({ database }).create(context)
+      await checkAuthStores(totp.value, recovery.value, webauthn.value)
+      return { passed: true }
     }
     case 'schema': {
       const result = []
@@ -91,7 +109,7 @@ export default route().handler(async c => {
       await c.var.db.$client.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 105) INSERT INTO auth_challenges SELECT 'expired-' || x, 'r', 'sign-in', 'cleanup', 0, ?, 0, 5, 'verifying', 'old', '{}' FROM n").bind(now - 1).run()
       await c.var.db.$client.prepare("INSERT INTO auth_attempt_windows VALUES ('cleanup-live', 1, ?)").bind(now + 60000).run()
       const work: Promise<unknown>[] = []
-      const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger(['test']), signal: c.req.raw.signal, waitUntil: promise => { work.push(promise); c.executionCtx.waitUntil(promise) } })
+      const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger('test'), signal: c.req.raw.signal, waitUntil: promise => { work.push(promise); c.executionCtx.waitUntil(promise) } })
       const expiredRead = await state.read('expired-1')
       for (const id of ['cleanup-first', 'cleanup-second']) {
         await state.create({ id, revision: id, purpose: 'sign-in', sub: 'cleanup', createdAt: now, expiresAt: now + 60000, maxAttempts: 5, attempts: 0, status: 'pending', data: {} })
@@ -105,7 +123,7 @@ export default route().handler(async c => {
     }
     case 'budget': {
       try {
-      const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger(['test']), signal: c.req.raw.signal, waitUntil: promise => c.executionCtx.waitUntil(promise) })
+      const { value: state } = await sqlAuthState({ database }).create({ env: c.env, resources: { db: c.var.db }, resourceDeclarations: { db: database }, target: 'cloudflare', logger: getLogger('test'), signal: c.req.raw.signal, waitUntil: promise => c.executionCtx.waitUntil(promise) })
       const now = Date.now()
       const account = { sub: 'budget', purpose: 'sign-in', window: 1000, maxAttempts: 1 }
       for (const id of ['first', 'second']) await state.create({ id, revision: id, purpose: 'sign-in', sub: 'budget', createdAt: now, expiresAt: now + 60000, maxAttempts: 3, attempts: 0, status: 'pending', data: {} })
@@ -157,6 +175,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
         body: JSON.stringify(body),
       })
     await json(await call({ op: 'setup' }))
+    expect(await json(await call({ op: 'store-contracts' }))).toEqual({ passed: true })
 
     const metadata = [
       authChallenges,

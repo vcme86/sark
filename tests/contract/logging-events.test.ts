@@ -1,12 +1,14 @@
 import { configure, configureSync, getConfig, type LogRecord, reset } from '@logtape/logtape'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { getCurrentScope } from '../../src/core/context'
+import { getCurrentScope } from '../../src/app/context'
 import { defineJobs } from '../../src/entries/jobs'
 import { defineLogging } from '../../src/entries/logging'
+import { getLogger, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { getLogger, route } from '../../src/entries/server'
+import { createCloudflareJobsHandler } from '../../src/features/jobs/cloudflare'
+import { createLoggingAssembly } from '../../src/features/logging/assembly'
 import { parseApiFilePath } from '../../src/http/path'
 
 let previous: ReturnType<typeof getConfig>
@@ -16,6 +18,7 @@ beforeEach(() => {
 afterEach(async () => {
   await reset()
   if (previous) await configure(previous)
+  vi.restoreAllMocks()
 })
 
 function eventContext() {
@@ -29,31 +32,69 @@ function eventContext() {
   }
 }
 
+it.each([false, true])(
+  'preserves structured Worker console properties with full logging=%s',
+  async (full) => {
+    await reset()
+    const output = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const handler = createWorkerHandler(
+      createDefinition({
+        logging: full ? createLoggingAssembly(defineLogging()) : undefined,
+        routes: [
+          {
+            routePath: parseApiFilePath('log.get.ts', '/api')!,
+            declaration: route().handler(() => {
+              getLogger().info('business event', { item: 42, token: 'private-token' })
+              return null
+            }),
+          },
+        ],
+      }),
+    )
+    const ctx = eventContext()
+    const response = await handler.fetch(new Request('https://worker.test/api/log'), {}, ctx)
+    await response.text()
+    await Promise.all(ctx.work)
+    const records = output.mock.calls.map(([line]) => JSON.parse(line))
+    expect(records.find((record) => record.message === 'business event')).toMatchObject({
+      logger: 'app',
+      properties: {
+        item: 42,
+        token: '[REDACTED]',
+        requestId: response.headers.get('X-Request-Id'),
+      },
+    })
+    expect(records.filter((record) => record.logger === 'sark.access')).toHaveLength(full ? 1 : 0)
+  },
+)
+
 it('isolates concurrent Worker sinks through deferred body reads and emits one access record per event', async () => {
   const events = new Map<string, { records: LogRecord[]; disposed: boolean }>()
   const handler = createWorkerHandler(
     createDefinition({
-      logging: defineLogging((env: { name: string }) => {
-        const event = { records: [] as LogRecord[], disposed: false }
-        events.set(env.name, event)
-        return {
-          access: ['collector'],
-          categories: { app: ['collector'] },
-          sinks: {
-            collector: () =>
-              Object.assign(
-                (record: LogRecord) => {
-                  event.records.push(record)
-                },
-                {
-                  [Symbol.dispose]() {
-                    event.disposed = true
+      logging: createLoggingAssembly(
+        defineLogging((env: { name: string }) => {
+          const event = { records: [] as LogRecord[], disposed: false }
+          events.set(env.name, event)
+          return {
+            access: ['collector'],
+            categories: { app: ['collector'] },
+            sinks: {
+              collector: () =>
+                Object.assign(
+                  (record: LogRecord) => {
+                    event.records.push(record)
                   },
-                },
-              ),
-          },
-        }
-      }),
+                  {
+                    [Symbol.dispose]() {
+                      event.disposed = true
+                    },
+                  },
+                ),
+            },
+          }
+        }),
+      ),
       routes: [
         {
           routePath: parseApiFilePath('stream.get.ts', '/api')!,
@@ -116,17 +157,19 @@ it('keeps the platform lifetime pending until async sink disposal finishes', asy
   const ctx = eventContext()
   const handler = createWorkerHandler(
     createDefinition({
-      logging: defineLogging({
-        sinks: {
-          remote: () =>
-            Object.assign(() => {}, {
-              async [Symbol.asyncDispose]() {
-                releasing.resolve()
-                await release.promise
-              },
-            }),
-        },
-      }),
+      logging: createLoggingAssembly(
+        defineLogging({
+          sinks: {
+            remote: () =>
+              Object.assign(() => {}, {
+                async [Symbol.asyncDispose]() {
+                  releasing.resolve()
+                  await release.promise
+                },
+              }),
+          },
+        }),
+      ),
     }),
   )
   const response = await handler.fetch(new Request('https://worker.test/missing'), {}, ctx)
@@ -151,16 +194,18 @@ it('propagates async sink disposal failure to platform waitUntil', async () => {
   const ctx = eventContext()
   const handler = createWorkerHandler(
     createDefinition({
-      logging: defineLogging({
-        sinks: {
-          remote: () =>
-            Object.assign(() => {}, {
-              async [Symbol.asyncDispose]() {
-                throw failure
-              },
-            }),
-        },
-      }),
+      logging: createLoggingAssembly(
+        defineLogging({
+          sinks: {
+            remote: () =>
+              Object.assign(() => {}, {
+                async [Symbol.asyncDispose]() {
+                  throw failure
+                },
+              }),
+          },
+        }),
+      ),
     }),
   )
   const response = await handler.fetch(new Request('https://worker.test/missing'), {}, ctx)
@@ -178,16 +223,18 @@ it('returns a setup error and releases untransferred sinks when an external logg
   const ctx = eventContext()
   const handler = createWorkerHandler(
     createDefinition({
-      logging: defineLogging({
-        sinks: {
-          remote: () =>
-            Object.assign(() => {}, {
-              [Symbol.dispose]() {
-                disposed++
-              },
-            }),
-        },
-      }),
+      logging: createLoggingAssembly(
+        defineLogging({
+          sinks: {
+            remote: () =>
+              Object.assign(() => {}, {
+                [Symbol.dispose]() {
+                  disposed++
+                },
+              }),
+          },
+        }),
+      ),
     }),
   )
   const response = await handler.fetch(new Request('https://worker.test/missing'), {}, ctx)
@@ -213,25 +260,26 @@ it('retains the Scheduled logging scope through service cleanup and async sink d
   const ctx = eventContext()
   const handler = createWorkerHandler(
     createDefinition({
-      jobs,
-      triggers: { crons: ['0 * * * *'] },
-      logging: defineLogging({
-        categories: { app: ['remote'] },
-        sinks: {
-          remote: () =>
-            Object.assign(
-              (record: LogRecord) => {
-                records.push(record)
-              },
-              {
-                async [Symbol.asyncDispose]() {
-                  await Promise.resolve()
-                  disposed = true
+      scheduled: createCloudflareJobsHandler(jobs),
+      logging: createLoggingAssembly(
+        defineLogging({
+          categories: { app: ['remote'] },
+          sinks: {
+            remote: () =>
+              Object.assign(
+                (record: LogRecord) => {
+                  records.push(record)
                 },
-              },
-            ),
-        },
-      }),
+                {
+                  async [Symbol.asyncDispose]() {
+                    await Promise.resolve()
+                    disposed = true
+                  },
+                },
+              ),
+          },
+        }),
+      ),
       resources: {
         connection: {
           createForEvent: () => ({

@@ -16,11 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
 import { defineJobs } from '../../src/entries/jobs'
 import { defineLogging } from '../../src/entries/logging'
+import { createApp, defineApp, getLogger, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, getLogger, route } from '../../src/entries/server'
+import { createNodeJobsAssembly } from '../../src/features/jobs/assembly-node'
+import { createLoggingAssembly } from '../../src/features/logging/assembly'
 import { parseApiFilePath } from '../../src/http/path'
-import { createNodeJobsAssembly } from '../../src/services/jobs/assembly-node'
-import { redactStructuredProperties } from '../../src/services/logging/access'
 
 describe('logging contract', () => {
   let previousConfig: ReturnType<typeof getConfig>
@@ -47,15 +47,16 @@ describe('logging contract', () => {
     ])
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          categories: { app: ['collector'] },
-          sinks: {
-            collector: () => (record) => {
-              records.push(record)
+        logging: createLoggingAssembly(
+          defineLogging({
+            categories: { app: ['collector'] },
+            sinks: {
+              collector: () => (record) => {
+                records.push(record)
+              },
             },
-          },
-        }),
-        jobs,
+          }),
+        ),
         services: { jobs: createNodeJobsAssembly(jobs) },
       }),
     )
@@ -77,11 +78,13 @@ describe('logging contract', () => {
     try {
       const app = await createApp(
         createDefinition({
-          logging: defineLogging({
-            access: ['file'],
-            sinks: { file: () => getFileSink(path) },
-            categories: { app: ['file'] },
-          }),
+          logging: createLoggingAssembly(
+            defineLogging({
+              access: ['file'],
+              sinks: { file: () => getFileSink(path) },
+              categories: { app: ['file'] },
+            }),
+          ),
         }),
       )
       try {
@@ -143,16 +146,18 @@ describe('logging contract', () => {
 
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          level: 'debug',
-          sinks: {
-            first: () => testSink1,
-            second: () => testSink2,
-          },
-          categories: {
-            custom: ['first', 'second'],
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            level: 'debug',
+            sinks: {
+              first: () => testSink1,
+              second: () => testSink2,
+            },
+            categories: {
+              custom: ['first', 'second'],
+            },
+          }),
+        ),
       }),
     )
 
@@ -177,12 +182,14 @@ describe('logging contract', () => {
 
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          access: ['accessCollector'],
-          sinks: {
-            accessCollector: () => accessSink,
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            access: ['accessCollector'],
+            sinks: {
+              accessCollector: () => accessSink,
+            },
+          }),
+        ),
         routes: [
           {
             source: 'api/hello.ts',
@@ -229,12 +236,14 @@ describe('logging contract', () => {
     let streamCompleted = false
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          access: ['accessCollector'],
-          sinks: {
-            accessCollector: () => accessSink,
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            access: ['accessCollector'],
+            sinks: {
+              accessCollector: () => accessSink,
+            },
+          }),
+        ),
         routes: [
           {
             source: 'api/stream.ts',
@@ -288,12 +297,14 @@ describe('logging contract', () => {
     let app: any
     app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          access: ['accessCollector'],
-          sinks: {
-            accessCollector: () => accessSink,
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            access: ['accessCollector'],
+            sinks: {
+              accessCollector: () => accessSink,
+            },
+          }),
+        ),
         routes: [
           {
             source: 'api/ping.ts',
@@ -340,7 +351,7 @@ describe('logging contract', () => {
     await expect(
       createApp(
         createDefinition({
-          logging: defineLogging(),
+          logging: createLoggingAssembly(defineLogging()),
         }),
       ),
     ).rejects.toThrow('Host already configured LogTape logging')
@@ -356,14 +367,16 @@ describe('logging contract', () => {
     await expect(
       createApp(
         createDefinition({
-          logging: defineLogging({
-            sinks: {
-              validSink: sinkFactory,
-            },
-            categories: {
-              audit: ['missingSink'],
-            },
-          }),
+          logging: createLoggingAssembly(
+            defineLogging({
+              sinks: {
+                validSink: sinkFactory,
+              },
+              categories: {
+                audit: ['missingSink'],
+              },
+            }),
+          ),
         }),
       ),
     ).rejects.toThrow('Unknown sink "missingSink"')
@@ -383,14 +396,16 @@ describe('logging contract', () => {
     await expect(
       createApp(
         createDefinition({
-          logging: defineLogging({
-            sinks: {
-              first: () => firstSink,
-              second: () => {
-                throw new Error('failed to create second sink')
+          logging: createLoggingAssembly(
+            defineLogging({
+              sinks: {
+                first: () => firstSink,
+                second: () => {
+                  throw new Error('failed to create second sink')
+                },
               },
-            },
-          }),
+            }),
+          ),
         }),
       ),
     ).rejects.toThrow('failed to create second sink')
@@ -411,12 +426,14 @@ describe('logging contract', () => {
         app: defineApp({
           trustedProxies: ['loopback', 'private', '0.0.0.0/0'],
         }),
-        logging: defineLogging({
-          access: ['accessCollector'],
-          sinks: {
-            accessCollector: () => accessSink,
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            access: ['accessCollector'],
+            sinks: {
+              accessCollector: () => accessSink,
+            },
+          }),
+        ),
         routes: [
           {
             source: 'api/delayed-stream.ts',
@@ -484,14 +501,16 @@ describe('logging contract', () => {
 
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          sinks: {
-            standard: () => standardSink,
-          },
-          categories: {
-            app: ['standard'],
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            sinks: {
+              standard: () => standardSink,
+            },
+            categories: {
+              app: ['standard'],
+            },
+          }),
+        ),
       }),
     )
 
@@ -517,29 +536,16 @@ describe('logging contract', () => {
     await expect(
       createApp(
         createDefinition({
-          logging: defineLogging(),
+          logging: createLoggingAssembly(defineLogging()),
         }),
       ),
     ).rejects.toThrow('Host already configured LogTape logging')
   })
 
-  it('redacts sensitive fields in structured properties using redactStructuredProperties', () => {
-    const raw = {
-      user: 'alice',
-      token: 'secret123',
-      password: 'mypassword',
-      nested: { public: 'value' },
-    }
-    const redacted = redactStructuredProperties(raw)
-    expect(redacted.user).toBe('alice')
-    expect(redacted.token).toBe('[REDACTED]')
-    expect(redacted.password).toBe('[REDACTED]')
-  })
-
   it('rejects creating a second active application instance with logging configuration while the first is active', async () => {
     const firstApp = await createApp(
       createDefinition({
-        logging: defineLogging(),
+        logging: createLoggingAssembly(defineLogging()),
       }),
     )
 
@@ -547,7 +553,7 @@ describe('logging contract', () => {
       await expect(
         createApp(
           createDefinition({
-            logging: defineLogging(),
+            logging: createLoggingAssembly(defineLogging()),
           }),
         ),
       ).rejects.toThrow(
@@ -560,7 +566,7 @@ describe('logging contract', () => {
     // After closing the first app, another app can successfully acquire ownership
     const secondApp = await createApp(
       createDefinition({
-        logging: defineLogging(),
+        logging: createLoggingAssembly(defineLogging()),
       }),
     )
     await secondApp.close()
@@ -577,14 +583,16 @@ describe('logging contract', () => {
 
     const app = await createApp(
       createDefinition({
-        logging: defineLogging({
-          sinks: {
-            asyncSink: () => asyncSink,
-          },
-          categories: {
-            app: ['asyncSink'],
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            sinks: {
+              asyncSink: () => asyncSink,
+            },
+            categories: {
+              app: ['asyncSink'],
+            },
+          }),
+        ),
       }),
     )
 
@@ -608,14 +616,16 @@ describe('logging contract', () => {
 
     const handler = createWorkerHandler(
       createDefinition({
-        logging: defineLogging({
-          sinks: {
-            workerSink: () => workerSink,
-          },
-          categories: {
-            app: ['workerSink'],
-          },
-        }),
+        logging: createLoggingAssembly(
+          defineLogging({
+            sinks: {
+              workerSink: () => workerSink,
+            },
+            categories: {
+              app: ['workerSink'],
+            },
+          }),
+        ),
         routes: [
           {
             routePath: parseApiFilePath('event-log.get.ts', '/api')!,
@@ -644,4 +654,47 @@ describe('logging contract', () => {
     expect(eventRecords.some((r) => r.message.includes('event-record-1'))).toBe(true)
     expect(sinkDisposed).toBe(true)
   })
+})
+
+it('preserves native interpolation while redacting owned structured output recursively', async () => {
+  const records: LogRecord[] = []
+  const app = await createApp(
+    createDefinition({
+      logging: createLoggingAssembly(
+        defineLogging({
+          access: false,
+          categories: { app: ['collector'] },
+          sinks: {
+            collector: () => (record) => {
+              records.push(record)
+            },
+          },
+        }),
+      ),
+    }),
+  )
+  try {
+    getLogger().info('User {user}: {Token}', {
+      user: 'alice',
+      Token: 'private-token',
+      nested: { PASSWORD: 'private-password', visible: 42 },
+    })
+    expect(records).toHaveLength(1)
+    expect(records[0].properties.Token).toBe('[REDACTED]')
+    expect(records[0].properties.nested).toEqual({ PASSWORD: '[REDACTED]', visible: 42 })
+    expect(records[0].message.join('')).toContain('User alice: [REDACTED]')
+    expect(records[0].properties).not.toHaveProperty('args')
+  } finally {
+    await app.close()
+  }
+})
+
+it('rejects concurrent output ownership even when the same generated definition is reused', async () => {
+  const definition = createDefinition({ logging: createLoggingAssembly(defineLogging()) })
+  const first = await createApp(definition)
+  try {
+    await expect(createApp(definition)).rejects.toThrow('Another active Sark application instance')
+  } finally {
+    await first.close()
+  }
 })

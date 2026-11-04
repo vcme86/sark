@@ -45,7 +45,7 @@ describe('Database generated type contracts', () => {
 import * as schema from './schema'
 export const database = defineDatabase({filename: ':memory:', schema})`,
         schema: sqliteSchema,
-        contracts: `import { createApp } from '@olivaw/sark/server'
+        contracts: `import { createApp } from '@olivaw/sark'
 import { definition } from './.build/app'
 const instance = await createApp(definition)
 const memory: boolean = instance.db.$client.memory
@@ -54,7 +54,7 @@ instance.db.$client.end()
 // @ts-expect-error Importing SQLite must not introduce a global D1 type.
 declare const unrelated: D1Database
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 export default route().handler(async c => {
   const rows = await c.var.db.query.users.findMany({with: {posts: true}})
   const id: number = rows[0].posts[0].id
@@ -76,7 +76,7 @@ export const users = pgTable('users', {id: integer('id').primaryKey(), name: tex
         app: `import { defineDatabase } from '@olivaw/sark/db/postgres'
 import * as schema from './schema'
 export const database = defineDatabase((env: NodeJS.ProcessEnv) => ({url: env.DATABASE_URL, schema}))`,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 import { users } from '../schema'
 export default route().handler(async c => {
   const rows = await c.var.db.select().from(users)
@@ -105,7 +105,7 @@ export {}`,
         app: `import { defineDatabase } from '@olivaw/sark/db/d1'
 import * as schema from './schema'
 export const database = defineDatabase((env: Env) => ({binding: env.DB, schema}))`,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 import { users } from '../schema'
 export default route().handler(async c => {
   const rows = await c.var.db.select().from(users)
@@ -128,7 +128,7 @@ export default route().handler(async c => {
         customHost: true,
         app: `import { defineDatabase } from '@olivaw/sark/db/sqlite'
 export const database = defineDatabase((_env: unknown) => ({filename: ':memory:'}))`,
-        contracts: `import { createApp, defineApp } from '@olivaw/sark/server'
+        contracts: `import { createApp, defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
 import { createDefinition } from '@olivaw/sark/runtime/core'
 import { definition } from './.build/app'
@@ -168,16 +168,16 @@ export const database = defineDatabase((env: {FILE: string}) => ({filename: env.
   it('exposes neither db nor database SDK types when no database is selected', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({})`,
-        contracts: `import { createApp } from '@olivaw/sark/server'
+        contracts: `import { createApp } from '@olivaw/sark'
 import { definition } from './.build/app'
 const instance = await createApp(definition)
 // @ts-expect-error No database resource was selected.
 instance.db
 // @ts-expect-error No D1 type is introduced by the core entry.
 declare const binding: D1Database`,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 export default route().handler(c => {
   // @ts-expect-error No database resource was selected.
   return c.var.db

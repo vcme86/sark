@@ -1,32 +1,32 @@
 /**
- * React page components, navigation hooks, and client signals.
+ * HTTP clients, endpoint contracts, errors, and standalone Cookie utilities.
  *
  * @module
  */
 
-export { DefaultError, ScopedErrorBoundary } from '../page/components/error'
-export { Head, type HeadProps } from '../page/components/head'
-export { Link, type LinkProps } from '../page/components/link'
-export { Outlet } from '../page/components/outlet'
-export { DefaultRoot } from '../page/components/root'
-export { Scripts } from '../page/components/scripts'
 export {
-  reload,
-  setIdentity,
-  useAction,
-  useBlocker,
-  useClient,
-  useNavigate,
-  useNavigation,
-} from '../page/hooks'
-export { notFound, NotFoundSignal, redirect, RedirectSignal } from '../page/signals'
+  createClient,
+  type ClientCallOptions,
+  type ClientOptions,
+  type DefaultApi,
+  type HttpClient,
+  type Register,
+  type SseConnection,
+} from '../client/client'
+export { HttpError } from '../http/error'
 export type {
-  ActionArgs,
-  ActionResult,
-  BlockerHandler,
-  ErrorProps,
-  IdentitySnapshot,
-  NavigateOptions,
-  NavigationState,
-  PageError,
-} from '../page/types'
+  ClientInputFromSchemas,
+  EndpointFromRoute,
+  SseEndpointFromRoute,
+  WsEndpointFromRoute,
+} from '../app/http/types'
+export type { Endpoint, HttpMethod, Jsonify } from '../http/types'
+
+export {
+  parse as parseCookie,
+  parseSigned as parseSignedCookie,
+  serialize as serializeCookie,
+  serializeSigned as serializeSignedCookie,
+} from 'hono/utils/cookie'
+
+export type { Cookie, CookieConstraint, CookieOptions, SignedCookie } from 'hono/utils/cookie'

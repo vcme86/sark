@@ -12,21 +12,13 @@
   "type": "module",
   "bin": "./dist/tooling/cli.mjs",
   "exports": {
-    "./server": {
-      "types": "./dist/entries/server.d.mts",
-      "import": "./dist/entries/server.mjs"
+    ".": {
+      "types": "./dist/entries/root.d.mts",
+      "import": "./dist/entries/root.mjs"
     },
-    "./server/node": {
-      "types": "./dist/entries/server/node.d.mts",
-      "import": "./dist/entries/server/node.mjs"
-    },
-    "./middleware": {
-      "types": "./dist/entries/middleware.d.mts",
-      "import": "./dist/entries/middleware.mjs"
-    },
-    "./http": {
-      "types": "./dist/entries/http.d.mts",
-      "import": "./dist/entries/http.mjs"
+    "./node": {
+      "types": "./dist/entries/node.d.mts",
+      "import": "./dist/entries/node.mjs"
     },
     "./page": {
       "types": "./dist/entries/page.d.mts",
@@ -36,9 +28,9 @@
       "types": "./dist/entries/client.d.mts",
       "import": "./dist/entries/client.mjs"
     },
-    "./utils": {
-      "types": "./dist/entries/utils.d.mts",
-      "import": "./dist/entries/utils.mjs"
+    "./middleware": {
+      "types": "./dist/entries/middleware.d.mts",
+      "import": "./dist/entries/middleware.mjs"
     },
     "./db/sqlite": {
       "types": "./dist/entries/db/sqlite.d.mts",
@@ -52,9 +44,25 @@
       "types": "./dist/entries/db/d1.d.mts",
       "import": "./dist/entries/db/d1.mjs"
     },
-    "./auth/session": {
-      "types": "./dist/entries/auth/session.d.mts",
-      "import": "./dist/entries/auth/session.mjs"
+    "./storage/local": {
+      "types": "./dist/entries/storage/local.d.mts",
+      "import": "./dist/entries/storage/local.mjs"
+    },
+    "./storage/s3": {
+      "types": "./dist/entries/storage/s3.d.mts",
+      "import": "./dist/entries/storage/s3.mjs"
+    },
+    "./storage/r2": {
+      "types": "./dist/entries/storage/r2.d.mts",
+      "import": "./dist/entries/storage/r2.mjs"
+    },
+    "./storage/presign": {
+      "types": "./dist/entries/storage/presign.d.mts",
+      "import": "./dist/entries/storage/presign.mjs"
+    },
+    "./auth": {
+      "types": "./dist/entries/auth.d.mts",
+      "import": "./dist/entries/auth.mjs"
     },
     "./auth/oauth": {
       "types": "./dist/entries/auth/oauth.d.mts",
@@ -120,49 +128,17 @@
       "types": "./dist/entries/auth/state-d1.d.mts",
       "import": "./dist/entries/auth/state-d1.mjs"
     },
-    "./storage/local": {
-      "types": "./dist/entries/storage/local.d.mts",
-      "import": "./dist/entries/storage/local.mjs"
-    },
-    "./storage/s3": {
-      "types": "./dist/entries/storage/s3.d.mts",
-      "import": "./dist/entries/storage/s3.mjs"
-    },
-    "./storage/r2": {
-      "types": "./dist/entries/storage/r2.d.mts",
-      "import": "./dist/entries/storage/r2.mjs"
-    },
-    "./storage/presign": {
-      "types": "./dist/entries/storage/presign.d.mts",
-      "import": "./dist/entries/storage/presign.mjs"
-    },
-    "./assets/node": {
-      "types": "./dist/entries/assets/node.d.mts",
-      "import": "./dist/entries/assets/node.mjs"
-    },
-    "./visitors": {
-      "types": "./dist/entries/visitors.d.mts",
-      "import": "./dist/entries/visitors.mjs"
-    },
-    "./visitors/browser": {
-      "types": "./dist/entries/visitors/browser.d.mts",
-      "import": "./dist/entries/visitors/browser.mjs"
-    },
     "./logging": {
       "types": "./dist/entries/logging.d.mts",
       "import": "./dist/entries/logging.mjs"
-    },
-    "./health": {
-      "types": "./dist/entries/health.d.mts",
-      "import": "./dist/entries/health.mjs"
     },
     "./jobs": {
       "types": "./dist/entries/jobs.d.mts",
       "import": "./dist/entries/jobs.mjs"
     },
-    "./middleware/rate-limit": {
-      "types": "./dist/entries/middleware/rate-limit.d.mts",
-      "import": "./dist/entries/middleware/rate-limit.mjs"
+    "./visitors": {
+      "types": "./dist/entries/visitors.d.mts",
+      "import": "./dist/entries/visitors.mjs"
     },
     "./vite": {
       "types": "./dist/entries/vite.d.mts",
@@ -188,6 +164,10 @@
       "types": "./dist/entries/runtime/page-browser.d.mts",
       "import": "./dist/entries/runtime/page-browser.mjs"
     },
+    "./runtime/rate-limit": {
+      "types": "./dist/entries/runtime/rate-limit.d.mts",
+      "import": "./dist/entries/runtime/rate-limit.mjs"
+    },
     "./runtime/auth": {
       "types": "./dist/entries/runtime/auth.d.mts",
       "import": "./dist/entries/runtime/auth.mjs"
@@ -208,13 +188,29 @@
       "types": "./dist/entries/runtime/webauthn.d.mts",
       "import": "./dist/entries/runtime/webauthn.mjs"
     },
+    "./runtime/storage": {
+      "types": "./dist/entries/runtime/storage.d.mts",
+      "import": "./dist/entries/runtime/storage.mjs"
+    },
+    "./runtime/logging": {
+      "types": "./dist/entries/runtime/logging.d.mts",
+      "import": "./dist/entries/runtime/logging.mjs"
+    },
+    "./runtime/health": {
+      "types": "./dist/entries/runtime/health.d.mts",
+      "import": "./dist/entries/runtime/health.mjs"
+    },
+    "./runtime/jobs-node": {
+      "types": "./dist/entries/runtime/jobs-node.d.mts",
+      "import": "./dist/entries/runtime/jobs-node.mjs"
+    },
+    "./runtime/jobs-cloudflare": {
+      "types": "./dist/entries/runtime/jobs-cloudflare.d.mts",
+      "import": "./dist/entries/runtime/jobs-cloudflare.mjs"
+    },
     "./runtime/visitors": {
       "types": "./dist/entries/runtime/visitors.d.mts",
       "import": "./dist/entries/runtime/visitors.mjs"
-    },
-    "./runtime/jobs": {
-      "types": "./dist/entries/runtime/jobs.d.mts",
-      "import": "./dist/entries/runtime/jobs.mjs"
     }
   },
   "scripts": {
@@ -233,6 +229,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@logtape/logtape": "^2.4.2",
+    "@logtape/redaction": "^2.4.2",
     "hono": "^4.13.13",
     "negotiator": "^1.1.0",
     "vite": "^8.3.5",
@@ -297,7 +294,6 @@
     "postgres": "^3.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "wrangler": "^4.152.0",
     "ws": "^8.22.1"
   },
   "peerDependenciesMeta": {
@@ -362,9 +358,6 @@
       "optional": true
     },
     "react-dom": {
-      "optional": true
-    },
-    "wrangler": {
       "optional": true
     },
     "ws": {

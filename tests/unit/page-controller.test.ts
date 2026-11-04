@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createClient } from '../../src/http/client/client'
+import { createClient } from '../../src/client/client'
 import { type NavigationHost, PageController } from '../../src/page/browser/controller'
 import type { ClientRoute } from '../../src/page/browser/route'
 import { notFound, redirect } from '../../src/page/signals'
@@ -209,4 +209,98 @@ it('coordinates external reload and setIdentity via registerBrowserNavigation', 
   } finally {
     unregister()
   }
+})
+
+describe('same-document navigation', () => {
+  it.each([false, true])(
+    'runs one hash revalidation decision (reload=%s) before metadata',
+    async (reload) => {
+      const calls: string[] = []
+      const page = route(() => {
+        calls.push('loader')
+        return 'new'
+      })
+      const decide = vi.fn(() => reload)
+      page.scopes[0].shouldRevalidate = decide
+      const { controller, host } = setup([page])
+      page.scopes[0].meta = ({ data, url }) => {
+        calls.push(`meta:${data}:${url.hash}`)
+        return { title: String(data) }
+      }
+      const states: string[] = []
+      controller.subscribe(() => states.push(controller.getSnapshot().navigation.state))
+      expect(await controller.navigate('#section')).toEqual({ committed: true })
+      expect(decide).toHaveBeenCalledOnce()
+      expect(calls).toEqual(reload ? ['loader', 'meta:new:#section'] : ['meta:old:#section'])
+      expect(states.includes('loading')).toBe(reload)
+      expect(controller.getSnapshot().view.resetScopes?.has('post')).toBe(reload)
+      expect(controller.getSnapshot().view.revision).toBe(1)
+      expect(host.commit).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each([true, false])(
+    'waits for a hash guard in idle and restores rejected traversal (allowed=%s)',
+    async (allowed) => {
+      const guard = Promise.withResolvers<boolean>()
+      const loader = vi.fn(() => 'new')
+      const { controller, host } = setup([route(loader)])
+      controller.registerBlocker('editor', () => guard.promise)
+      const target = { index: 2, scroll: [0, 200] as const }
+      const navigation = controller.navigate('#anchor', {}, target)
+      expect(controller.getSnapshot().navigation.state).toBe('idle')
+      expect(host.commit).not.toHaveBeenCalled()
+      guard.resolve(allowed)
+      expect(await navigation).toEqual({ committed: allowed })
+      expect(loader).not.toHaveBeenCalled()
+      expect(host.restore).toHaveBeenCalledTimes(allowed ? 0 : 1)
+      expect(host.commit).toHaveBeenCalledTimes(allowed ? 1 : 0)
+    },
+  )
+
+  it('does not let a stale hash guard commit or restore a newer navigation', async () => {
+    const guard = Promise.withResolvers<boolean>()
+    const { controller, host } = setup([route(() => 'new')])
+    controller.registerBlocker('editor', () => guard.promise)
+    const first = controller.navigate('#old')
+    controller.unregisterBlocker('editor')
+    await controller.navigate('/posts/2')
+    guard.resolve(true)
+    expect(await first).toEqual({ committed: false })
+    expect(controller.getSnapshot().view.url.pathname).toBe('/posts/2')
+    expect(host.commit).toHaveBeenCalledOnce()
+    expect(host.restore).not.toHaveBeenCalled()
+  })
+
+  it('resumes normal loading when hash metadata redirects to another page', async () => {
+    const page = route(() => 'new')
+    const { controller, host } = setup([page])
+    page.scopes[0].meta = ({ url }) => {
+      if (url.hash) redirect('/posts/2')
+      return { title: 'new' }
+    }
+    const states: string[] = []
+    controller.subscribe(() => states.push(controller.getSnapshot().navigation.state))
+    await controller.navigate('#redirect')
+    expect(states).toContain('loading')
+    expect(controller.getSnapshot().view.url.pathname).toBe('/posts/2')
+    expect(host.commit).toHaveBeenCalledOnce()
+  })
+
+  it('leaves anomalous same-origin paths to server routing after guards and skips prefetch', async () => {
+    const load = vi.fn(async () => ({ default: () => null }))
+    const base = route(() => 'new')
+    const page = { ...base, scopes: [{ ...base.scopes[0], load }] }
+    const { controller, host } = setup([page])
+    await controller.prefetch('/posts//2')
+    expect(load).not.toHaveBeenCalled()
+    controller.registerBlocker('editor', () => false)
+    await controller.navigate('/posts//2')
+    expect(host.hardNavigate).not.toHaveBeenCalled()
+    controller.unregisterBlocker('editor')
+    await controller.navigate('/posts//2?q=one#two')
+    expect(host.hardNavigate).toHaveBeenCalledWith(
+      new URL('https://example.test/posts//2?q=one#two'),
+    )
+  })
 })

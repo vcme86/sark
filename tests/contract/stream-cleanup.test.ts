@@ -2,9 +2,9 @@ import { configureSync, getConfig, type LogRecord, resetSync } from '@logtape/lo
 import { createElement, Suspense } from 'react'
 import { afterEach, beforeEach, expect, it, type MockInstance, vi } from 'vitest'
 
-import { createDefinition } from '../../src/core/definition'
-import { createApp, route } from '../../src/entries/server'
-import { createClient } from '../../src/http/client/client'
+import { createDefinition } from '../../src/app/definition'
+import { createClient } from '../../src/client/client'
+import { createApp, route } from '../../src/entries/root'
 import { parseApiFilePath } from '../../src/http/path'
 import { renderPageToResponse, type ServerRenderOptions } from '../../src/page/server/render'
 import { RedirectSignal } from '../../src/page/signals'
@@ -168,7 +168,7 @@ it('reports HEAD cleanup failure once without replacing the response', async () 
     expect(response.headers.get('x-representation')).toBe('original')
     expect(response.body).toBeNull()
     expect(records).toHaveLength(1)
-    expect(records[0].properties.args).toEqual([{ error: failure }])
+    expect(records[0].properties.error).toBe(failure)
     expect(records[0].properties.requestId).toBe(response.headers.get('x-request-id'))
   } finally {
     await app.close()
@@ -189,7 +189,7 @@ it.each(['commit', 'headers'] as const)(
     expect(await response.text()).toContain(failure.message)
     expect(observed.cancel).toHaveBeenCalledOnce()
     expect(records).toHaveLength(1)
-    expect(records[0].properties.args).toEqual([{ error: failure }])
+    expect(records[0].properties.error).toBe(failure)
   },
 )
 
@@ -210,10 +210,7 @@ it('preserves the preparation error if cancellation also fails', async () => {
   expect(response.status).toBe(500)
   expect(await response.text()).toContain(failure.message)
   expect(observed.cancel).toHaveBeenCalledOnce()
-  expect(records.map((record) => record.properties.args)).toEqual([
-    [{ error: cleanup }],
-    [{ error: failure }],
-  ])
+  expect(records.map((record) => record.properties.error)).toEqual([cleanup, failure])
 })
 
 it('cancels suspended HEAD rendering once without logging an intentional abort', async () => {

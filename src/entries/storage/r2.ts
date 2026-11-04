@@ -4,7 +4,7 @@ export {
   type R2PresignedFileStore,
   type R2StorageConfig,
   type R2StorageDeclaration,
-} from '../../services/storage/r2'
+} from '../../features/storage/r2'
 
 export {
   type FileBody,
@@ -17,4 +17,4 @@ export {
   StorageError,
   type StoredContent,
   type StoredFile,
-} from '../../services/storage/types'
+} from '../../features/storage/types'

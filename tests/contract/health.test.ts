@@ -2,12 +2,13 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 
 import { mountNodeProbes } from '../../src/adapter/node/probes'
-import { defineHealth } from '../../src/entries/health'
+import { defineHealth } from '../../src/entries/node'
+import { createApp } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp } from '../../src/entries/server'
-import { resolveHealthConfig } from '../../src/services/health/declaration'
-import { createHealthCheckRunner } from '../../src/services/health/runner'
-import type { HealthCheckContext } from '../../src/services/health/types'
+import { createHealthAssembly } from '../../src/features/health/assembly'
+import { resolveHealthConfig } from '../../src/features/health/declaration'
+import { createHealthCheckRunner } from '../../src/features/health/runner'
+import type { HealthCheckContext } from '../../src/features/health/types'
 
 describe('health contract', () => {
   it('deduplicates concurrent check executions and caches successful results', async () => {
@@ -109,42 +110,54 @@ describe('health contract', () => {
   it('enforces health.auth independently on probes', async () => {
     const app = await createApp(
       createDefinition({
-        health: defineHealth({
-          auth: (req: Request) => {
-            const token = req.headers.get('X-Probe-Secret')
-            return token === 'probe-secret-pass'
-          },
-        }),
+        health: createHealthAssembly(
+          defineHealth({
+            auth: (req: Request) => {
+              const token = req.headers.get('X-Probe-Secret')
+              return token === 'probe-secret-pass'
+            },
+          }),
+        ),
       }),
     )
 
     const probes = new Hono()
-    mountNodeProbes(probes, app, { liveness: '/livez', readiness: '/readyz' })
+    mountNodeProbes(
+      probes,
+      app,
+      { liveness: '/livez', readiness: '/readyz' },
+      app.definition.health?.(undefined, true),
+    )
 
     try {
       // Missing auth -> 401
       const unauthLive = await probes.request('/livez')
       expect(unauthLive.status).toBe(401)
+      await unauthLive.text()
 
       const unauthReady = await probes.request('/readyz')
       expect(unauthReady.status).toBe(401)
+      await unauthReady.text()
 
       // Invalid auth -> 401
       const badLive = await probes.request('/livez', {
         headers: { 'X-Probe-Secret': 'wrong' },
       })
       expect(badLive.status).toBe(401)
+      await badLive.text()
 
       // Valid auth -> 200
       const okLive = await probes.request('/livez', {
         headers: { 'X-Probe-Secret': 'probe-secret-pass' },
       })
       expect(okLive.status).toBe(200)
+      await okLive.text()
 
       const okReady = await probes.request('/readyz', {
         headers: { 'X-Probe-Secret': 'probe-secret-pass' },
       })
       expect(okReady.status).toBe(200)
+      await okReady.text()
     } finally {
       await app.close()
     }
@@ -153,24 +166,32 @@ describe('health contract', () => {
   it('returns 503 and lists failed checks on readiness probe failure', async () => {
     const app = await createApp(
       createDefinition({
-        health: defineHealth({
-          readiness: {
-            redis: () => {},
-            postgres: () => {
-              throw new Error('Connection refused')
+        health: createHealthAssembly(
+          defineHealth({
+            readiness: {
+              redis: () => {},
+              postgres: () => {
+                throw new Error('Connection refused')
+              },
             },
-          },
-        }),
+          }),
+        ),
       }),
     )
 
     const probes = new Hono()
-    mountNodeProbes(probes, app, { liveness: '/livez', readiness: '/readyz' })
+    mountNodeProbes(
+      probes,
+      app,
+      { liveness: '/livez', readiness: '/readyz' },
+      app.definition.health?.(undefined, true),
+    )
 
     try {
       // /livez remains 200 (liveness checks process state, not dependency readiness)
       const live = await probes.request('/livez')
       expect(live.status).toBe(200)
+      await live.text()
 
       // /readyz returns 503 and lists failed checks
       const ready = await probes.request('/readyz')
@@ -204,22 +225,31 @@ describe('health contract', () => {
             },
           },
         },
-        health: defineHealth({
-          readiness: {
-            db: async () => {
-              await new Promise((r) => setTimeout(r, 40))
-              checkFinished = true
+        health: createHealthAssembly(
+          defineHealth({
+            readiness: {
+              db: async () => {
+                await new Promise((r) => setTimeout(r, 40))
+                checkFinished = true
+              },
             },
-          },
-        }),
+          }),
+        ),
       }),
     )
 
     const probes = new Hono()
-    mountNodeProbes(probes, app, { liveness: '/livez', readiness: '/readyz' })
+    mountNodeProbes(
+      probes,
+      app,
+      { liveness: '/livez', readiness: '/readyz' },
+      app.definition.health?.(undefined, true),
+    )
 
     // Start probe request
-    const probePromise = probes.request('/readyz')
+    const probePromise = Promise.resolve(probes.request('/readyz')).then((response) =>
+      response.text(),
+    )
 
     // Start close almost immediately
     await new Promise((r) => setTimeout(r, 10))

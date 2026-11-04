@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { getCurrentScope, getRequestId } from '../../src/core/context'
-import { applicationLifecycles } from '../../src/core/lifecycle'
-import type { ServiceAssembly } from '../../src/core/service'
-import { createClient } from '../../src/entries/http'
+import { getCurrentScope, getRequestId } from '../../src/app/context'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { RouteDeclaration, SseDeclaration, SseStream } from '../../src/app/http/types'
+import { applicationLifecycles } from '../../src/app/lifecycle'
+import type { ServiceAssembly } from '../../src/app/service'
+import { createClient } from '../../src/entries/client'
+import { createApp, defineApp, HttpError, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, HttpError, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import type { RouteDeclaration, SseDeclaration, SseStream } from '../../src/http/types'
 
 function entry(
   source: string,
@@ -1094,7 +1094,7 @@ describe('SSE reconnect and response cleanup', () => {
         return new Response(null, { status: 204 })
       },
     })
-    const connection = client.sse('/events')
+    const connection = client.sse('/events', { headers: { 'Last-Event-ID': 'initial' } })
     try {
       expect(await reconnect.promise).toBe(expectedId)
     } finally {
@@ -1253,5 +1253,110 @@ it('stops error and event delivery when an error listener closes the subscriptio
     expect(laterEvent).not.toHaveBeenCalled()
   } finally {
     connection.close()
+  }
+})
+
+it('reports callback errors without recursive error dispatch or reconnecting the live stream', async () => {
+  const payload = 'x'.repeat(20000)
+  const bytes = new TextEncoder().encode(
+    `data: ${JSON.stringify(payload)}\r\n\r\ndata: "second"\r\n\r\n`,
+  )
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7))
+        controller.close()
+      },
+    }),
+    { headers: { 'content-type': 'text/event-stream' } },
+  )
+  const transport = vi.fn(async () => response)
+  const client = createClient<{
+    '/events': { SSE: { input: {}; output: Response; events: { message: string } } }
+  }>({ baseUrl: 'https://example.test', fetch: transport })
+  const errors: unknown[] = [],
+    messages: string[] = []
+  const failure = new Error('consumer failed')
+  const callbackFailure = new Error('error listener failed')
+  const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const done = Promise.withResolvers<void>()
+  const connection = client.sse('/events')
+  connection.onError((error) => {
+    errors.push(error)
+    throw callbackFailure
+  })
+  connection.on('message', (value) => {
+    messages.push(value)
+    if (value === payload) throw failure
+    connection.close()
+    done.resolve()
+  })
+  try {
+    await done.promise
+    expect(messages).toEqual([payload, 'second'])
+    expect(errors).toEqual([failure])
+    expect(reported).toHaveBeenCalledWith('SSE error callback failed', callbackFailure)
+    expect(transport).toHaveBeenCalledOnce()
+  } finally {
+    connection.close()
+    reported.mockRestore()
+  }
+})
+
+it('retries temporary header failures with the default delay and refreshes credentials and Last-Event-ID on retry zero', async () => {
+  vi.useFakeTimers()
+  let attempts = 0
+  const failure = new Error('Temporary credential refresh failure')
+  const requests: Request[] = []
+  const client = createClient<{
+    '/events': {
+      SSE: { input: { query: { q: string } }; output: Response; events: { message: string } }
+    }
+  }>({
+    baseUrl: 'https://example.test/api',
+    headers: async () => {
+      attempts++
+      if (attempts === 1) throw failure
+      return { authorization: `token-${attempts}` }
+    },
+    fetch: async (request) => {
+      requests.push(request)
+      return requests.length === 1
+        ? new Response('id: first\nretry: 0\ndata: "one"\n\n', {
+            headers: { 'content-type': 'text/event-stream' },
+          })
+        : new Response(null, { status: 204 })
+    },
+  })
+  const query = { q: 'initial' }
+  const headers = { 'X-Choice': 'initial' }
+  const errors: unknown[] = []
+  const connection = client.sse('/events', { query, headers, init: { credentials: 'include' } })
+  connection.onError((error) => errors.push(error))
+  query.q = 'changed'
+  headers['X-Choice'] = 'changed'
+  try {
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(requests).toHaveLength(0)
+    expect(errors).toEqual([failure])
+    await vi.advanceTimersByTimeAsync(2)
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).not.toBe(requests[1])
+    expect(requests.map((request) => request.headers.get('authorization'))).toEqual([
+      'token-2',
+      'token-3',
+    ])
+    expect(requests.map((request) => request.headers.get('Last-Event-ID'))).toEqual([null, 'first'])
+    expect(
+      requests.every(
+        (request) =>
+          request.url === 'https://example.test/api/events?q=initial' &&
+          request.credentials === 'include' &&
+          request.headers.get('X-Choice') === 'initial',
+      ),
+    ).toBe(true)
+  } finally {
+    connection.close()
+    vi.useRealTimers()
   }
 })

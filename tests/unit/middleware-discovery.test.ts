@@ -21,11 +21,11 @@ it('discovers directory middlewares and pairs them with descendant routes in out
     writeFileSync(join(root, 'users/_middleware.ts'), 'export default async (ctx, next) => next()')
     writeFileSync(
       join(root, 'users/profile.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'profile')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'profile')",
     )
     writeFileSync(
       join(root, 'health.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'ok')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'ok')",
     )
 
     const routes = discoverApiRoutes(root, '/api')
@@ -52,7 +52,7 @@ it('supports flat dot notation for middleware and preserves route scope pairing'
     )
     writeFileSync(
       join(root, 'admin.users.list.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'admin-users')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'admin-users')",
     )
 
     const routes = discoverApiRoutes(root, '/api')
@@ -70,7 +70,7 @@ it('supports group folders for scope inheritance without affecting the URL route
     writeFileSync(join(root, '(auth)/_middleware.ts'), 'export default async (ctx, next) => next()')
     writeFileSync(
       join(root, '(auth)/login.post.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'login')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'login')",
     )
 
     const routes = discoverApiRoutes(root, '/api')
@@ -89,7 +89,7 @@ it('rejects middleware collisions when flat dot and nested folder declare identi
     writeFileSync(join(root, 'users._middleware.ts'), 'export default async (ctx, next) => next()')
     writeFileSync(
       join(root, 'users/list.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'list')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'list')",
     )
 
     expect(() => discoverApiRoutes(root, '/api')).toThrowError(/Middleware conflict detected/)

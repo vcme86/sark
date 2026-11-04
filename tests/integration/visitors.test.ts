@@ -11,7 +11,7 @@ describe('Visitors Integration', { timeout: 15_000 }, () => {
     const project = createProject()
     project.write(
       'app.ts',
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: '127.0.0.1' })
@@ -20,7 +20,7 @@ export const visitors = defineVisitors({ secret: ${JSON.stringify(VISITOR_SECRET
     )
     project.write(
       'api/whoami.get.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 
 export default route().handler((ctx) => {
   return { visitorId: ctx.var.visitor.id }
@@ -89,7 +89,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
     const project = createProject()
     project.write(
       'app.ts',
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: '127.0.0.1' })
@@ -140,7 +140,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
     const project = createProject()
     project.write(
       'app.ts',
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: '127.0.0.1' })
@@ -190,7 +190,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark()] }
     const project = createProject()
     project.write(
       'app.ts',
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({ hosts: '127.0.0.1' })
 `,
     )
@@ -221,32 +221,11 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
   })
 
   describe('Client Module Import Boundary', () => {
-    it('rejects importing server-side @olivaw/sark/visitors in browser bundle', async () => {
+    it('allows visitor declarations and initialization through the same browser entry', async () => {
       const project = createProject()
       project.write(
         'entry.ts',
-        `import { defineVisitors } from '@olivaw/sark/visitors'; console.log(defineVisitors)`,
-      )
-      try {
-        await expect(
-          build({
-            root: project.root,
-            configFile: false,
-            logLevel: 'silent',
-            plugins: [sark({ apiDir: false, webDir: false })],
-            build: { write: false, lib: { entry: project.root + '/entry.ts', formats: ['es'] } },
-          }),
-        ).rejects.toThrow(/cannot import server module "@olivaw\/sark\/visitors"/)
-      } finally {
-        project.remove()
-      }
-    })
-
-    it('allows importing browser helper @olivaw/sark/visitors/browser in browser bundle', async () => {
-      const project = createProject()
-      project.write(
-        'entry.ts',
-        `import { ensureVisitor } from '@olivaw/sark/visitors/browser'; console.log(ensureVisitor)`,
+        `import { defineVisitors, ensureVisitor } from '@olivaw/sark/visitors'; export { defineVisitors, ensureVisitor }`,
       )
       try {
         const result = await build({
@@ -272,7 +251,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ webDir: false }
 
       project.write(
         appEntry,
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: '127.0.0.1' })
@@ -283,7 +262,7 @@ export const visitors = defineVisitors((env: { VISITOR_KEY: string }) => ({
       )
       project.write(
         `${apiDir}/whoami.get.ts`,
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler((ctx) => {
   return { id: ctx.var.visitor.id }

@@ -12,19 +12,19 @@ import { getRequestListener } from '@hono/node-server'
 import { TrieRouter } from 'hono/router/trie-router'
 import { type RawData, type WebSocket, WebSocketServer } from 'ws'
 
-import type { RequestScope } from '../../core/context'
-import { applicationLifecycles, type LifecycleManager } from '../../core/lifecycle'
-import type { AppInstance } from '../../core/types'
-import { compareRoutes, createRequestPathResolver } from '../../http/path'
-import { formatErrorResponse } from '../../http/server/output'
-import type { RouteEntry } from '../../http/server/types'
+import type { RequestScope } from '../../app/context'
+import type { RouteEntry } from '../../app/http/assembly'
+import { formatErrorResponse } from '../../app/http/output'
+import type { SocketHandlers } from '../../app/http/types'
 import {
   createWebSocketConnectionRunner,
   getWsUpgradeState,
   type PlatformSocketTransport,
   type WebSocketConnectionRunner,
-} from '../../http/server/websocket'
-import type { SocketHandlers } from '../../http/types'
+} from '../../app/http/websocket'
+import { applicationLifecycles, type LifecycleManager } from '../../app/lifecycle'
+import type { AppInstance } from '../../app/types'
+import { compareRoutes, createRequestPathResolver } from '../../http/path'
 
 /**
  * Delivers an HTTP rejection, including its body and cookies, on an upgrade socket.
@@ -249,6 +249,10 @@ export function createNodeWebSocketBridge(instance: AppInstance<any>): NodeWebSo
       const upgradeState = getWsUpgradeState(response)
       if (closing || handshakeAbort.signal.aborted) {
         if (upgradeState) {
+          upgradeState.complete?.(
+            socket.destroyed ? undefined : 503,
+            socket.destroyed ? 'aborted' : 'error',
+          )
           upgradeState.connectionAbort.abort(handshakeAbort.signal.reason)
           await upgradeState.release!()
         }
@@ -268,6 +272,7 @@ export function createNodeWebSocketBridge(instance: AppInstance<any>): NodeWebSo
         try {
           wss.handleUpgrade(incoming, socket, head, (ws: WebSocket) => {
             upgraded = true
+            upgradeState.complete?.(101, 'ok')
             const conn = wrapNodeWebSocket({
               ws,
               handlers: upgradeState.handlers,
@@ -285,6 +290,7 @@ export function createNodeWebSocketBridge(instance: AppInstance<any>): NodeWebSo
         } finally {
           pendingUpgradeHeaders.delete(incoming)
           if (!upgraded) {
+            upgradeState.complete?.(undefined, 'error')
             upgradeState.connectionAbort.abort()
             await upgradeState.release!()
           }

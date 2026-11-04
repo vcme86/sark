@@ -17,8 +17,8 @@ describe('Page Type Contracts (P3)', () => {
     try {
       project.write(
         appEntry,
-        `import { defineApp } from '@olivaw/sark/server'
-import { defineNodeRuntime } from '@olivaw/sark/server/node'
+        `import { defineApp } from '@olivaw/sark'
+import { defineNodeRuntime } from '@olivaw/sark/node'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
 import { definePage } from '@olivaw/sark/page'
 export const app = defineApp({})
@@ -29,7 +29,7 @@ export const page = definePage({})`,
       project.write(`${apiDir}/_middleware.ts`, 'export const scope = { csrf: false }')
       project.write(
         `${apiDir}/answer.get.ts`,
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 export default route().handler(ctx => ctx.var.db.$client.prepare('select 42 as answer').get())`,
       )
       project.write(
@@ -66,7 +66,7 @@ export default route().handler(ctx => ctx.var.db.$client.prepare('select 42 as a
       project.write('app/index.tsx', 'export default function Page() { return <h1>Home</h1> }')
       project.write(
         'api/posts.[id].get.ts',
-        `import { route, z } from '@olivaw/sark/server'
+        `import { route, z } from '@olivaw/sark'
 export default route().validate({ params: z.object({ id: z.string() }) })
   .handler((_ctx, { params }) => ({ title: params.id }))`,
       )
@@ -148,7 +148,7 @@ export default function Page({ data }: { data: { title: string } }) { return <h1
         expect(result.status, result.output).toBe(0)
         project.write(
           'api/local.get.ts',
-          "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'local')",
+          "import { route } from '@olivaw/sark'; export default route().handler(() => 'local')",
         )
         expect(() => generateProject(project.root, { apiTypes: './contracts' })).toThrow(
           'apiTypes cannot be combined',
@@ -175,7 +175,7 @@ definePage({ api: { browserUrl: '/api' } })
         'loaders.ts',
         String.raw`
 import type { ActionArgs, LoaderArgs } from '@olivaw/sark/page'
-import type { HttpClient } from '@olivaw/sark/http'
+import type { HttpClient } from '@olivaw/sark/client'
 
 type PostApi = {
   '/posts/:id': {

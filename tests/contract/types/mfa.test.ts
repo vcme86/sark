@@ -6,7 +6,7 @@ it('preserves MFA request contracts, custom SQL mappings and environment require
   const result = await checkGeneratedTypes(
     {
       'app.ts': `import { defineDatabase } from '@olivaw/sark/db/sqlite'
-import { defineAuth } from '@olivaw/sark/auth/session'
+import { defineAuth } from '@olivaw/sark/auth'
 import { defineMfa } from '@olivaw/sark/auth/mfa'
 import { defineTotp } from '@olivaw/sark/auth/totp'
 import { sqlTotp } from '@olivaw/sark/auth/totp/sqlite'
@@ -21,7 +21,7 @@ export const mfa = defineMfa((env: { TTL: number }) => ({ challenge: { ttl: env.
 export const totp = defineTotp((env: { TOTP_KEY: Uint8Array }) => ({ issuer: 'Test', keys: { current: { id: 'key', key: env.TOTP_KEY } }, store: sqlTotp({ database, tables: { factors } }) }))
 // @ts-expect-error A table without the required factor columns is not a compatible mapping.
 sqlTotp({ database, tables: { factors: sqliteTable('incomplete', { sub: text('id').primaryKey() }) } })`,
-      'api/test.post.ts': `import { route } from '@olivaw/sark/server'
+      'api/test.post.ts': `import { route } from '@olivaw/sark'
 export default route().handler(async c => {
   await c.var.mfa.complete('challenge', { kind: 'totp', code: '123456' })
   // @ts-expect-error An unselected WebAuthn factor is not a valid proof.
@@ -32,7 +32,7 @@ export default route().handler(async c => {
   c.var.totp.reencrypt('alice')
   return c.var.totp.isEnabled('alice')
 })`,
-      'contracts.ts': `import { createApp } from '@olivaw/sark/server'
+      'contracts.ts': `import { createApp } from '@olivaw/sark'
 import { definition } from './.build/app'
 // @ts-expect-error All declaration factory environments are required.
 createApp(definition)
@@ -51,13 +51,13 @@ app.mfa.beginStepUp()
 
 it('uses the upstream WebAuthn response type only for selected WebAuthn applications', async () => {
   const result = await checkGeneratedTypes({
-    'app.ts': `import { defineAuth } from '@olivaw/sark/auth/session'
+    'app.ts': `import { defineAuth } from '@olivaw/sark/auth'
 import { defineWebAuthn } from '@olivaw/sark/auth/webauthn'
 export const auth = defineAuth({ secret: 'long-enough-session-signing-secret-for-tests' })
 export const webauthn = defineWebAuthn({ rpId: 'example.com', rpName: 'Test', origins: ['https://example.com'], user: sub => ({ userName: sub, displayName: sub }), store: { create: () => ({ value: {
   getOrCreateUserHandle: async sub => sub, findCredential: async () => null, listCredentials: async () => [], insertCredential: async () => true, updateCredential: async () => true, removeCredential: async () => true,
 } }) } })`,
-    'api/test.post.ts': `import { route } from '@olivaw/sark/server'
+    'api/test.post.ts': `import { route } from '@olivaw/sark'
 import type { AuthenticationResponseJSON } from '@olivaw/sark/auth/webauthn'
 declare const response: AuthenticationResponseJSON
 export default route().handler(async c => {
@@ -78,7 +78,7 @@ it.each([
     'require an auth',
   ],
   [
-    "import { defineAuth } from '@olivaw/sark/auth/session'; import { defineMfa } from '@olivaw/sark/auth/mfa'; export const auth = defineAuth({ secret: 'long-enough-secret-for-test-session-signing' }); export const mfa = defineMfa({})",
+    "import { defineAuth } from '@olivaw/sark/auth'; import { defineMfa } from '@olivaw/sark/auth/mfa'; export const auth = defineAuth({ secret: 'long-enough-secret-for-test-session-signing' }); export const mfa = defineMfa({})",
     'at least one configured factor',
   ],
 ])('rejects incomplete factor composition during generation', async (app, message) => {

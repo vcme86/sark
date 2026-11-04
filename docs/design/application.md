@@ -7,8 +7,8 @@
 应用根目录默认使用 app.ts。核心配置和所选能力统一具名导出，框架负责发现和组合。
 
 ```ts
+import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
-import { defineApp } from '@olivaw/sark/server'
 
 import * as schema from './db/schema'
 
@@ -25,7 +25,7 @@ export const database = defineDatabase({
 
 省略 app 使用核心默认值；入口文件不存在时也可创建最小应用。可选能力按声明及专项规定的启用条件装配，未启用能力不加载；例如 Node 单进程启用认证因素后，可使用 [mfa.md](mfa.md) 规定的默认短期状态，不因此启用恢复码。配置较多时，可以通过普通模块导入和显式再导出拆分，文件扫描只从这个入口跟随明确引用。
 
-固定配置导出名为 app、runtime、page、database、storage、assets、auth、oauth、totp、webauthn、mfa、visitors、stats、jobs、rateLimit、pageCache、logging、metrics、health。每个名字由所属能力验证，不变成 AppConfig 的字段。storage 是具名存储集合，oauth 和 jobs 各表示一个列表。页面由发现结果启用；page 仅在需要页面传输或身份配置时声明。
+固定配置导出名为 app、runtime、page、database、storage、assets、auth、oauth、totp、webauthn、mfa、visitors、stats、jobs、rateLimit、logging、health、metrics、pageCache。每个名字由所属能力验证，不变成 AppConfig 的字段。storage 是具名存储集合，oauth 和 jobs 各表示一个列表。页面由发现结果启用；page 仅在需要页面传输或身份配置时声明。
 
 入口不接受默认导出、export star、CommonJS 动态导出或未知运行配置名。纯类型导出不启用能力。发现规则见 [build.md](build.md)。
 
@@ -81,7 +81,7 @@ interface AppConfig {
 - cors 默认关闭，启用必须给 origin，选项沿 Hono CORS
 - csrf 默认开启，执行适用 HTTP 来源检查与 WS 握手来源检查
 - trailingSlash 默认 never；caseSensitive 默认 false；hosts 默认不限制
-- middleware 默认空数组，按声明顺序接入 Hono；Context 与 MiddlewareHandler 从 server 导入，保留本应用实际声明的资源和请求服务类型
+- middleware 默认空数组，按声明顺序接入 Hono；Context 与 MiddlewareHandler 从包根导入，保留本应用实际声明的资源和请求服务类型
 
 数据库、认证、统计、日志增强、缓存和任务的配置由各声明拥有。压缩、排空预算和基础探针归 Node runtime。
 
@@ -118,7 +118,7 @@ export default async function middleware(ctx, next) {
 ## 创建与实例
 
 ```ts
-import { createApp } from '@olivaw/sark/server'
+import { createApp } from '@olivaw/sark'
 
 import { definition } from './.build/app'
 
@@ -181,19 +181,19 @@ type EnvironmentArgs<D> =
 - metrics 在请求、实例及 JobContext 中使用同一所属实例；Node jobs 通过 instance.jobs 管理任务；页面缓存通过 instance.cache 及作用域内失效助手使用
 - 日志通过 getLogger 取得并关联当前请求，不额外挂载 ctx.var.logger
 
-这里只规定入口关系，具体操作、启用依赖与平台支持由各专项定义。未实施阶段不因此提前创建空服务。动态 CORS 回调执行时尚未绑定身份，不承诺读取 auth、visitor 等请求服务；业务中间件、路由与 OAuth 应用回调使用绑定后的 Context。
+这里只规定入口关系，具体操作、启用依赖与平台支持由各专项定义。未启用能力不创建空服务。动态 CORS 回调执行时尚未绑定身份，不承诺读取 auth、visitor 等请求服务；业务中间件、路由与 OAuth 应用回调使用绑定后的 Context。
 
 公开实例不暴露可变 Hono 路由器。路由与策略在创建阶段装配，应用通过文件路由、中间件及自定义宿主接入扩展；宿主所需的路由检查在内部读取同一装配结果，不提供创建后追加路由的接口。
 
-类型推导先生成 resources-types（环境、DB、存储等资源），配置回调仅依赖它与底层契约；随后合成 services-types 和请求上下文。API 类型在 HTTP 注册，服务资源在 server 注册。浏览器类型引用可擦除的 API 类型，不把驱动放进 HTTP 客户端入口。
+类型推导先生成 resources-types（环境、DB、存储等资源），配置回调仅依赖它与底层契约；随后合成 services-types 和请求上下文。API 类型在 client 的 Register 注册，服务资源在包根的 Register 注册。浏览器类型引用可擦除的 API 类型，不把驱动放进 HTTP 客户端入口。
 
 ## 创建顺序与资源责任
 
-1. 解析声明，校验目标、依赖、路径和必需值
-2. 初始化同一套基础日志与显式日志输出
-3. 创建所选数据库、存储及其他资源，每成功一项立即登记释放
-4. 创建服务，将资源和明确依赖注入所选能力
-5. 组合请求分支、任务及宿主接入，完成就绪
+1. 生成组合根选择能力与固定顺序；Node 标准宿主先解析 runtime 与 health，再创建应用
+2. 解析所属声明并准备完整路由、局部策略和组合约束，在业务资源打开前检查冲突
+3. 初始化基础及所选日志输出，再创建数据库、存储等资源，每成功一项立即登记释放
+4. 按生成顺序创建服务；认证依次为 session、共同因素协调、TOTP 维护，不建立运行时依赖图
+5. 就绪后激活已准备且暂停的任务调度器，宿主监听使用同一份已解析设置
 
 创建失败先取消创建期工作，再按已登记顺序逆序回滚。取消信号不能代替实际释放。借用数据库的因素/统计适配不另建池，也无权关闭共享连接。应用不排列配置导出的初始化顺序。核心不按能力名字扫描全量注册表；生成组合根明确决定装配顺序。
 
@@ -213,7 +213,8 @@ type EnvironmentArgs<D> =
 
 - 普通 HTTP 和页面：确定客户端地址与外部 origin、注入所选资源、CORS、生命周期准入与 URL 规范化、绑定身份等请求服务、CSRF、有效限流和正文限额、全局/作用域/路由中间件、处理器
 - WS 握手：确定客户端地址与外部 origin、注入所选资源、CORS、生命周期准入、绑定身份等请求服务、来源防护与业务中间件；升级前授权，跳过正文限额、压缩和默认 HTTP 限流，不作 308 重定向
-- 公开构建文件：安全头、适用 CORS 和压缩；跳过业务认证、CSRF、限流和中间件
+- Node 公开构建文件：来源检查、请求 ID、安全头、适用 CORS、访问记录和压缩；跳过业务认证、CSRF、限流和中间件
+- CF 公开构建文件：平台直接交付，响应策略使用原生配置，不进入 Worker 或执行应用工厂；动态页面和 API 仍进入应用管线
 - Node 运行目录：独立请求分支，执行应用级策略及全局中间件，文件路由优先；不借用 API 树或页面树的目录作用域，授权由明确的应用中间件或下载 API 承担
 - Node 探针和指标：经过公共前置处理后进入各自处理器，不经过业务认证和限流；使用各自独立准入
 - visitors 初始化、OAuth 入口与回调：按其专项占用真实方法/路径，使用正常请求基础；仅在协议明确需要的边界调整来源规则
@@ -238,13 +239,13 @@ Node 从 socket 对端地址起，沿可信代理链从右向左确定客户端�
 
 ## 请求内 dedup
 
-`dedup(fn, key?)` 从 server 导入，只包装服务端函数。调用者显式传 DB 等资源；默认按基本值和对象引用比较，需要值等价时传 key 函数。
+`dedup(fn, key?)` 从包根导入，只包装服务端函数。调用者显式传 DB 等资源；默认按基本值和对象引用比较，需要值等价时传 key 函数。
 
 同一执行作用域内，同函数与等价参数复用同一个 Promise；SSR 内部 API 共享该作用域。跨请求不复用，不合并写操作，不深度序列化。无作用域时按普通函数执行，不回退全局缓存。浏览器 Loader 不导入 dedup。
 
 ## Node 监听与生命周期
 
-runtime 从 server/node 导入 defineNodeRuntime，接受以下选项或返回这些选项的 Env 工厂：
+runtime 从 node 导入 defineNodeRuntime，接受以下选项或返回这些选项的 Env 工厂：
 
 ```ts
 interface NodeRuntimeConfig {

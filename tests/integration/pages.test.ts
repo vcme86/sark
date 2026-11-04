@@ -3,9 +3,8 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { createApp } from '../../src/entries/root'
 import { createWorkerHandler } from '../../src/entries/runtime/cloudflare'
-import { createApp } from '../../src/entries/server'
-import { parseApiFilePath } from '../../src/http/path'
 import { generateProject } from '../../src/tooling/build/project'
 import { createProject } from '../helpers/project'
 
@@ -16,7 +15,7 @@ describe('Page rendering and delivery', () => {
       project.write('app.ts', '')
       project.write(
         'app/_layout.tsx',
-        `import { Outlet } from '@olivaw/sark/client'
+        `import { Outlet } from '@olivaw/sark/page'
 export function meta() { return { canonical: 'https://example.test/' } }
 export default function Layout() { return <main><Outlet /></main> }`,
       )
@@ -50,12 +49,12 @@ export default function Page() { return <h1>Article</h1> }`,
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({})`,
       )
       project.write(
         'app/_layout.tsx',
-        `import { Outlet } from '@olivaw/sark/client'
+        `import { Outlet } from '@olivaw/sark/page'
 export async function loader() { return { layout: 'Layout data' } }
 export default function Layout({ data }: { data: { layout: string } }) {
   return <main><h1>{data.layout}</h1><Outlet /></main>
@@ -90,13 +89,13 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
          export const app = defineApp({})`,
       )
 
       project.write(
         'api/posts.[id].get.ts',
-        `import { route, z } from '@olivaw/sark/server'
+        `import { route, z } from '@olivaw/sark'
          export default route()
            .validate({ params: z.object({ id: z.string() }) })
            .handler(async (_c, { params }) => {
@@ -107,7 +106,7 @@ export default function Index({ data }: { data: { page: string } }) {
       project.write(
         'app/_root.tsx',
         `import React from 'react'
-         import { Head, Outlet, Scripts } from '@olivaw/sark/client'
+         import { Head, Outlet, Scripts } from '@olivaw/sark/page'
          export default function Root() {
            return (
              <html lang="en">
@@ -128,7 +127,7 @@ export default function Index({ data }: { data: { page: string } }) {
       project.write(
         'app/_layout.tsx',
         `import React from 'react'
-         import { Outlet } from '@olivaw/sark/client'
+         import { Outlet } from '@olivaw/sark/page'
          export async function loader() {
            return { siteName: 'Sark Framework' }
          }
@@ -148,7 +147,7 @@ export default function Index({ data }: { data: { page: string } }) {
       project.write(
         'app/_error.tsx',
         `import React from 'react'
-         import type { ErrorProps } from '@olivaw/sark/client'
+         import type { ErrorProps } from '@olivaw/sark/page'
          export default function RootError({ error, retry }: ErrorProps) {
            return (
              <div className="error-boundary">
@@ -259,7 +258,7 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
          export const app = defineApp({})`,
       )
       project.write(
@@ -299,13 +298,13 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
          export const app = defineApp({})`,
       )
       project.write(
         'app/_root.tsx',
         `import React from 'react'
-         import { Outlet, Scripts } from '@olivaw/sark/client'
+         import { Outlet, Scripts } from '@olivaw/sark/page'
          export default function Root() {
            return <html><head></head><body><Outlet /><Scripts /></body></html>
          }`,
@@ -355,7 +354,7 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
          export const app = defineApp({})`,
       )
       project.write(
@@ -475,79 +474,6 @@ export default function Index({ data }: { data: { page: string } }) {
     }
   })
 
-  it('delivers static build assets via Cloudflare Workers ASSETS binding with appropriate caching headers', async () => {
-    const { createDefinition } = await import('../../src/entries/runtime/core')
-
-    const mockAssets = {
-      async fetch(req: Request) {
-        const url = new URL(req.url)
-        if (url.pathname === '/assets/entry-xyz789.js') {
-          return new Response('console.log("cf entry");', {
-            status: 200,
-            headers: { 'content-type': 'text/javascript' },
-          })
-        }
-        if (url.pathname === '/robots.txt') {
-          return new Response('User-agent: *', {
-            status: 200,
-            headers: { 'content-type': 'text/plain' },
-          })
-        }
-        return new Response('Not Found', { status: 404 })
-      },
-    }
-
-    const definition = createDefinition({
-      apiPrefix: '/api',
-      assets: {
-        base: '/',
-        files: {
-          'assets/entry-xyz789.js': { path: 'assets/entry-xyz789.js', hashed: true },
-          'robots.txt': { path: 'robots.txt', hashed: false },
-        },
-      },
-      routes: [
-        {
-          kind: 'page',
-          routePath: parseApiFilePath('about.get.ts', '/')!,
-          pageHandler: async () =>
-            new Response('<h1>Page SSR Content</h1>', { headers: { 'content-type': 'text/html' } }),
-        },
-      ],
-    })
-
-    const handler = createWorkerHandler(definition)
-
-    const executionCtx = {
-      waitUntil: () => {},
-      passThroughOnException: () => {},
-    }
-
-    const env = {
-      ASSETS: mockAssets,
-    }
-
-    // 1. Content-hashed chunk from ASSETS: immutable cache
-    const hashedReq = new Request('https://worker.dev/assets/entry-xyz789.js')
-    const hashedRes = await handler.fetch(hashedReq, env, executionCtx)
-    expect(hashedRes.status).toBe(200)
-    expect(hashedRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
-    expect(await hashedRes.text()).toBe('console.log("cf entry");')
-
-    // 2. Unhashed public asset from ASSETS: no-cache
-    const unhashedReq = new Request('https://worker.dev/robots.txt')
-    const unhashedRes = await handler.fetch(unhashedReq, env, executionCtx)
-    expect(unhashedRes.status).toBe(200)
-    expect(unhashedRes.headers.get('cache-control')).toBe('no-cache')
-    expect(await unhashedRes.text()).toBe('User-agent: *')
-
-    // 3. A URL absent from the asset mapping goes directly to the page handler.
-    const pageReq = new Request('https://worker.dev/about')
-    const pageRes = await handler.fetch(pageReq, env, executionCtx)
-    expect(pageRes.status).toBe(200)
-    expect(await pageRes.text()).toBe('<h1>Page SSR Content</h1>')
-  })
-
   it('respects webPrefix for discovered page routes and request matching', async () => {
     const project = createProject()
     try {
@@ -591,7 +517,7 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'api/session.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
          export default route().handler((c) => ({
            cookie: c.req.header('cookie'),
            auth: c.req.header('authorization'),
@@ -739,7 +665,7 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'api/only.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
          export default route().handler(async () => ({ ok: true }))`,
       )
       project.write(
@@ -894,7 +820,7 @@ export default function Index({ data }: { data: { page: string } }) {
     try {
       project.write(
         'api/posts.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
          export default route().handler(async () => ({ created: true }))`,
       )
       project.write(

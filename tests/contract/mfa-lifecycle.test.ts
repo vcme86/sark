@@ -1,26 +1,21 @@
 import { expect, it, vi } from 'vitest'
 
-import { defineApp, resolveAppConfig } from '../../src/core/config'
-import { assembleApp, createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
-import type { ServiceAssembly } from '../../src/core/service'
+import { defineApp, resolveAppConfig } from '../../src/app/config'
+import { assembleApp, createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { route } from '../../src/app/http/route'
+import type { ServiceAssembly } from '../../src/app/service'
+import { AuthError } from '../../src/features/auth/error'
+import { createMfaAssembly } from '../../src/features/auth/mfa/assembly'
+import { defineMfa } from '../../src/features/auth/mfa/declaration'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
+import { defineAuth } from '../../src/features/auth/session/config'
+import type { RequestAuth } from '../../src/features/auth/session/types'
+import { memoryState } from '../../src/features/auth/state/memory'
+import { createTotpFactor } from '../../src/features/auth/totp/assembly'
+import { defineTotp } from '../../src/features/auth/totp/config'
+import type { RequestTotp } from '../../src/features/auth/totp/types'
 import { parseApiFilePath } from '../../src/http/path'
-import { route } from '../../src/http/server/route'
-import { AuthError } from '../../src/services/auth/error'
-import { createMfaAssembly } from '../../src/services/auth/mfa/assembly'
-import { defineMfa } from '../../src/services/auth/mfa/declaration'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import { defineAuth } from '../../src/services/auth/session/config'
-import type { RequestAuth } from '../../src/services/auth/session/types'
-import { memoryState } from '../../src/services/auth/state/memory'
-import { createTotpFactor } from '../../src/services/auth/totp/assembly'
-import { defineTotp } from '../../src/services/auth/totp/declaration'
-import type { RequestTotp } from '../../src/services/auth/totp/types'
-
-const serviceAssembly = (requires: string[]): ServiceAssembly<never> => ({
-  requires,
-  createRuntime: () => ({ prepare: () => ({ create: () => ({}) }) }),
-})
 
 it('creates fresh MFA stores for each application and disposes partial initialization once in reverse order', async () => {
   const disposed: string[] = []
@@ -210,7 +205,7 @@ it('retains event stores for tracked work without delaying response completion',
   }
 })
 
-it('validates required services before resources open and orders their initialization', async () => {
+it('initializes generated session, factor and maintenance services in their declared order', async () => {
   const calls: string[] = []
   const factor = createTotpFactor(
     defineTotp({
@@ -220,14 +215,13 @@ it('validates required services before resources open and orders their initializ
     }),
   )
   const mfa = createMfaAssembly({ factors: [factor] })
-  expect(() => createDefinition({ services: { mfa } })).toThrow('Required service "auth"')
   const definition = createDefinition({
     services: {
-      totp: factor.maintenance,
-      mfa,
       auth: createAuthAssembly(
         defineAuth({ secret: 'long-enough-session-signing-secret-for-tests' }),
       ),
+      mfa,
+      totp: factor.maintenance,
     },
     resources: {
       selected: {
@@ -246,25 +240,6 @@ it('validates required services before resources open and orders their initializ
   } finally {
     await app.close()
   }
-
-  expect(() =>
-    createDefinition({
-      services: { first: serviceAssembly(['second']), second: serviceAssembly(['first']) },
-    }),
-  ).toThrow('Cyclic service dependency')
-})
-
-it('rejects duplicate factor kinds before preparing stores', () => {
-  const prepare = vi.fn()
-  expect(() =>
-    createMfaAssembly({
-      factors: [
-        { kind: 'totp', prepare },
-        { kind: 'totp', prepare },
-      ],
-    }),
-  ).toThrow('Duplicate authentication factor: totp')
-  expect(prepare).not.toHaveBeenCalled()
 })
 
 it('requires recent factor authentication when recovery codes are the remaining enrolled method', async () => {

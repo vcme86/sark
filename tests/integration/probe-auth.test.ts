@@ -5,9 +5,9 @@ import { startNodeServer } from '../../src/adapter/node/listen'
 import { mountNodeProbes } from '../../src/adapter/node/probes'
 import { defineNodeRuntime } from '../../src/adapter/node/runtime'
 import { defineOAuth } from '../../src/entries/auth/oauth'
+import { createApp, defineApp } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp } from '../../src/entries/server'
-import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
+import { createOAuthAssembly } from '../../src/features/auth/oauth/assembly'
 it('rejects a probe shadowing an assembled OAuth endpoint', async () => {
   const dispose = vi.fn()
   const app = await createApp(

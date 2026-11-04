@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import { expect, it } from 'vitest'
 
-import { createDefinition } from '../../src/entries/runtime/core'
+import type { RouteEntry } from '../../src/app/http/assembly'
 import {
   type AppConfig,
   type AppInstance,
@@ -11,9 +11,9 @@ import {
   route,
   type RouteDeclaration,
   z,
-} from '../../src/entries/server'
+} from '../../src/entries/root'
+import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
 
 const origin = 'https://frontend.example'
 const entry = (file: string, declaration: RouteDeclaration): RouteEntry => ({

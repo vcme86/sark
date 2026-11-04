@@ -29,12 +29,9 @@ const ALLOWED_EXPORTS = new Set([
   'webauthn',
   'mfa',
   'visitors',
-  'stats',
   'jobs',
   'rateLimit',
-  'pageCache',
   'logging',
-  'metrics',
   'health',
 ])
 

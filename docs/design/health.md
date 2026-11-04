@@ -14,7 +14,7 @@ Workers 不模拟自管进程的探针。其平台调度不受某个实例 ready
 ## 独立增强声明
 
 ```ts
-import { defineHealth } from '@olivaw/sark/health'
+import { defineHealth } from '@olivaw/sark/node'
 
 export const health = defineHealth({
   readiness: { db: async ({ db }) => db.execute(sql`select 1`) },
@@ -49,7 +49,7 @@ HealthCheckContext 提供 logger、signal 和所声明资源，例如 db；没�
 
 health.auth 可给两条探针增加独立校验，返回 false 为 401；它不经过业务管线，不改变 liveness/readiness 各自语义。未声明 health 时，可通过部署限制基础路径，不必只为限制来源启用依赖查询。
 
-Node 基础 probes 实现在 adapter/node/probes，读取只读核心状态和可选检查函数；health 提供 readiness 机制，不反向导入创建器。它们不建立第二份 ready 状态。
+Node 基础 probes 实现在 adapter/node/probes，读取只读核心状态和可选检查函数；health 提供 readiness 机制，不反向导入创建器。宿主在应用资源创建前解析 health 与 probes 的组合，资源就绪后绑定检查 runner，不从 instance.definition 反查原始声明。它们不建立第二份 ready 状态。
 
 ## 验证
 

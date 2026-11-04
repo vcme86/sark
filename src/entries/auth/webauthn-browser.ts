@@ -5,12 +5,12 @@
  */
 
 export {
+  startRegistration,
+  startAuthentication,
   browserSupportsPasskeys,
   browserSupportsWebAuthn,
   browserSupportsWebAuthnAutofill,
   platformAuthenticatorIsAvailable,
-  startAuthentication,
-  startRegistration,
   WebAuthnAbortService,
   WebAuthnError,
 } from '@simplewebauthn/browser'

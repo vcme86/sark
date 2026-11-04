@@ -2,14 +2,14 @@ import { Context } from 'hono'
 import { parse } from 'hono/utils/cookie'
 import { describe, expect, it, vi } from 'vitest'
 
-import { getCurrentScope } from '../../src/core/context'
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
-import { type AuthDeclaration, defineAuth, signToken } from '../../src/entries/auth/session'
-import { type AppDeclaration, defineApp } from '../../src/entries/server'
-import type { RouteEntry } from '../../src/http/server/types'
-import { requireStepUp } from '../../src/services/auth/guard'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
+import { getCurrentScope } from '../../src/app/context'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import { type AuthDeclaration, defineAuth, signToken } from '../../src/entries/auth'
+import { type AppDeclaration, defineApp } from '../../src/entries/root'
+import { requireStepUp } from '../../src/features/auth/guard'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
 
 /**
  * Full-stack contract tests for first-party authentication pipeline,

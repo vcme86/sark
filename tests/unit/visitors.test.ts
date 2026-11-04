@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ensureVisitor } from '../../src/entries/visitors/browser'
-import { resolveHttpConfig } from '../../src/http/config'
-import { createVisitorsAssembly } from '../../src/services/visitors/assembly'
+import { resolveHttpConfig } from '../../src/app/config'
+import { ensureVisitor } from '../../src/entries/visitors'
+import { createVisitorsAssembly } from '../../src/features/visitors/assembly'
 import {
   DEFAULT_VISITORS_CONFIG,
   defineVisitors,
   resolveVisitorsConfig,
-} from '../../src/services/visitors/config'
-import { VisitorError } from '../../src/services/visitors/error'
+} from '../../src/features/visitors/config'
+import { VisitorError } from '../../src/features/visitors/error'
 
 const SECRET = 'test-visitor-signing-secret-with-32-bytes-or-more'
 

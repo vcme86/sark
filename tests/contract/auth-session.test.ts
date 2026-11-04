@@ -1,12 +1,12 @@
 import { decode } from 'hono/jwt'
 import { describe, expect, it, vi } from 'vitest'
 
-import { requireStepUp } from '../../src/services/auth/guard'
-import { defineAuth, resolveAuthConfig } from '../../src/services/auth/session/config'
-import { formatSetCookie, initRequestSession } from '../../src/services/auth/session/request'
-import { createAuthCacheStore, createAuthService } from '../../src/services/auth/session/service'
-import { signToken, verifyToken } from '../../src/services/auth/session/token'
-import type { SignInInput } from '../../src/services/auth/session/types'
+import { requireStepUp } from '../../src/features/auth/guard'
+import { defineAuth, resolveAuthConfig } from '../../src/features/auth/session/config'
+import { formatSetCookie, initRequestSession } from '../../src/features/auth/session/request'
+import { createAuthCacheStore, createAuthService } from '../../src/features/auth/session/service'
+import { signToken, verifyToken } from '../../src/features/auth/session/token'
+import type { SignInInput } from '../../src/features/auth/session/types'
 
 const SECRET = 'a-very-long-secret-key-that-is-at-least-32-bytes-long!'
 const SECRET_2 = 'another-very-long-secret-key-that-is-at-least-32-bytes!'
@@ -485,3 +485,20 @@ it('bounds both hook caches and rechecks evicted credentials without changing ca
   expect(cache.versionCache.size).toBe(2000)
   expect(cache.validateCache.size).toBe(2000)
 }, 10000)
+
+it('checks fixed Cookie prefix rules before opening application resources', async () => {
+  const { createApp } = await import('../../src/app/create')
+  const { createDefinition } = await import('../../src/app/definition')
+  const { createAuthAssembly } = await import('../../src/features/auth/session/assembly')
+  const opened = vi.fn(async () => ({ value: {} }))
+  const definition = createDefinition({
+    resources: { selected: { createStatic: opened } },
+    services: {
+      auth: createAuthAssembly(
+        defineAuth({ secret: SECRET, cookieName: '__Secure-session', cookie: { secure: false } }),
+      ),
+    },
+  })
+  await expect(createApp(definition)).rejects.toThrow('__Secure-')
+  expect(opened).not.toHaveBeenCalled()
+})

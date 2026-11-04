@@ -4,8 +4,8 @@ import { join } from 'node:path'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { defineStorage as defineLocalStorage } from '../../src/services/storage/local'
-import { type FileStore, StorageError } from '../../src/services/storage/types'
+import { defineStorage as defineLocalStorage } from '../../src/features/storage/local'
+import { type FileStore, StorageError } from '../../src/features/storage/types'
 
 describe('Local FileStore', () => {
   let tempDir: string
@@ -234,4 +234,27 @@ describe('Local FileStore', () => {
       expect('presign' in localStore).toBe(false)
     })
   })
+})
+
+it('checks all named storage targets before creating any store', async () => {
+  const { createStorageAssembly } = await import('../../src/features/storage/assembly')
+  const { vi } = await import('vitest')
+  const opened = vi.fn()
+  const node = defineLocalStorage({ dir: '/unused/preflight' })
+  const { defineStorage: defineR2 } = await import('../../src/features/storage/r2')
+  const worker = defineR2({ binding: undefined })
+  const nodeAssembly = createStorageAssembly({
+    first: { ...node, createStatic: opened },
+    wrong: worker,
+  })
+  await expect(
+    nodeAssembly.createStatic!(undefined, { signal: new AbortController().signal }),
+  ).rejects.toThrow(/wrong.*Node/)
+  expect(opened).not.toHaveBeenCalled()
+  const workerAssembly = createStorageAssembly({
+    first: { ...worker, createForEvent: opened },
+    wrong: node,
+  })
+  await expect(workerAssembly.createForEvent!({})).rejects.toThrow(/wrong.*Cloudflare/)
+  expect(opened).not.toHaveBeenCalled()
 })

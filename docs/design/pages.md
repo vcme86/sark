@@ -101,7 +101,7 @@ Action 成功后默认重新执行当前页面与布局的 Loader。普通 clien
 
 ## 页面信号与错误
 
-`redirect(url)`、`notFound()` 从 `@olivaw/sark/page` 导出，client 入口复用导出，作为 Error 在 Loader/Action/页面恢复边界抛出与处理。page 只包含同构信号、类型和 definePage 纯声明构造，浏览器可安全导入；应用 app.ts 中的秘密配置不是这个公开入口。HTTP API 不产生页面信号，普通 401/404 不自动转成页面行为。
+`redirect(url)`、`notFound()` 从 `@olivaw/sark/page` 导出，作为 Error 在 Loader/Action/页面恢复边界抛出与处理。page 同时提供 definePage、React 组件、Hooks 和同构信号，适用于 SSR、Loader 与浏览器；应用 app.ts 中的秘密配置不是这个公开入口。HTTP API 不产生页面信号，普通 401/404 不自动转成页面行为。
 
 ```ts
 interface PageError {
@@ -131,6 +131,8 @@ useNavigate 返回 navigate(to, options?)，选项包括 replace、preventScroll
 committed=true 表示当前导航已提交页面、错误、meta 和历史，包括目标错误边界；重定向以最终提交为准。守卫拒绝、被新导航替代或硬导航不产生应用内提交时为 false。它不表示取数或此前业务写入成功。
 
 每次新导航取消旧导航，只有当前导航可以提交结果。旧请求即使随后成功，也不能覆盖新视图、错误、元数据、历史或身份。目标 params/query 参与重新加载计划；提交阶段处理历史、滚动与焦点。
+
+同源且 pathname/search 完全相同、仅 hash 改变时，复用当前路由模块和 CSS，仍按一次读取决策调用 shouldRevalidate。等待异步守卫或没有实际 Loader 时保持 idle；需要 Loader 时在执行前进入 loading。meta 在数据确定后使用新 URL 求值；历史只提交一次，滚动、焦点和 preventScrollReset 保持正常语义。未重载作用域的组件错误不会因锚点变化被重试，普通跨页面导航和显式 retry 保持原恢复规则。Loader/meta 重定向到其他页面时恢复普通导航流程。
 
 useNavigation() 返回 state: idle/loading/submitting；Action 绑定函数而非目标 URL，因此不伪造一个提交地址。`reload(): Promise<void>` 表示刷新流程结束，失败通过页面状态表达，不等于业务取数保证成功。
 
@@ -167,7 +169,11 @@ Head 自动输出 meta 与框架样式，children 可放应用 head 内容。Out
 
 Link 继承除 href 外的 AnchorHTMLAttributes，以 to 指定目标，支持 prefetch: none/module 与 replace。Head 接受 ReactNode，Outlet/Scripts 无必填 props。根文档负责组合这些组件，不要求固定容器 ID。
 
+同源目标 pathname 含连续字面斜线时，离开守卫通过后执行完整文档导航，保留原 URL 交服务端判断归属；不预取该异常路径的模块。普通导航保持 SPA 流程。
+
 Link 点击与预载使用锚点已按文档 base URL 解析的地址；编程式 navigate 的相对地址仍按当前已提交视图解析。
+
+浏览器装配在挂载前绑定 reload/setIdentity 和历史监听，使子组件 Effect 可以直接使用助手。初始化失败与卸载撤销绑定、取消当前操作并恢复 scrollRestoration；缺少启动载荷记录错误并保留服务端 HTML。
 
 ## 页面缓存声明
 

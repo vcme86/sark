@@ -122,13 +122,14 @@ function declarationDependencies(entry: string) {
       else external.add(specifier)
     }
   }
-  visit(resolve('dist/entries', entry + '.d.mts'))
+  const manifest = JSON.parse(readFileSync(resolve('package.json'), 'utf8'))
+  visit(resolve(manifest.exports[entry === '.' ? '.' : './' + entry].types))
   return external
 }
 
 it('keeps unselected SDKs out of each built declaration graph', () => {
   for (const [entry, forbidden] of [
-    ['server', ['drizzle-orm', 'postgres', 'better-sqlite3', '@cloudflare/workers-types']],
+    ['.', ['drizzle-orm', 'postgres', 'better-sqlite3', '@cloudflare/workers-types']],
     [
       'db/sqlite',
       ['drizzle-orm/postgres-js', 'drizzle-orm/d1', 'postgres', '@cloudflare/workers-types'],

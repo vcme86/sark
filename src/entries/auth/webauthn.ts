@@ -1,5 +1,5 @@
-export { defineWebAuthn } from '../../services/auth/webauthn/declaration'
-export type { WebAuthnDeclaration } from '../../services/auth/webauthn/declaration'
+export { defineWebAuthn } from '../../features/auth/webauthn/declaration'
+export type { WebAuthnDeclaration } from '../../features/auth/webauthn/declaration'
 export type {
   AuthenticationResponseJSON,
   AuthenticatorTransport,
@@ -17,4 +17,4 @@ export type {
   WebAuthnStore,
   WebAuthnStoreDeclaration,
   WebAuthnUserLabel,
-} from '../../services/auth/webauthn/types'
+} from '../../features/auth/webauthn/types'

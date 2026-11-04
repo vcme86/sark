@@ -73,7 +73,7 @@ clear 不删除业务数据、不退出登录，也不撤销已复制的访客 C
 
 框架生成 POST 初始化端点，成功返回 204 和需要的 Cookie，Cache-Control: no-store；不返回登录身份或业务数据。它沿来源防护、正文限制及已选入口限流，不要求登录。路径和方法按有效规范化规则参与冲突检查，不保留整个 /__sark 前缀。
 
-visitors/browser 导出 ensureVisitor(options?)，返回 `Promise<void>`；options 可提供 url、signal、credentials，缺省同源并使用本工程生成的初始化地址。helper 发送无正文 POST，不主动设置 Content-Type；缺少该头仍按 [http.md](http.md) 的规则执行来源检查。同页面并发调用合并，失败后允许重新调用；成功返回后再开始依赖访客 Cookie 的业务请求。
+visitors 导出 ensureVisitor(options?)，返回 `Promise<void>`；options 可提供 url、signal、credentials，缺省同源并使用本工程生成的初始化地址。helper 发送无正文 POST，不主动设置 Content-Type；缺少该头仍按 [http.md](http.md) 的规则执行来源检查。同页面并发调用合并，失败后允许重新调用；成功返回后再开始依赖访客 Cookie 的业务请求。
 
 没有 Sark 启动数据时，独立消费端使用默认初始化地址；显式 url 优先。已有启动数据无法解析时直接拒绝，不吞掉错误后改用默认地址。浏览器和 SSR 共用启动载荷类型，仅交付公开端点路径，不传递访客内部状态。
 

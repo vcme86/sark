@@ -1,23 +1,23 @@
 import { expect, it } from 'vitest'
 
-import { getCurrentScope } from '../../src/core/context'
-import { createDefinition } from '../../src/entries/runtime/core'
-import {
-  type AppConfig,
-  type AppInstance,
-  createApp,
-  defineApp,
-  route,
-} from '../../src/entries/server'
-import { parseApiFilePath } from '../../src/http/path'
+import { getCurrentScope } from '../../src/app/context'
+import type { RouteEntry } from '../../src/app/http/assembly'
 import {
   compileProxyRules,
   matchesCompiledRules,
   resolveClientIp,
   resolveExternalOrigin,
   validateHost,
-} from '../../src/http/proxy'
-import type { RouteEntry } from '../../src/http/server/types'
+} from '../../src/app/http/proxy'
+import {
+  type AppConfig,
+  type AppInstance,
+  createApp,
+  defineApp,
+  route,
+} from '../../src/entries/root'
+import { createDefinition } from '../../src/entries/runtime/core'
+import { parseApiFilePath } from '../../src/http/path'
 
 async function withApp(
   config: AppConfig,

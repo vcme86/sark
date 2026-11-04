@@ -1,0 +1,92 @@
+/** Internal contracts for generated domain assembly and request bindings. */
+import type { Logger } from '@logtape/logtape'
+import type { Context } from 'hono'
+
+import type { ResolvedHttpConfig } from './config'
+import type { RouteEntry } from './http/assembly'
+import type { ShutdownContext } from './lifecycle'
+import type { DisposalContext, ResourceAssembly } from './resource'
+import type { AppInstance } from './types'
+
+/** Request facilities shared with an optional domain. */
+export interface RequestBindingContext {
+  readonly ctx: Context
+  readonly request: Request
+  readonly signal: AbortSignal
+  readonly parentBinding?: ServiceBinding
+  readonly appendCookie: (cookie: string) => void
+  readonly isHeadersCommitted: () => boolean
+}
+
+/** A domain's state and hooks for one request, inherited by internal calls. */
+export interface ServiceBinding {
+  readonly state?: unknown
+  /** Only a verified credential may grant a CSRF exemption. */
+  readonly csrfExempt?: boolean
+  readonly onCommitHeaders?: () => Promise<void> | void
+}
+
+/** Creates a fully initialized request binding within the active request scope. */
+export type ServiceBindingFactory = (
+  context: RequestBindingContext,
+) => ServiceBinding | Promise<ServiceBinding>
+
+/** Domain facilities created after the application's resources are ready. */
+export interface ServiceInitResult<TService = unknown> {
+  readonly service?: TService
+  readonly createBinding?: ServiceBindingFactory
+}
+
+/** Lifecycle context passed to onReady service callbacks upon application readiness. */
+export interface ServiceReadyContext {
+  readonly app: AppInstance<any>
+  readonly services: Readonly<Record<string, unknown>>
+}
+
+/** Context passed when creating resource-bound services. */
+export interface ServiceCreateContext {
+  readonly env?: unknown
+  readonly target: 'node' | 'cloudflare'
+  readonly resourceDeclarations: Readonly<Record<string, ResourceAssembly>>
+  readonly signal: AbortSignal
+  readonly drainingSignal?: AbortSignal
+  /** Live Node host budget and current shutdown deadline; absent for event hosts. */
+  readonly shutdown?: ShutdownContext
+  readonly onReady?: (callback: (readyContext: ServiceReadyContext) => void | Promise<void>) => void
+  readonly registerDispose: (
+    name: string,
+    dispose: (context: DisposalContext) => Promise<void> | void,
+  ) => void
+  readonly logger: Logger
+  /** Tracks noncritical work until it settles before disposing its resources. */
+  readonly waitUntil: (promise: Promise<unknown>) => void
+}
+
+/** Validated configuration and routes prepared before resources are created. */
+export interface ServicePreparation<TService = unknown> {
+  readonly routes?: readonly RouteEntry[]
+  readonly create: (
+    resources: Readonly<Record<string, unknown>>,
+    context: ServiceCreateContext,
+  ) => ServiceInitResult<TService> | Promise<ServiceInitResult<TService>>
+}
+
+/** Instance-owned domain runtime, resolving configuration before creating resource-bound services. */
+export interface ServiceRuntime<TService = unknown> {
+  readonly prepare: (
+    env: unknown,
+    config: ResolvedHttpConfig,
+  ) => ServicePreparation<TService> | Promise<ServicePreparation<TService>>
+}
+
+/** Internal assembly selected by generated application code. */
+export interface ServiceAssembly<TService = never> {
+  /** Whether this domain exposes a public instance service. */
+  readonly expose?: boolean
+  /** Creates instance-owned caches without evaluating configuration factories. */
+  readonly createRuntime: () => ServiceRuntime<TService>
+  readonly $infer?: TService
+}
+
+/** Extracts a domain's public instance service. */
+export type InferService<S> = S extends ServiceAssembly<infer T> ? T : never

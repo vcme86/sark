@@ -64,26 +64,32 @@ function load<T>(loader: () => Promise<T>): Promise<T> {
  * @throws {Error} If any required module or associated resource fails to load.
  */
 export async function prepareClientRoute(route: ClientRoute): Promise<void> {
-  await Promise.all([
-    route.rootLoad && !route.rootComponent
-      ? load(route.rootLoad).then((module) => {
-          route.rootComponent = module.default
-        })
-      : undefined,
-    ...route.scopes.flatMap((scope) => [
-      scope.load && !scope.component
-        ? load(scope.load).then((module) => {
-            scope.component = module.default
-            scope.loader = module.loader
-            scope.meta = module.meta
-            scope.shouldRevalidate = module.shouldRevalidate
-          })
-        : undefined,
-      scope.errorLoad && !scope.errorComponent
-        ? load(scope.errorLoad).then((module) => {
-            scope.errorComponent = module.default
-          })
-        : undefined,
-    ]),
-  ])
+  const pending: Promise<void>[] = []
+  if (route.rootLoad && !route.rootComponent) {
+    pending.push(
+      load(route.rootLoad).then((module) => {
+        route.rootComponent = module.default
+      }),
+    )
+  }
+  for (const scope of route.scopes) {
+    if (scope.load && !scope.component) {
+      pending.push(
+        load(scope.load).then((module) => {
+          scope.component = module.default
+          scope.loader = module.loader
+          scope.meta = module.meta
+          scope.shouldRevalidate = module.shouldRevalidate
+        }),
+      )
+    }
+    if (scope.errorLoad && !scope.errorComponent) {
+      pending.push(
+        load(scope.errorLoad).then((module) => {
+          scope.errorComponent = module.default
+        }),
+      )
+    }
+  }
+  await Promise.all(pending)
 }

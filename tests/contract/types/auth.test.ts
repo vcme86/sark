@@ -38,9 +38,9 @@ describe('Auth & OAuth generated type contracts (P5)', () => {
     expectCompiled(
       await compileFixture({
         schema: sqliteSchema,
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
-import { defineAuth } from '@olivaw/sark/auth/session'
+import { defineAuth } from '@olivaw/sark/auth'
 import * as schema from './schema'
 
 export const app = defineApp({ hosts: 'localhost', middleware: [async (ctx, next) => {
@@ -67,8 +67,8 @@ export const auth = defineAuth({
   },
 })
 `,
-        contracts: `import { createApp } from '@olivaw/sark/server'
-import { defineAuth } from '@olivaw/sark/auth/session'
+        contracts: `import { createApp } from '@olivaw/sark'
+import { defineAuth } from '@olivaw/sark/auth'
 defineAuth((env: NodeJS.ProcessEnv) => ({ secret: env.AUTH_SECRET }))
 defineAuth((env: NodeJS.ProcessEnv) => ({ keys: [{ kid: 'current', secret: env.AUTH_SECRET }] }))
 // @ts-expect-error A required signing mode must still be supplied.
@@ -96,7 +96,7 @@ auth.initRequestSession
 // @ts-expect-error Nonexistent property on instance
 instance.nonexistent
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 export default route().handler(async c => {
   const currentIdentity = c.var.auth.identity
   if (currentIdentity) {
@@ -112,7 +112,7 @@ export default route().handler(async c => {
     expectCompiled(
       await compileFixture({
         schema: sqliteSchema,
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
 import { defineOAuth } from '@olivaw/sark/auth/oauth'
 import * as schema from './schema'
@@ -148,15 +148,15 @@ export const oauth = defineOAuth([
   it('supports app with auth but without database', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
-import { defineAuth } from '@olivaw/sark/auth/session'
+        app: `import { defineApp } from '@olivaw/sark'
+import { defineAuth } from '@olivaw/sark/auth'
 
 export const app = defineApp({ hosts: 'localhost' })
 export const auth = defineAuth({
   secret: 'a-very-long-secret-key-of-at-least-32-characters-123',
 })
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 export default route().handler(async c => {
   const id = c.var.auth.identity?.sub
   // @ts-expect-error No database is declared in this application
@@ -171,7 +171,7 @@ export default route().handler(async c => {
     expectCompiled(
       await compileFixture({
         customHost: true,
-        app: `import { defineAuth } from '@olivaw/sark/auth/session'
+        app: `import { defineAuth } from '@olivaw/sark/auth'
 import { defineOAuth } from '@olivaw/sark/auth/oauth'
 export const auth = defineAuth((env: { AUTH_SECRET: string }) => ({ secret: env.AUTH_SECRET }))
 export const oauth = defineOAuth((env: { CLIENT_ID: string }) => [{
@@ -179,7 +179,7 @@ export const oauth = defineOAuth((env: { CLIENT_ID: string }) => [{
         clientSecret: 'test-client-secret', clientId: env.CLIENT_ID, scopes: [],
   redirectUri: 'https://example.com/callback', onSuccess() {},
 }])`,
-        contracts: `import { createApp } from '@olivaw/sark/server'
+        contracts: `import { createApp } from '@olivaw/sark'
 import { createDefinition } from '@olivaw/sark/runtime/core'
 import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'
 import { oauth } from './app'
@@ -204,11 +204,11 @@ external.auth
   it('preserves clean Services type when auth is not declared', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 
 export const app = defineApp({ hosts: 'localhost' })
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 export default route().handler(async c => {
   // @ts-expect-error auth is not available when not declared
   const a = c.var.auth

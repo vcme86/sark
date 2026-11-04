@@ -2,16 +2,16 @@ import { configureSync, type LogRecord, resetSync } from '@logtape/logtape'
 import { expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { getCurrentScope } from '../../src/core/context'
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
-import { ensureBasicLogging, getLogger } from '../../src/core/logging'
+import { getCurrentScope } from '../../src/app/context'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { ensureBasicLogging, getLogger } from '../../src/app/logging'
+import { defineAuth, type RequestAuth, signToken } from '../../src/entries/auth'
 import { defineOAuth } from '../../src/entries/auth/oauth'
-import { defineAuth, type RequestAuth, signToken } from '../../src/entries/auth/session'
-import { defineApp, route } from '../../src/entries/server'
+import { defineApp, route } from '../../src/entries/root'
+import { createOAuthAssembly } from '../../src/features/auth/oauth/assembly'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
 import { parseApiFilePath } from '../../src/http/path'
-import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
 
 const secret = 'session-signing-secret-at-least-32-bytes'
 
@@ -394,7 +394,7 @@ it('attaches request IDs as structured fields when a logger is created before re
       expect(info.properties.requestId).toBe(response.headers.get('X-Request-Id'))
       expect(warning.properties.requestId).toBe(response.headers.get('X-Request-Id'))
       expect(info.properties).not.toHaveProperty('args')
-      expect(warning.properties.args).toEqual([{ item: 42 }])
+      expect(warning.properties.item).toBe(42)
       expect(info.message.join('')).not.toContain('[req:')
     }
     expect(records[0].properties.requestId).not.toBe(records[2].properties.requestId)

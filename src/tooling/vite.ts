@@ -7,6 +7,7 @@ import { isBuiltin } from 'node:module'
 import { posix, resolve } from 'node:path'
 
 import { getRequestListener } from '@hono/node-server'
+import { Context } from 'hono'
 import { getPath as getRequestPath } from 'hono/utils/url'
 import {
   loadEnv,
@@ -17,22 +18,29 @@ import {
   type ViteDevServer,
 } from 'vite'
 
+import { createNodeDeliveryApp } from '../adapter/node/app'
 import { waitUntil } from '../adapter/node/deadline'
-import { type ResolvedNodeRuntimeConfig, resolveNodeRuntime } from '../adapter/node/runtime'
+import { bindNodeDelivery, waitForNodeRequest } from '../adapter/node/delivery'
+import { prepareNodeRuntime, type ResolvedNodeRuntimeConfig } from '../adapter/node/runtime'
 import { createNodeStaticHandler } from '../adapter/node/static'
-import { getApplicationRoutes } from '../core/context'
-import { createApp } from '../core/create'
-import type { AppDefinition } from '../core/definition'
-import { applicationLifecycles } from '../core/lifecycle'
-import { getLogger } from '../core/logging'
-import type { AppInstance } from '../core/types'
-import type { PageRequestHandler } from '../http/server/types'
+import { resolveAppConfig } from '../app/config'
+import { getApplicationRoutes } from '../app/context'
+import { assembleApp } from '../app/create'
+import type { AppDefinition } from '../app/definition'
+import type { PageRequestHandler } from '../app/http/assembly'
+import { formatErrorResponse } from '../app/http/output'
+import { publicRequest } from '../app/http/public'
+import { applicationLifecycles } from '../app/lifecycle'
+import { ensureBasicLogging, getLogger } from '../app/logging'
+import type { AppInstance } from '../app/types'
 import {
   collectDevelopmentAssets,
+  createDevelopmentAssets,
   createProductionAssets,
   listPublicFiles,
   writeBuildAssets,
 } from './build/assets'
+import { writeCloudflareAssetHeaders } from './build/cloudflare-assets'
 import type { DiscoveredPageTree } from './build/discover/pages'
 import { generateConfiguredProject, generateResolvedProject } from './build/project'
 import {
@@ -89,9 +97,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         resolved.target === 'cloudflare'
           ? resolveProjectConfig(resolve(config.root ?? '.'), resolved)
           : undefined
-      const tree = early
-        ? generateResolvedProject(early, undefined, undefined, { bootstrap: true })
-        : undefined
+      const tree = early ? generateResolvedProject(early) : undefined
       return {
         environments: {
           ssr: {
@@ -119,6 +125,15 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       viteConfig = config
       project = resolveProjectConfig(config.root, resolved)
       pages = await generateConfiguredProject(config, project)
+      if (config.command === 'serve') {
+        const assets = createDevelopmentAssets(config.base, pages, project.generatedDir)
+        writeBuildAssets(project, {
+          ...assets,
+          files: Object.fromEntries(
+            listPublicFiles(config.publicDir).map((path) => [path, { path, hashed: false }]),
+          ),
+        })
+      }
       if (resolved.target === 'cloudflare' && config.command === 'build' && !pages?.pages.length) {
         writeBuildAssets(
           project,
@@ -146,15 +161,18 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         typeof manifest.source === 'string'
           ? manifest.source
           : new TextDecoder().decode(manifest.source)
-      writeBuildAssets(
+      const assets = createProductionAssets(
+        JSON.parse(source) as Manifest,
         getProject(),
-        createProductionAssets(
-          JSON.parse(source) as Manifest,
-          getProject(),
-          pages,
-          viteConfig.base,
-          listPublicFiles(viteConfig.publicDir),
-        ),
+        pages,
+        viteConfig.base,
+        listPublicFiles(viteConfig.publicDir),
+      )
+      writeBuildAssets(getProject(), assets)
+      writeCloudflareAssetHeaders(
+        resolve(viteConfig.root, this.environment.config.build.outDir),
+        assets,
+        viteConfig.publicDir,
       )
     },
 
@@ -162,7 +180,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       order: 'pre',
       async handler(builder) {
         if (resolved.target !== 'cloudflare' || !pages?.pages.length) return
-        // The Worker embeds the completed browser mapping. The official plugin
+        // The Worker embeds the completed page entry and styles. The official plugin
         // still owns Worker builds and moves its emitted assets into client output.
         const client = builder.environments.client
         const build = builder.build.bind(builder)
@@ -176,17 +194,18 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       if (
         this.environment.config.consumer === 'client' &&
         (isBuiltin(id) ||
-          id === '@olivaw/sark/server' ||
-          id.startsWith('@olivaw/sark/server/') ||
+          id === '@olivaw/sark' ||
+          id === '@olivaw/sark/node' ||
+          id === '@olivaw/sark/db' ||
           id.startsWith('@olivaw/sark/db/') ||
           id === '@olivaw/sark/storage' ||
           id.startsWith('@olivaw/sark/storage/') ||
-          id === '@olivaw/sark/assets' ||
-          id.startsWith('@olivaw/sark/assets/') ||
-          id === '@olivaw/sark/visitors' ||
-          (id.startsWith('@olivaw/sark/visitors/') && id !== '@olivaw/sark/visitors/browser') ||
+          id === '@olivaw/sark/auth' ||
           (id.startsWith('@olivaw/sark/auth/') && id !== '@olivaw/sark/auth/webauthn/browser') ||
           id === '@olivaw/sark/middleware' ||
+          id === '@olivaw/sark/jobs' ||
+          id === '@olivaw/sark/logging' ||
+          id === '@olivaw/sark/page/cache' ||
           id === '@olivaw/sark/vite' ||
           (id.startsWith('@olivaw/sark/runtime/') && id !== '@olivaw/sark/runtime/page-browser'))
       )
@@ -233,7 +252,9 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         resolved.target === 'node'
           ? loadEnv(server.config.mode, server.config.envDir, '')
           : undefined
+
       let publicPaths = new Set(listPublicFiles(server.config.publicDir))
+
       function publicHandler() {
         return server.config.publicDir && publicPaths.size
           ? createNodeStaticHandler({
@@ -248,24 +269,20 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           : undefined
       }
       let servePublic = publicHandler()
-      // Reuse the file responder for exact public filenames, including encoded # and ?.
-      // Vite's public middleware uses decodeURI and cannot address those filenames.
-      const publicListener = getRequestListener(
-        async (request) => (await servePublic?.(request)) ?? new Response(null, { status: 404 }),
-      )
-      server.middlewares.use((request, response, next) => {
+
+      function matchesPublicFile(request: import('node:http').IncomingMessage): boolean {
         const pathname = new URL(request.url ?? '/', 'http://vite.local').pathname
-        if (!pathname.startsWith(server.config.base)) return next()
+        const base = resolved.target === 'node' ? server.config.base : '/'
+        if (!pathname.startsWith(base)) return false
         let key: string
         try {
-          key = decodeURIComponent(pathname.slice(server.config.base.length))
+          key = decodeURIComponent(pathname.slice(base.length))
         } catch {
-          return next()
+          return false
         }
-        if (!publicPaths.has(key) || !['GET', 'HEAD'].includes(request.method ?? 'GET'))
-          return next()
-        void publicListener(request, response).catch(next)
-      })
+        return publicPaths.has(key) && ['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? 'GET')
+      }
+
       const updatePublicFiles = (file: string) => {
         if (
           server.config.publicDir &&
@@ -277,6 +294,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         }
       }
       server.watcher.on('add', updatePublicFiles).on('unlink', updatePublicFiles)
+
       let developmentFiles: Readonly<Record<string, unknown>> = {}
       let developmentAssetsReady: Promise<void> | undefined
       const prepareAssets = () =>
@@ -292,6 +310,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
             developmentAssetsReady = undefined
             throw error
           }))
+
       const generatedDir = projectConfig.generatedDir
       const apiPrefix = resolved.apiPrefix
       const apiDir = projectConfig.apiDir === false ? false : normalizePath(projectConfig.apiDir)
@@ -305,7 +324,24 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         file === appEntry ||
         Boolean(apiDir && file.startsWith(apiDir + '/')) ||
         Boolean(webDir && file.startsWith(webDir + '/'))
+
       if (resolved.target === 'cloudflare') {
+        const publicListener = getRequestListener(
+          async (request) => {
+            const url = new URL(request.url)
+            url.pathname = server.config.base + url.pathname.slice(1)
+            return (
+              (await servePublic?.(
+                new Request(url, {
+                  method: request.method,
+                  headers: request.headers,
+                  signal: request.signal,
+                }),
+              )) ?? new Response(null, { status: 404 })
+            )
+          },
+          { errorHandler: (error) => formatErrorResponse(error, false) },
+        )
         server.middlewares.use((request, _response, next) => {
           if (!request.headers.accept?.includes('text/html')) return next()
           void prepareAssets().then(() => next(), next)
@@ -321,9 +357,50 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           }
           if (isRoutingFile(file) || isServerModule) developmentAssetsReady = undefined
         }
-        return
+        // Vite's public middleware misses encoded # and ? filenames. This development-only
+        // file fallback does not dispatch through the Sark Worker or create business resources.
+        return () => {
+          server.middlewares.use((request, response, next) => {
+            if (!matchesPublicFile(request)) return next()
+            void publicListener(request, response).catch(next)
+          })
+        }
       }
 
+      let preparedApplication: ReturnType<typeof prepareApplication> | undefined
+      async function prepareApplication() {
+        ensureBasicLogging()
+        await prepareAssets()
+        const module = await server.ssrLoadModule(resolve(generatedDir, 'app.ts'))
+        const definition = module.definition as AppDefinition
+        const runtime = prepareNodeRuntime(definition, module.runtime, nodeEnv)
+        const config = resolveAppConfig(definition.app, nodeEnv, false)
+        const logging = await definition.logging?.createStatic!(nodeEnv, {
+          signal: new AbortController().signal,
+        })
+        return {
+          definition,
+          runtime,
+          config,
+          logging,
+          publicBoundary: publicRequest(config, logging?.value),
+        }
+      }
+      function getPreparedApplication() {
+        return (preparedApplication ??= prepareApplication().catch((error) => {
+          preparedApplication = undefined
+          throw error
+        }))
+      }
+      async function releasePreparedApplication() {
+        const previous = preparedApplication
+        preparedApplication = undefined
+        if (previous) {
+          const prepared = await previous
+          await prepared.logging?.dispose?.({ signal: new AbortController().signal })
+        }
+      }
+      const deliveryApps = new WeakMap<AppInstance, ReturnType<typeof createNodeDeliveryApp>>()
       let currentAppInstance: AppInstance | null = null
       let creatingPromise: Promise<AppInstance> | null = null
       let handoffQueue: Promise<void> = Promise.resolve()
@@ -335,7 +412,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         | undefined
       const requests = new Map<
         Parameters<ReturnType<typeof getRequestListener>>[1],
-        { instance?: AppInstance; done: Promise<void> }
+        { instance?: AppInstance; prepared?: object; done: Promise<void> }
       >()
 
       let pageHandlers = new Map<string, PageRequestHandler>()
@@ -401,7 +478,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         return hasPage
       }
 
-      async function getAppInstance(): Promise<AppInstance> {
+      async function waitForHandoff(): Promise<void> {
         // Creation must wait for the previous instance handoff to finish.
         await handoffQueue.catch(() => {})
 
@@ -414,19 +491,31 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         if (closingInstance) {
           throw new Error('Cannot create application instance: previous instance is still closing.')
         }
+      }
+
+      async function getAppInstance(): Promise<AppInstance> {
+        await waitForHandoff()
 
         if (currentAppInstance) return currentAppInstance
         if (creatingPromise) return creatingPromise
 
         creatingPromise = (async () => {
-          await prepareAssets()
-          const appModule = await server.ssrLoadModule(resolve(generatedDir, 'app.ts'))
-          const runtime = resolveNodeRuntime(appModule.runtime, nodeEnv)
-          const instance = await createApp(bindDevelopmentPages(appModule.definition), {
-            env: nodeEnv,
-          })
+          const prepared = await getPreparedApplication()
+          const runtime = prepared.runtime
+          const definition = bindDevelopmentPages(prepared.definition)
+          // The development host owns logging even when only public files are requested.
+          const instance = await assembleApp(
+            {
+              ...definition,
+              logging: prepared.logging
+                ? { createStatic: async () => ({ value: prepared.logging!.value }) }
+                : undefined,
+            },
+            { kind: 'static', config: prepared.config, env: nodeEnv },
+          )
           applicationLifecycles.get(instance)!.configureShutdown(runtime.shutdown)
           try {
+            deliveryApps.set(instance, createNodeDeliveryApp(instance, runtime))
             if (instance.definition.routes.some((entry) => entry.routePath.isWs)) {
               const { createNodeWebSocketBridge } = await import('../adapter/node/websocket')
               activeWsBridge = createNodeWebSocketBridge(instance)
@@ -459,10 +548,19 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           currentAppInstance = null
           const bridgeToClose = activeWsBridge
           activeWsBridge = undefined
-          if (!instance) return
+          const prepared = preparedApplication ? await preparedApplication : undefined
+          const owned = [...requests].filter(
+            ([, request]) =>
+              (instance !== null && request.instance === instance) ||
+              (prepared !== undefined && request.prepared === prepared),
+          )
+          if (!instance) {
+            await Promise.all(owned.map(([, request]) => request.done))
+            await releasePreparedApplication()
+            return
+          }
           const lifecycle = applicationLifecycles.get(instance)!
           const deadline = performance.now() + shutdown.deadline
-          const owned = [...requests].filter(([, request]) => request.instance === instance)
           const bridgeClosed = bridgeToClose ? bridgeToClose.close(deadline) : Promise.resolve()
           const work = Promise.all([...owned.map(([, request]) => request.done), bridgeClosed])
           const drained = Promise.withResolvers<void>()
@@ -496,6 +594,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
             if (bridgeToClose) await bridgeToClose.close(deadline)
             drained.resolve()
             const outcome = await closed
+            await releasePreparedApplication()
             if (outcome.error !== undefined && outcome.error !== cancellation) throw outcome.error
           })().then(
             () => {
@@ -607,7 +706,11 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           )
             return
           await getAppInstance()
-          await activeWsBridge?.handleUpgrade(req, socket, head)
+          const handled = await activeWsBridge?.handleUpgrade(req, socket, head)
+          if (!handled) {
+            const { writeServerResponse } = await import('../adapter/node/websocket')
+            await writeServerResponse(req, socket, new Response('Not Found', { status: 404 }))
+          }
         } catch (error) {
           getLogger('dev.websocket').error('WebSocket upgrade failed: {error}', { error })
           socket.destroy(
@@ -619,11 +722,38 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       }
       server.httpServer?.on('upgrade', onServerUpgrade)
 
+      const publicListener = getRequestListener(
+        async (request, env) => {
+          bindNodeDelivery(request, env)
+          await waitForHandoff()
+          const prepared = await getPreparedApplication()
+          requests.get(env.outgoing)!.prepared = prepared
+          const context = new Context(request, { env })
+          await prepared.publicBoundary(context, async () => {
+            context.res = (await servePublic?.(request)) ?? new Response(null, { status: 404 })
+          })
+          return context.res
+        },
+        { errorHandler: (error) => formatErrorResponse(error, false) },
+      )
+      server.middlewares.use((request, response, next) => {
+        if (!matchesPublicFile(request)) return next()
+        const done = Promise.withResolvers<void>()
+        requests.set(response, { done: done.promise })
+        void waitForNodeRequest(publicListener(request, response).catch(next), response).then(
+          () => {
+            requests.delete(response)
+            done.resolve()
+          },
+        )
+      })
+
       const listener = getRequestListener(
         async (request, env) => {
+          bindNodeDelivery(request, env)
           const app = await getAppInstance()
           requests.get(env.outgoing)!.instance = app
-          return app.fetch(request, env)
+          return deliveryApps.get(app)!.fetch(request, env)
         },
         {
           errorHandler: (err) => {
@@ -677,16 +807,8 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
 
         function forwardToApplication() {
           const done = Promise.withResolvers<void>()
-          const delivered = Promise.withResolvers<void>()
-          const complete = () => {
-            res.off('finish', complete)
-            res.off('close', complete)
-            delivered.resolve()
-          }
           requests.set(res, { done: done.promise })
-          res.once('finish', complete)
-          res.once('close', complete)
-          void Promise.allSettled([listener(req, res).catch(next), delivered.promise]).then(() => {
+          void waitForNodeRequest(listener(req, res).catch(next), res).then(() => {
             requests.delete(res)
             done.resolve()
           })

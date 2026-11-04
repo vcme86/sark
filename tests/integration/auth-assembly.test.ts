@@ -14,12 +14,12 @@ it('runs generated session-only composition with OAuth packages blocked by the m
   const project = createProject()
   project.write(
     'app.ts',
-    `import { defineAuth } from '@olivaw/sark/auth/session'
+    `import { defineAuth } from '@olivaw/sark/auth'
 export const auth = defineAuth({ secret: '${secret}' })`,
   )
   project.write(
     'api/me.get.ts',
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(ctx => ({ user: ctx.var.auth.identity?.sub ?? null }))`,
   )
   try {
@@ -50,7 +50,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context)
 } })
 const { definition } = await import(${JSON.stringify(url)})
-const { createApp } = await import('@olivaw/sark/server')
+const { createApp } = await import('@olivaw/sark')
 const app = await createApp(definition)
 try {
   const response = await app.fetch(new Request('http://localhost/api/me'))

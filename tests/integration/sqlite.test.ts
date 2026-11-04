@@ -5,12 +5,12 @@ import { join } from 'node:path'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 
-import type { ResourceAssembly } from '../../src/core/resource'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import type { ResourceAssembly } from '../../src/app/resource'
 import { defineDatabase as defineSqlite } from '../../src/entries/db/sqlite'
+import { createApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, route } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteDeclaration } from '../../src/http/types'
 
 const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),

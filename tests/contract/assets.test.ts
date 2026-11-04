@@ -5,11 +5,11 @@ import { join } from 'node:path'
 import { createElement } from 'react'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { defineAssets } from '../../src/adapter/node/mounts'
+import { createApp, defineApp } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp } from '../../src/entries/server'
 import { createPageConfigResolver } from '../../src/page/config'
 import { createPage404Handler } from '../../src/page/server/handler'
-import { defineAssets } from '../../src/services/assets/node'
 import { routeEntry } from '../helpers/http-app'
 
 describe('Node Asset Mounts Contract', () => {

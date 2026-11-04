@@ -14,6 +14,9 @@ importers:
       '@logtape/logtape':
         specifier: ^2.4.2
         version: 2.4.2
+      '@logtape/redaction':
+        specifier: ^2.4.2
+        version: 2.4.2(@logtape/logtape@2.4.2)
       hono:
         specifier: ^4.13.13
         version: 4.13.13
@@ -626,6 +629,11 @@ packages:
 
   '@logtape/logtape@2.4.2':
     resolution: {integrity: sha512-YJyC1gEMgWmTqJTRtKkjgasEbi8/0gP7Dj8n6bL46gQIAhpTY8uXJ+1QYMOgF5asotlGMvy3G7ejXUe45Yd1MQ==}
+
+  '@logtape/redaction@2.4.2':
+    resolution: {integrity: sha512-QERsPJYr+ZaHj+pPoGGMlDcpE+V27j05ImDyGRi6vxuAQ3uIBCJtUUrcs6jNwXWG90SEZw9C0dS0jeLFOayjrg==}
+    peerDependencies:
+      '@logtape/logtape': ^2.4.2
 
   '@otplib/core@13.5.0':
     resolution: {integrity: sha512-2rURdkYkb3BDhMs3j/oCCPTve1ybJ6ruLfLfSe1ZSPV+y6RFTbLfAuT0m0ZCnps88ogkIq9t/+Li/kg5RofQwQ==}
@@ -2500,6 +2508,10 @@ snapshots:
       '@logtape/logtape': 2.4.2
 
   '@logtape/logtape@2.4.2': {}
+
+  '@logtape/redaction@2.4.2(@logtape/logtape@2.4.2)':
+    dependencies:
+      '@logtape/logtape': 2.4.2
 
   '@otplib/core@13.5.0': {}
 

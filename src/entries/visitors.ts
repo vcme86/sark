@@ -1,13 +1,14 @@
 /**
- * Public visitor identity entrypoint for application declarations and server handlers.
+ * Visitor declarations, request contracts, and browser initialization.
  *
  * @module
  */
 
-export { defineVisitors, type VisitorsDeclaration } from '../services/visitors/config'
-export { VisitorError } from '../services/visitors/error'
+export { defineVisitors, type VisitorsDeclaration } from '../features/visitors/config'
+export { ensureVisitor, type EnsureVisitorOptions } from '../features/visitors/browser'
+export { VisitorError } from '../features/visitors/error'
 export type {
   RequestVisitor,
   VisitorCookieConfig,
   VisitorsConfig,
-} from '../services/visitors/types'
+} from '../features/visitors/types'

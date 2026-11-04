@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 
-import type { StaticAssets } from '../../http/assets'
+import { findStaticAsset, type StaticAssets } from '../../http/assets'
 import { resolveSafeFilePath, serveFileResponse } from './file-response'
 
 /** Fully resolved build location and public URL mapping. */
@@ -23,19 +23,10 @@ export function createNodeStaticHandler(
   options: NodeStaticOptions,
 ): (request: Request) => Promise<Response | null> {
   const root = realpathSync(options.rootDir)
-  const base = new URL(options.assets.base, 'http://assets.local/').pathname
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') return null
-    const pathname = new URL(request.url).pathname
-    if (!pathname.startsWith(base)) return null
-    let key: string
-    try {
-      key = decodeURIComponent(pathname.slice(base.length))
-    } catch {
-      return null
-    }
-    if (!Object.hasOwn(options.assets.files, key)) return null
-    const entry = options.assets.files[key]
+    const entry = findStaticAsset(options.assets, new URL(request.url).pathname)
+    if (!entry) return null
     const file = await resolveSafeFilePath({
       rootDir: root,
       subPath: entry.path,

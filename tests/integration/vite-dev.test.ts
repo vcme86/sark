@@ -6,10 +6,10 @@ import { createServer, normalizePath } from 'vite'
 import { describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
-import { getCurrentScope } from '../../src/core/context'
-import { applicationLifecycles } from '../../src/core/lifecycle'
+import { getCurrentScope } from '../../src/app/context'
+import { applicationLifecycles } from '../../src/app/lifecycle'
+import { defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { defineApp, route } from '../../src/entries/server'
 import { sark } from '../../src/entries/vite'
 import { parseApiFilePath } from '../../src/http/path'
 import { createDevHandoff } from '../helpers/dev-handoff'
@@ -22,7 +22,7 @@ it.each([false, 'app'] as const)(
     project.write(
       'app.ts',
       `
-import { defineApp } from '@olivaw/sark/server'
+import { defineApp } from '@olivaw/sark'
 import { defineOAuth } from '@olivaw/sark/auth/oauth'
 export const app = defineApp({ cookie: { secret: 'oauth-cookie-secret-long-enough' } })
 export const oauth = defineOAuth([{
@@ -81,11 +81,11 @@ it('serves generated routes, respects prefix boundaries and reloads imported hel
   const project = createProject()
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({ csrf: false })`,
   )
   project.write('helper.ts', "export const message = 'before'\n")
-  const routeSource = `import { route } from '@olivaw/sark/server'
+  const routeSource = `import { route } from '@olivaw/sark'
 import { message } from '../helper'
 export default route().handler(() => ({ message }))\n`
   project.write('api/hello.post.ts', routeSource)
@@ -158,7 +158,7 @@ export default { plugins: [sark()] }`,
     // Route creation/removal also changes generated imports, not just an existing route module.
     project.write(
       'api/added.get.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ added: true }))`,
     )
     const added = () => fetch(origin + '/api/added')
@@ -307,11 +307,11 @@ describe('development instance handoff coordinator', () => {
     await once(upstream, 'listening')
     project.write(
       'app.ts',
-      "import { defineApp } from '@olivaw/sark/server'; export const app = defineApp()",
+      "import { defineApp } from '@olivaw/sark'; export const app = defineApp()",
     )
     project.write(
       'api/你好.ws.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ onOpen(socket) { socket.send('sark-open') } }))`,
     )
     project.write(

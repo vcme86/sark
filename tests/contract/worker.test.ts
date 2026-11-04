@@ -2,13 +2,13 @@ import { configureSync, getConfig, type LogRecord, resetSync } from '@logtape/lo
 import { expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { getCurrentScope } from '../../src/core/context'
+import { getCurrentScope } from '../../src/app/context'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import { defineApp, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { defineApp, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
 
-it('shares resolved static configuration between assets and API requests per Worker handler', async () => {
+it('shares resolved static configuration across API requests per Worker handler', async () => {
   let reads = 0
   const definition = createDefinition({
     app: defineApp({
@@ -17,7 +17,6 @@ it('shares resolved static configuration between assets and API requests per Wor
         return { 'X-Application': 'shared' }
       },
     }),
-    assets: { base: '/assets/', files: { 'main.js': { path: 'main.js', hashed: true } } },
     routes: [
       {
         routePath: parseApiFilePath('ping.get.ts', '/api')!,
@@ -25,20 +24,19 @@ it('shares resolved static configuration between assets and API requests per Wor
       },
     ],
   })
-  const env = { ASSETS: { fetch: async () => new Response('asset') } }
+  const env = {}
   const context = { waitUntil: vi.fn(), passThroughOnException: vi.fn() }
   const handler = createWorkerHandler(definition)
   expect(reads).toBe(0)
-  const asset = await handler.fetch(new Request('https://worker.test/assets/main.js'), env, context)
-  expect(await asset.text()).toBe('asset')
-  expect(asset.headers.get('X-Application')).toBe('shared')
+  const first = await handler.fetch(new Request('https://worker.test/api/ping'), env, context)
+  expect(await first.json()).toEqual({ ok: true })
+  expect(first.headers.get('X-Application')).toBe('shared')
   const initial = reads
   expect(initial).toBeGreaterThan(0)
-  for (const path of ['/api/ping', '/assets/main.js', '/api/ping']) {
+  for (const path of ['/api/ping', '/api/ping']) {
     const response = await handler.fetch(new Request('https://worker.test' + path), env, context)
     expect(response.headers.get('X-Application')).toBe('shared')
-    if (path === '/api/ping') expect(await response.json()).toEqual({ ok: true })
-    else expect(await response.text()).toBe('asset')
+    expect(await response.json()).toEqual({ ok: true })
     expect(reads).toBe(initial)
   }
   const independent = createWorkerHandler(definition)
@@ -120,7 +118,6 @@ it('keeps request metadata and reports configuration failures before routing', a
         if (!env.SECRET) throw failure
         return {}
       }),
-      assets: { base: '/assets/', files: { 'main.js': { path: 'main.js', hashed: true } } },
       routes: [
         {
           routePath: parseApiFilePath('ping.get.ts', '/api')!,
@@ -141,12 +138,10 @@ it('keeps request metadata and reports configuration failures before routing', a
     ],
   })
   try {
-    const env = { SECRET: undefined, ASSETS: { fetch: async () => new Response('asset') } }
+    const env = { SECRET: undefined }
     for (const [path, method] of [
       ['/api/ping', 'GET'],
       ['/api/ping', 'HEAD'],
-      ['/assets/main.js', 'GET'],
-      ['/assets/main.js', 'HEAD'],
     ]) {
       const rejected = await handler.fetch(
         new Request('https://worker.example.com' + path, {
@@ -162,10 +157,10 @@ it('keeps request metadata and reports configuration failures before routing', a
       if (method === 'HEAD') expect(await rejected.text()).toBe('')
       else expect((await rejected.json()).error.code).toBe('internal_server_error')
     }
-    expect(records).toHaveLength(4)
+    expect(records).toHaveLength(2)
     for (const record of records) {
       expect(record.properties.requestId).toBe('configuration-failure')
-      expect(record.properties.args).toEqual([{ error: failure }])
+      expect(record.properties.error).toBe(failure)
     }
 
     const recovered = await handler.fetch(

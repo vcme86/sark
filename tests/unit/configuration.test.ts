@@ -3,9 +3,8 @@ import { resolve } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { defineNodeRuntime, resolveNodeRuntime } from '../../src/adapter/node/runtime'
-import type { AppConfig } from '../../src/core/config'
-import { resolveHttpConfig } from '../../src/http/config'
-import { computeEffectivePolicy } from '../../src/http/server/policy'
+import { type AppConfig, resolveHttpConfig } from '../../src/app/config'
+import { computeEffectivePolicy } from '../../src/app/http/policy'
 import { createPageConfigResolver, definePage, resolvePageConfig } from '../../src/page/config'
 import { resolvePluginOptions, resolveProjectConfig } from '../../src/tooling/config'
 afterEach(() => vi.unstubAllEnvs())

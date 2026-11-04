@@ -80,7 +80,7 @@ export default createMiddleware(async (c, next) => {
 
       writeFileSync(
         join(apiDir, 'users/get.ts'),
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ users: [] }))
 `,
       )

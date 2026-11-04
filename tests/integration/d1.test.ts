@@ -10,7 +10,7 @@ describe('Database & Resource Assembly Contract', () => {
 
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/d1'
 import type { D1Database } from '@cloudflare/workers-types'
 
@@ -22,7 +22,7 @@ export const database = defineDatabase((env: { DB: D1Database }) => ({
 
       project.write(
         'api/d1-batch.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core'
 import { eq } from 'drizzle-orm'
 
@@ -96,7 +96,7 @@ export default {
       )
       project.write(
         'api/event.post.ts',
-        `import {route} from '@olivaw/sark/server'
+        `import {route} from '@olivaw/sark'
 export default route().handler(async c => {
   const db = c.var.db
   const label = new URL(c.req.url).searchParams.get('label')
@@ -108,7 +108,7 @@ export default route().handler(async c => {
       )
       project.write(
         'api/event.get.ts',
-        `import {route} from '@olivaw/sark/server'
+        `import {route} from '@olivaw/sark'
 export default route().handler(async c => {
   const result = await c.var.db.$client.prepare('SELECT label FROM events ORDER BY label').all()
   return result.results.map(row => row.label)

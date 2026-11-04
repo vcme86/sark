@@ -1,9 +1,9 @@
 import type { R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 
-import { definePresign } from '../../src/services/storage/presign'
-import { defineStorage as defineR2Storage } from '../../src/services/storage/r2'
-import { StorageError } from '../../src/services/storage/types'
+import { definePresign } from '../../src/features/storage/presign'
+import { defineStorage as defineR2Storage } from '../../src/features/storage/r2'
+import { StorageError } from '../../src/features/storage/types'
 
 describe('Cloudflare R2 Presign & Validation Contract', () => {
   it('throws StorageError on missing R2Bucket binding', async () => {

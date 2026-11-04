@@ -2,7 +2,7 @@
 
 ## 请求上下文与中间件
 
-server 导出的 Context 是带本应用资源和请求服务类型的 Hono Context，MiddlewareHandler 使用同一环境类型。应用、目录及路由中间件与处理器采用一致的上下文，不因省略 Hono 泛型而接受任意服务属性。
+包根导出的 Context 是带本应用资源和请求服务类型的 Hono Context，MiddlewareHandler 使用同一环境类型。应用、目录及路由中间件与处理器采用一致的上下文，不因省略 Hono 泛型而接受任意服务属性。
 
 独立中间件可使用 `const middleware: MiddlewareHandler = async (ctx, next) => { ... }`；目录文件可导入该类型约束默认导出。未声明的能力在类型和运行时均不存在，不为类型检查创建占位服务。绑定顺序及 CORS 回调的可用上下文见 [application.md](application.md)。
 
@@ -40,12 +40,14 @@ trailingSlash 默认 never：GET/HEAD 把 /a/ 以 308 转到 /a。always 相反�
 
 caseSensitive 默认 false，控制请求匹配；声明阶段始终拒绝同方法下仅大小写不同的重复路径。静态段大小写按共同规范处理；GET/HEAD 可 308，其他方法直接匹配，动态参数值不改写。WS 不重定向，仍按相同路径规则匹配。
 
+GET/HEAD 的 pathname 含连续字面斜线时，仅在原路径没有命中 API/SSE/WS，且合并斜线后的候选由页面胜出时，结合大小写和尾斜线规则返回一次 308。候选查询复用 Hono 方法索引及优先级；不预先解码 `%2F` 后合并，也不把 API 或写请求改投页面。构建公开文件由宿主优先交付；运行目录仍在文件路由之后，没有页面候选时保持原请求。
+
 匹配使用规范化后的路径，不改动原始 Request.url。服务端、作用域、页面导航、链接和缓存使用相同规则；ignore 时保留的不同 URL 快照不合并为同一个缓存产物。
 
 ## 声明与输入
 
 ```ts
-import { route, z } from '@olivaw/sark/server'
+import { route, z } from '@olivaw/sark'
 
 export default route({ bodyLimit: 512 * 1024 })
   .validate({ params: z.object({ id: z.string() }), json: BodySchema })
@@ -130,13 +132,13 @@ HTTP 错误不自动变成页面 redirect/notFound；应用决定后续交互。
 ## 客户端与类型来源
 
 ```ts
-import { createClient } from '@olivaw/sark/http'
+import { createClient } from '@olivaw/sark/client'
 
 const client = createClient()
 const other = createClient<OtherApi>({ baseUrl: 'https://api.example.com/v1/api' })
 ```
 
-页面工程使用生成的 Register.api；独立使用或访问另一服务显式传 Api。client 页面入口聚合同一实现。baseUrl 默认 /api，框架绑定的 Loader/useClient 使用实际 apiPrefix 或页面远端配置。
+页面工程使用生成的 Register.api；独立使用或访问另一服务显式传 Api。page 的 useClient 与 Loader 复用同一客户端实现及类型注册。baseUrl 默认 /api，框架绑定的 Loader/useClient 使用实际 apiPrefix 或页面远端配置。
 
 客户端构造入口按 [configuration.md](configuration.md) 解析实例默认值，发送逻辑只应用单次调用覆盖。
 
@@ -186,7 +188,7 @@ form 为含 Blob/File 的对象时编码 multipart，纯文本对象编码 urlen
 
 ## 中间件与 Cookie
 
-`cors(options)`、`csrf(options?)`、`compress(options?)` 从 middleware 导入，返回 Hono MiddlewareHandler；`rateLimit(options): MiddlewareHandler` 从 middleware/rate-limit 导入，完整选项与独立声明的区别见 [rate-limit.md](rate-limit.md)。CORS 选项沿上游，必须明确 origin。CSRF 与压缩接入遵循下列约定。
+`cors(options)`、`csrf(options?)`、`compress(options?)` 从 middleware 导入，返回 Hono MiddlewareHandler；`rateLimit(options): MiddlewareHandler` 从 middleware 导入，完整选项与独立声明的区别见 [rate-limit.md](rate-limit.md)。CORS 选项沿上游，必须明确 origin。CSRF 与压缩接入遵循下列约定。
 
 CORS 负责跨域响应，CSRF 负责适用的浏览器请求防护，授权由应用执行。Bearer 豁免依据是已通过 Bearer 认证，不是头存在。OAuth 回调的局部协议例外不扩展到业务表单。
 
@@ -216,13 +218,13 @@ SSE 不新增框架层 Vary: Accept-Encoding，其他层已有 Vary 保留。普
 
 ### 请求绑定 Cookie 助手
 
-server 提供 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie，调用形态沿 Hono helper；写/删操作合并本应用通用默认属性，签名函数使用显式配置的 cookie.secret。签名读取区分值、缺失和无效签名，保持异步。不自写 Cookie 编码或 HMAC。
+包根提供 getCookie、setCookie、deleteCookie、getSignedCookie、setSignedCookie，调用形态沿 Hono helper；写/删操作合并本应用通用默认属性，签名函数使用显式配置的 cookie.secret。签名读取区分值、缺失和无效签名，保持异步。不自写 Cookie 编码或 HMAC。
 
 删除时调用方提供与签发一致的 Path/Domain，框架不能从请求头推断历史属性。JWT、OAuth、visitors 各自使用专用规则；不通过扫描 Set-Cookie 强行改写。
 
 ### 不依赖请求上下文的 Cookie 工具
 
-`@olivaw/sark/utils` 直接聚合 Hono 纯函数，确切导出为：
+`@olivaw/sark/client` 直接聚合 Hono 纯函数，确切导出为：
 
 ```ts
 export {
@@ -242,7 +244,7 @@ export type { Cookie, SignedCookie, CookieOptions, CookieConstraint } from 'hono
 
 cookie/name/value 为字符串；签名函数的 secret 显式接受 string 或 BufferSource，options 沿上游 CookieOptions（包括 maxAge 的秒单位）及适用的 CookieConstraint。默认值、编码和异常保持上游契约，不自写 Cookie 语法或 HMAC。[Hono Cookie 工具](https://github.com/honojs/hono/blob/main/src/utils/cookie.ts)
 
-这些函数不读取应用配置、密钥或当前请求，不写响应，也不解析 Set-Cookie 响应头。调用方需要属性时显式提供 options；应用默认 Cookie 属性由 server 的请求绑定助手处理。
+这些函数不读取应用配置、密钥或当前请求，不写响应，也不解析 Set-Cookie 响应头。调用方需要属性时显式提供 options；应用默认 Cookie 属性由包根的请求绑定助手处理。
 
 ## SSE 声明与服务端
 
@@ -275,7 +277,9 @@ client.sse(path, options?) 只接受 SSE 路径，query/params 必填性按 endp
 
 返回 SseConnection，提供 `on(event, handler): unsubscribe`、`onError(handler): unsubscribe`、close。事件名 error 与连接错误通道分开。初次 HTTP 非 2xx 通过 onError 报告 HttpError；已建连接的错误也交给句柄，不伪装成普通请求 Promise。
 
-底层复用 createClient 相同的已解析 baseUrl、credentials、headers 工厂与 customFetch。严格匹配 text/event-stream 媒体类型并仅接受 200 响应，204 停止重连。解析器在事件块结束（空行）时提交 Last-Event-ID，未完成块不污染重连 ID；客户端调用 close 立即停止当前 chunk 后续事件派发并释放底层流资源。重连遵循 retry、Last-Event-ID；每次重连取得当前凭据，取消沿 init.signal，close 后停止重连。只有 id 的完整事件块也更新重连 ID；retry: 0 合法，表示下次重连不额外等待服务器指定的间隔。
+底层复用 createClient 相同的已解析 baseUrl、credentials、headers 工厂与 customFetch。严格匹配 text/event-stream 媒体类型并仅接受 200 响应，204 停止重连。解析器在事件块结束（空行）时提交 Last-Event-ID，未完成块不污染重连 ID；客户端调用 close 立即停止当前 chunk 后续事件派发并释放底层流资源。重连遵循 retry、Last-Event-ID；每次重连取得当前凭据，取消沿 init.signal，close 后停止重连。固定 URL、调用选项和 credentials 每次订阅准备一次，每次连接重新取得动态头并创建 Headers 与 Request。解析按新分片单次扫描、仅在行结束时拼接，避免长行重复扫描。头工厂临时失败沿现有错误通知和重连流程处理。事件回调异常向 error 监听器报告；error 监听器自身失败写入控制台，不递归派发或触发网络重连。
+
+只有 id 的完整事件块也更新重连 ID；retry: 0 合法，表示下次重连不额外等待服务器指定的间隔。
 
 订阅在 Effect 或明确业务生命周期中建立并清理，不在 React render 或 SSR Loader 自动订阅。框架不把 SSE 事件接成页面导航或业务状态。
 

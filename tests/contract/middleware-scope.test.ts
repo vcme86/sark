@@ -1,7 +1,8 @@
 import type { Context, Next } from 'hono'
 import { expect, it } from 'vitest'
 
-import { createDefinition } from '../../src/entries/runtime/core'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { RouteScope } from '../../src/app/http/types'
 import {
   type AppConfig,
   type AppInstance,
@@ -9,10 +10,9 @@ import {
   defineApp,
   route,
   z,
-} from '../../src/entries/server'
+} from '../../src/entries/root'
+import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import type { RouteScope } from '../../src/http/types'
 
 async function withApp(
   config: AppConfig,

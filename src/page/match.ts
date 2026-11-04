@@ -22,7 +22,12 @@ export function matchPattern(
   caseSensitive = true,
 ): Record<string, string | string[]> | null {
   if (pattern === pathname && paramNames.length === 0) return {}
-  return matchSegments(pattern, pathname.split('/').filter(Boolean), paramNames, caseSensitive)
+  return matchSegments(pattern, splitPath(pathname), paramNames, caseSensitive)
+}
+
+function splitPath(pathname: string): string[] {
+  const path = pathname.replace(/^\//, '').replace(/\/$/, '')
+  return path ? path.split('/') : []
 }
 
 /** Path metadata shared by server and browser route matching. */
@@ -51,7 +56,7 @@ export function matchClientRoute<T extends MatchableRoute>(
     }
     const params = matchSegments(
       route.pattern,
-      (pathSegments ??= pathname.split('/').filter(Boolean)),
+      (pathSegments ??= splitPath(pathname)),
       route.paramNames,
       caseSensitive,
     )
@@ -66,7 +71,7 @@ function matchSegments(
   paramNames: readonly string[],
   caseSensitive: boolean,
 ): Record<string, string | string[]> | null {
-  const patternSegments = pattern.split('/').filter(Boolean)
+  const patternSegments = splitPath(pattern)
 
   const hasWildcard = patternSegments[patternSegments.length - 1] === '*'
   if (!hasWildcard && patternSegments.length !== pathSegments.length) {
@@ -93,7 +98,7 @@ function matchSegments(
     if (pat.startsWith(':')) {
       const paramName = pat.slice(1)
       const val = pathSegments[i]
-      if (val === undefined) return null
+      if (!val) return null
       try {
         params[paramName] = decodeURIComponent(val)
       } catch {

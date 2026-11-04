@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest'
 
-import { resolveHttpConfig } from '../../src/http/config'
-import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
-import { defineOAuth } from '../../src/services/auth/oauth/config'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import { defineAuth } from '../../src/services/auth/session/config'
+import { resolveHttpConfig } from '../../src/app/config'
+import { createOAuthAssembly } from '../../src/features/auth/oauth/assembly'
+import { defineOAuth } from '../../src/features/auth/oauth/config'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
+import { defineAuth } from '../../src/features/auth/session/config'
 
 it('resolves static session settings once per runtime, after host configuration is available', async () => {
   let reads = 0

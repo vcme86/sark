@@ -27,14 +27,14 @@ it('generates from the resolved Vite root and Sark options without executing the
     mkdirSync(join(appRoot, 'handlers'), { recursive: true })
     writeFileSync(
       join(appRoot, 'definition.ts'),
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 export const app = defineApp((_env: NodeJS.ProcessEnv) => {
   throw new Error('Generation must not evaluate the application factory')
 })`,
     )
     writeFileSync(
       join(appRoot, 'handlers/books.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => ['book'])",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => ['book'])",
     )
     const reads = join(root, 'config-reads.txt')
     writeFileSync(
@@ -62,7 +62,7 @@ export default defineConfig(async ({ command, mode }) => {
     expect(definition).toContain('"urlPath":"/service/v3/books"')
     expect(definition).toContain('"/books": {')
     expect(readFileSync(join(appRoot, '.build/start.ts'), 'utf8')).toContain(
-      'await startNodeServer(instance, runtime, process.env, { rootDir:',
+      'await listenNodeServer(instance, host, { rootDir:',
     )
     expect(readFileSync(reads, 'utf8')).toBe('build:production\n')
     expect(existsSync(join(root, '.build'))).toBe(false)
@@ -75,7 +75,7 @@ it('honors apiDir: false instead of scanning the default API directory', () => {
     mkdirSync(join(root, 'api'))
     writeFileSync(
       join(root, 'api/private.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'private')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'private')",
     )
     writeFileSync(
       join(root, 'vite.config.mts'),
@@ -97,11 +97,11 @@ it.each([false, true])('uses shared defaults without a Sark plugin (Vite config=
     mkdirSync(join(appRoot, 'api'), { recursive: true })
     writeFileSync(
       join(appRoot, 'app.ts'),
-      "import { defineApp } from '@olivaw/sark/server'; export const app = defineApp({})",
+      "import { defineApp } from '@olivaw/sark'; export const app = defineApp({})",
     )
     writeFileSync(
       join(appRoot, 'api/ping.get.ts'),
-      "import { route } from '@olivaw/sark/server'; export default route().handler(() => 'pong')",
+      "import { route } from '@olivaw/sark'; export default route().handler(() => 'pong')",
     )
     if (config) {
       writeFileSync(
@@ -148,12 +148,12 @@ it('builds and starts a production application with custom entry, route and outp
   const project = createProject()
   project.write(
     'site.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({ headers: { 'X-Mode': process.env.NODE_ENV! } })`,
   )
   project.write(
     'handlers/hello.get.ts',
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ custom: 'route' }))`,
   )
   project.write(
@@ -227,7 +227,7 @@ it('builds fullstack pages retaining dist/manifest.json alongside dist/server.mj
   const project = createProject()
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({})`,
   )
   project.write(
@@ -285,7 +285,7 @@ it('preserves existing files in outDir when outDir is outside project root and e
 
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp({})`,
   )
   project.write(

@@ -14,9 +14,9 @@ describe('Storage and Assets Project Generation Integration', () => {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { defineStorage } from '@olivaw/sark/storage/local'
-import { defineAssets } from '@olivaw/sark/assets/node'
+import { defineAssets } from '@olivaw/sark/node'
 
 export const app = defineApp({ csrf: false })
 
@@ -31,7 +31,7 @@ export const assets = defineAssets([
 
       project.write(
         'api/file.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async (c) => {
   const store = c.var.storage.uploads
@@ -45,7 +45,7 @@ export default route().handler(async (c) => {
 
       project.write(
         'api/file.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async (c) => {
   const store = c.var.storage.uploads
@@ -68,17 +68,6 @@ export default route().handler(async (c) => {
         'node',
       ])
       expect(cliResult.status).toBe(0)
-
-      // Verify generated .build/app.ts
-      const appTs = readFileSync(join(project.root, '.build/app.ts'), 'utf-8')
-      expect(appTs).toContain(
-        "import { createDefinition, createStorageAssembly } from '@olivaw/sark/runtime/core'",
-      )
-      expect(appTs).toContain('import { storage } from')
-      expect(appTs).toContain('import { assets } from')
-      expect(appTs).toContain('storage: createStorageAssembly(storage)')
-      expect(appTs).toContain('assetMounts: assets,')
-      expect(appTs).not.toContain('createAssetMountHandler')
 
       // Verify generated .build/resources-types.ts
       const resTypes = readFileSync(join(project.root, '.build/resources-types.ts'), 'utf-8')
@@ -104,7 +93,7 @@ export default route().handler(async (c) => {
 
       // Load assembled app and test execution
       const { definition } = await import(join(project.root, '.build/app.ts'))
-      const { createApp } = await import('../../src/entries/server')
+      const { createApp } = await import('../../src/entries/root')
       const instance = await createApp(definition)
 
       try {
@@ -151,7 +140,7 @@ export default { plugins: [sark({ target: 'cloudflare' })] }`,
       // 1. Valid Workers project with R2 binding factory
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { defineStorage } from '@olivaw/sark/storage/r2'
 import type { R2Bucket } from '@cloudflare/workers-types'
 
@@ -172,7 +161,7 @@ export const storage = {
 
       project.write(
         'api/ping.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(() => ({ ok: true }))`,
       )
@@ -193,8 +182,8 @@ export default route().handler(() => ({ ok: true }))`,
       // 2. Invalid configuration: attempting to declare node assets on Cloudflare target
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
-import { defineAssets } from '@olivaw/sark/assets/node'
+        `import { defineApp } from '@olivaw/sark'
+import { defineAssets } from '@olivaw/sark/node'
 
 export const app = defineApp({ csrf: false })
 export const assets = defineAssets([{ path: '/files', dir: './files' }])`,

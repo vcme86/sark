@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { type Connect, type Plugin, resolveConfig, type ViteDevServer } from 'vite'
 
 import type { NodeRuntimeDeclaration } from '../../src/adapter/node/runtime'
-import type { AppDefinition } from '../../src/core/definition'
+import type { AppDefinition } from '../../src/app/definition'
 import { serverUrl } from './project'
 
 /**

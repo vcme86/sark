@@ -4,10 +4,10 @@
  * @module
  */
 
-export { defineOAuth } from '../../services/auth/oauth/config'
+export { defineOAuth } from '../../features/auth/oauth/config'
 export type {
   OAuthDeclaration,
   OAuthProviderConfig,
   OAuthProviderKind,
-} from '../../services/auth/oauth/types'
-export type { OAuthTokens, UserProfile } from '../../services/auth/contracts'
+} from '../../features/auth/oauth/types'
+export type { OAuthTokens, UserProfile } from '../../features/auth/contracts'

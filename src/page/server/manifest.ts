@@ -14,7 +14,10 @@ export interface ClientAssetManifest {
  * @param pattern - Matched route pattern, or the generated root 404 key.
  * @returns The entry modules, this route's stylesheets, and all browser route styles.
  */
-export function resolveClientAssets(assets: BuildAssets, pattern: string): ClientAssetManifest {
+export function resolveClientAssets(
+  assets: Pick<BuildAssets, 'entry' | 'styles'>,
+  pattern: string,
+): ClientAssetManifest {
   return {
     bootstrapModules: assets.entry ? [assets.entry] : [],
     stylesheets: assets.styles[pattern] ?? [],

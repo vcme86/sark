@@ -1,8 +1,8 @@
+import { createApp, defineApp, route, z } from '@olivaw/sark'
 import { compress } from '@olivaw/sark/middleware'
+import { defineNodeRuntime } from '@olivaw/sark/node'
 import { createDefinition } from '@olivaw/sark/runtime/core'
 import { startNodeServer } from '@olivaw/sark/runtime/node'
-import { createApp, defineApp, route, z } from '@olivaw/sark/server'
-import { defineNodeRuntime } from '@olivaw/sark/server/node'
 import { describe, expect, it } from 'vitest'
 
 import { parseApiFilePath } from '../../src/http/path'

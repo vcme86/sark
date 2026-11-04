@@ -5,6 +5,21 @@ export interface StaticAssets {
   readonly files: Readonly<Record<string, { readonly path: string; readonly hashed: boolean }>>
 }
 
+/** Finds an exact build-owned URL without opening a file or decoding the same path twice. */
+export function findStaticAsset(
+  assets: StaticAssets,
+  pathname: string,
+): StaticAssets['files'][string] | undefined {
+  const base = new URL(assets.base, 'http://assets.local/').pathname
+  if (!pathname.startsWith(base)) return
+  try {
+    const key = decodeURIComponent(pathname.slice(base.length))
+    if (Object.hasOwn(assets.files, key)) return assets.files[key]
+  } catch {
+    // Invalid URL encoding cannot identify a build resource.
+  }
+}
+
 /**
  * Encodes each resource path segment so filename punctuation does not become URL syntax.
  *

@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest'
 
-import { applicationLifecycles } from '../../src/core/lifecycle'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import { applicationLifecycles } from '../../src/app/lifecycle'
+import { createApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, route } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteDeclaration } from '../../src/http/types'
 
 const entry = (file: string, declaration: RouteDeclaration) => ({
   routePath: parseApiFilePath(file, '/api')!,

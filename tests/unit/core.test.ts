@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest'
 
 import { defineNodeRuntime, resolveNodeRuntime } from '../../src/adapter/node/runtime'
-import { route, z } from '../../src/entries/server'
+import { acceptsJson } from '../../src/app/http/output'
+import { route, z } from '../../src/entries/root'
 import { parseApiFilePath } from '../../src/http/path'
-import { acceptsJson } from '../../src/http/server/output'
 it('parses standard API file paths correctly', () => {
   const route1 = parseApiFilePath('users.[id].get.ts', '/api')
   expect(route1).not.toBeNull()

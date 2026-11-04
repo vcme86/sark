@@ -1,5 +1,5 @@
 /** Project discovery and generation shared by the CLI and Vite plugin. */
-import { BuildEnvironment, createIdResolver, loadEnv, type ResolvedConfig } from 'vite'
+import { BuildEnvironment, createIdResolver, type ResolvedConfig } from 'vite'
 
 import {
   type PluginOptions,
@@ -12,7 +12,6 @@ import { discoverAppEntry, discoverDatabaseDriver, type DiscoveredAppExports } f
 import { type DiscoveredPageTree, discoverPages } from './discover/pages'
 import { discoverApiRoutes } from './discover/routes'
 import { generateBuildArtifacts } from './generate'
-import { resolveEffectiveWranglerTriggers } from './wrangler'
 
 /**
  * Runs discovery and code generation for the Vite plugin and CLI.
@@ -44,18 +43,7 @@ export async function generateConfiguredProject(
       resolveId(environment, id, importer),
     )
   }
-  // Match the official plugin: Cloudflare environment files are loaded from project root.
-  const env =
-    project.target === 'cloudflare' ? loadEnv(config.mode, config.root, ['CLOUDFLARE_']) : undefined
-  const triggers =
-    project.target === 'cloudflare'
-      ? resolveEffectiveWranglerTriggers(
-          config.root,
-          env?.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH,
-          env?.CLOUDFLARE_ENV,
-        )
-      : undefined
-  return generateResolvedProject(project, config.base, appExports, { triggers })
+  return generateResolvedProject(project, config.base, appExports)
 }
 
 /**
@@ -70,20 +58,10 @@ export function generateResolvedProject(
   config: ResolvedProjectConfig,
   base?: string,
   appExports = discoverAppEntry(config.appEntryPath),
-  platform?: {
-    readonly bootstrap?: boolean
-    readonly triggers?: { readonly crons?: readonly string[] }
-  },
 ): DiscoveredPageTree | undefined {
   const routes = config.apiDir === false ? [] : discoverApiRoutes(config.apiDir, config.apiPrefix)
   const pages = config.webDir === false ? undefined : discoverPages(config.webDir, config.webPrefix)
   generateBuildArtifacts({
-    validateJobs: !platform?.bootstrap,
-    triggers: platform
-      ? platform.triggers
-      : config.target === 'cloudflare'
-        ? resolveEffectiveWranglerTriggers(config.root)
-        : undefined,
     generatedDir: config.generatedDir,
     appEntryPath: config.appEntryPath,
     appExports,

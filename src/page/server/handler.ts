@@ -1,6 +1,6 @@
-import { getLogger } from '../../core/logging'
-import type { PageRequestHandler } from '../../http/server/types'
-import type { RequestVisitorState } from '../../services/visitors/request'
+import type { PageRequestHandler } from '../../app/http/assembly'
+import { getLogger } from '../../app/logging'
+import type { RequestVisitorState } from '../../features/visitors/request'
 import { toPageError } from '../errors'
 import { matchPattern } from '../match'
 import { notFound } from '../signals'
@@ -19,14 +19,14 @@ type PageAssetProvider = () => ClientAssetManifest | Promise<ClientAssetManifest
  *
  * @param route - Matched page and its ordered layout/loader/error scopes.
  * @param assets - Resolves this route's current development or production browser resources.
- * @returns A page terminal accepting the current request scope and internal API client.
+ * @returns A page terminal creating its API client from the current request scope.
  */
 export function createPageHandler(
   route: ServerPageRoute,
   assets: PageAssetProvider,
 ): PageRequestHandler {
   const cache = resolvePageCache(route.scopes)
-  return async (ctx, localClient, scope, production) => {
+  return async (ctx, scope, production) => {
     try {
       const params = matchPattern(
         route.pattern,
@@ -36,7 +36,7 @@ export function createPageHandler(
       )
       if (params === null) throw new Error(`Page handler did not match its route: ${route.pattern}`)
       const config = getResolvedPageConfig(scope)
-      const client = createPageClient(ctx, localClient, config, scope)
+      const client = createPageClient(ctx, config, scope)
       const identity: IdentitySnapshot = config.identity
         ? await config.identity({ client, signal: scope.signal })
         : defaultIdentity(ctx, config.api.serverUrl === undefined)

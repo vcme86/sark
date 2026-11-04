@@ -1,18 +1,6 @@
-export { defineMfa } from '../../services/auth/mfa/declaration'
-export type { MfaDeclaration } from '../../services/auth/mfa/declaration'
-export { AuthError } from '../../services/auth/error'
-export type { AuthErrorCode } from '../../services/auth/error'
-export type { MemoryAuthStateConfig } from '../../services/auth/state/memory'
-export { memoryState } from '../../services/auth/state/memory'
-export type {
-  AuthAttemptLimit,
-  AuthFlow,
-  AuthFlowPurpose,
-  AuthFlowStatus,
-  AuthStateStore,
-  AuthStateStoreDeclaration,
-  ClaimResult,
-} from '../../services/auth/state/types'
+export { defineMfa } from '../../features/auth/mfa/declaration'
+export type { MfaDeclaration } from '../../features/auth/mfa/declaration'
+
 export type {
   SignInPolicy,
   SignInPolicyResolver,
@@ -22,11 +10,30 @@ export type {
   MfaConfig,
   MfaRecoveryConfig,
   RequestMfa,
-} from '../../services/auth/mfa/types'
+} from '../../features/auth/mfa/types'
+
+export type { MemoryAuthStateConfig } from '../../features/auth/state/memory'
+export { memoryState } from '../../features/auth/state/memory'
+
+export type {
+  AuthAttemptLimit,
+  AuthFlow,
+  AuthFlowPurpose,
+  AuthFlowStatus,
+  AuthStateStore,
+  AuthStateStoreDeclaration,
+  ClaimResult,
+} from '../../features/auth/state/types'
+
 export type {
   RecoveryCodeSet,
   RecoveryStore,
   RecoveryStoreDeclaration,
-} from '../../services/auth/recovery/types'
-export type { StoreContext, StoreDeclaration, StoreInitResult } from '../../services/auth/store'
-export type { FactorKind, FactorProof } from '../../services/auth/factor'
+} from '../../features/auth/recovery/types'
+
+export type { StoreContext, StoreDeclaration, StoreInitResult } from '../../features/auth/store'
+
+export type { FactorKind, FactorProof } from '../../features/auth/factor'
+
+export { AuthError } from '../../features/auth/error'
+export type { AuthErrorCode } from '../../features/auth/error'

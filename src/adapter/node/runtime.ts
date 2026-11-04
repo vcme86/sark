@@ -1,13 +1,15 @@
 import { isIP } from 'node:net'
 
-import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from '../../core/declaration'
-import { DEFAULT_SHUTDOWN_BUDGET } from '../../core/lifecycle'
+import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from '../../app/declaration'
+import type { AppDefinition } from '../../app/definition'
+import { DEFAULT_SHUTDOWN_BUDGET } from '../../app/lifecycle'
 import {
   type CompressionOptions,
   resolveCompression,
   type ResolvedCompressionOptions,
-} from '../../http/compression'
-export type { CompressionOptions } from '../../http/compression'
+} from '../../middleware/compression'
+import type { PreparedHealthChecks } from './probes'
+export type { CompressionOptions } from '../../middleware/compression'
 
 /** Node runtime deployment configuration. */
 export interface NodeRuntimeConfig {
@@ -99,6 +101,29 @@ export interface ResolvedNodeRuntimeConfig {
   readonly compress: false | ResolvedCompressionOptions
   readonly shutdown: { readonly deadline: number; readonly reserve: number }
   readonly probes: false | { readonly liveness: string; readonly readiness: string }
+}
+
+/** Host settings and optional checks prepared before application resource creation. */
+export interface PreparedNodeRuntime extends ResolvedNodeRuntimeConfig {
+  readonly health?: PreparedHealthChecks
+}
+
+/**
+ * Prepares host settings before application resources open.
+ *
+ * @param definition - Generated definition carrying optional health preparation.
+ * @param declaration - Node runtime declaration, absent for default host settings.
+ * @param env - Loaded host environment supplied to runtime and health factories.
+ * @returns Settings consumed directly by the listener or development adapter.
+ * @throws If host settings are invalid or health is combined with disabled probes.
+ */
+export function prepareNodeRuntime(
+  definition: AppDefinition,
+  declaration: NodeRuntimeDeclaration | undefined,
+  env: unknown,
+): PreparedNodeRuntime {
+  const config = resolveNodeRuntime(declaration, env)
+  return { ...config, health: definition.health?.(env, config.probes !== false) }
 }
 
 /**

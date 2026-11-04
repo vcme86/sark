@@ -9,6 +9,5 @@ export {
   type AppDefinition,
   type AppDefinitionInput,
   type PageRequestHandler,
-} from '../../core/definition'
-export type { InferResource } from '../../core/resource'
-export { createStorageAssembly } from '../../services/storage/assembly'
+} from '../../app/definition'
+export type { InferResource } from '../../app/resource'

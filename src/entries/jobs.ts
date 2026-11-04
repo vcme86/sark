@@ -4,7 +4,7 @@
  * @module
  */
 
-export { defineJobs } from '../services/jobs/declaration'
+export { defineJobs } from '../features/jobs/declaration'
 export type {
   BaseJobDefinition,
   CloudflareJobDefinition,
@@ -15,4 +15,4 @@ export type {
   JobsManager,
   JobSchedule,
   NodeJobDefinition,
-} from '../services/jobs/types'
+} from '../features/jobs/types'

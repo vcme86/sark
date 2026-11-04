@@ -7,8 +7,8 @@
 import { type ComponentType, createElement, type ReactNode } from 'react'
 import { renderToReadableStream } from 'react-dom/server'
 
-import { getLogger } from '../../core/logging'
-import type { HttpClient } from '../../http/client/client'
+import { getLogger } from '../../app/logging'
+import type { HttpClient } from '../../client/client'
 import type { BootstrapData } from '../bootstrap'
 import { DefaultError, ScopedErrorBoundary } from '../components/error'
 import { DefaultRoot } from '../components/root'

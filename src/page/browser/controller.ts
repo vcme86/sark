@@ -1,4 +1,4 @@
-import type { HttpClient } from '../../http/client/client'
+import type { HttpClient } from '../../client/client'
 import { canonicalPathname, normalizeUrlPath, type UrlPolicy } from '../../http/url'
 import type { BootstrapData } from '../bootstrap'
 import { toPageError } from '../errors'
@@ -27,7 +27,7 @@ interface PageView {
   readonly scopes: Readonly<Record<string, ScopeSnapshot>>
   readonly meta: MetaDescriptor
   readonly revision: number
-  readonly retryId?: string
+  readonly resetScopes?: ReadonlySet<string>
 }
 
 /** Browser history entry selected by a native back/forward traversal. */
@@ -95,6 +95,7 @@ export class PageController {
   }
 
   getSnapshot = () => this.snapshot
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
     return () => {
@@ -102,35 +103,14 @@ export class PageController {
     }
   }
 
-  private publish(view: PageView, state: NavigationState['state']): void {
-    this.snapshot = { view, navigation: { state } }
-    for (const listener of this.listeners) listener()
-  }
-
-  private begin(state: NavigationState['state']): AbortController {
-    this.operation?.abort()
-    const operation = new AbortController()
-    this.operation = operation
-    this.publish(this.snapshot.view, state)
-    return operation
-  }
-
-  private owns(operation: AbortController): boolean {
-    return this.operation === operation && !operation.signal.aborted
-  }
-
-  private finish(operation: AbortController): void {
-    if (!this.owns(operation)) return
-    this.operation = undefined
-    if (this.snapshot.navigation.state !== 'idle') this.publish(this.snapshot.view, 'idle')
-  }
-
   registerBlocker = (id: string, handler: BlockerHandler): void => {
     this.blockers.set(id, handler)
   }
+
   unregisterBlocker = (id: string): void => {
     this.blockers.delete(id)
   }
+
   hasBlockers = (): boolean => this.blockers.size > 0
 
   /**
@@ -141,7 +121,9 @@ export class PageController {
    */
   prefetch = async (to: string): Promise<void> => {
     const destination = new URL(to, this.snapshot.view.url)
-    if (destination.origin !== this.snapshot.view.url.origin) return
+    if (destination.origin !== this.snapshot.view.url.origin || destination.pathname.includes('//'))
+      return
+    if (isHashNavigation(this.snapshot.view.url, destination)) return
     const match = matchClientRoute(this.routes, destination.pathname, this.policy.caseSensitive)
     if (match) await prepareClientRoute(match.route)
   }
@@ -160,114 +142,6 @@ export class PageController {
     this.listeners.clear()
   }
 
-  private metadata(
-    view: Omit<PageView, 'meta'>,
-    failed?: (id: string, error: unknown) => void,
-  ): MetaDescriptor {
-    const descriptors = view.route.scopes.map((scope) => {
-      const snapshot = view.scopes[scope.id]
-      if (!scope.meta || snapshot?.status !== 'success') return undefined
-      try {
-        return scope.meta({ data: snapshot.data, params: view.params, url: view.url })
-      } catch (error) {
-        if (!failed || error instanceof RedirectSignal) throw error
-        failed(scope.id, error)
-        return undefined
-      }
-    })
-    return mergeMetaDescriptors([
-      { links: this.styles[view.route.pattern]?.map((href) => ({ rel: 'stylesheet', href })) },
-      ...descriptors,
-    ])
-  }
-
-  private async read(
-    operation: AbortController,
-    route: ClientRoute,
-    url: URL,
-    params: PageView['params'],
-    reason: 'navigate' | 'action' | 'reload',
-    retryId?: string,
-  ): Promise<{ view: PageView; error?: PageError }> {
-    const current = this.snapshot.view
-    const scopes: Record<string, ScopeSnapshot> = {}
-    let firstError: PageError | undefined
-    const executed = new Set<string>()
-    const defaultShouldRevalidate =
-      reason !== 'navigate' ||
-      current.url.pathname !== url.pathname ||
-      current.url.search !== url.search
-    const results = await Promise.all(
-      route.scopes.map(async (scope) => {
-        const previous = current.scopes[scope.id]
-        const missing = !previous || previous.status === 'idle'
-        try {
-          const execute =
-            scope.loader &&
-            (retryId !== undefined
-              ? scope.id === retryId && previous?.status === 'error'
-              : missing ||
-                reason === 'reload' ||
-                (scope.shouldRevalidate
-                  ? scope.shouldRevalidate({
-                      reason,
-                      currentParams: current.params,
-                      currentUrl: current.url,
-                      nextParams: params,
-                      nextUrl: url,
-                      defaultShouldRevalidate,
-                    })
-                  : defaultShouldRevalidate))
-          if (!execute) {
-            scopes[scope.id] =
-              retryId === scope.id && !scope.loader && previous?.status === 'error'
-                ? { status: 'success' }
-                : (previous ?? { status: 'success' })
-            return
-          }
-          executed.add(scope.id)
-          const data = await scope.loader!({
-            client: this.client,
-            params,
-            url,
-            identity: current.identity,
-            signal: operation.signal,
-          })
-          scopes[scope.id] = { status: 'success', data }
-        } catch (error) {
-          if (error instanceof RedirectSignal) return error
-          const failure = toPageError(error)
-          scopes[scope.id] = { status: 'error', error: failure }
-        }
-      }),
-    )
-    operation.signal.throwIfAborted()
-    const redirect = results.find((result) => result instanceof RedirectSignal)
-    if (redirect) throw redirect
-    const view = {
-      route,
-      url,
-      params,
-      identity: current.identity,
-      scopes,
-      revision: current.revision + 1,
-      retryId,
-    }
-    // Scope-local metadata failures preserve successful outer loaders.
-    for (const scope of route.scopes) {
-      const snapshot = scopes[scope.id]
-      if (executed.has(scope.id) && snapshot?.status === 'error' && !firstError)
-        firstError = snapshot.error
-    }
-    const meta = this.metadata(view, (id, error) => {
-      const failure = toPageError(error)
-      firstError ??= failure
-      scopes[id] = { status: 'error', error: failure }
-      this.host.report(error)
-    })
-    return { view: { ...view, meta }, error: firstError }
-  }
-
   /**
    * Runs leave guards, prepares the target route, and commits only while it owns navigation.
    * Unmatched destinations use native document navigation; loader redirects replace history.
@@ -282,89 +156,15 @@ export class PageController {
     options: NavigateOptions = {},
     target?: HistoryTarget,
   ): Promise<{ committed: boolean }> => {
-    const operation = this.begin('loading')
+    const destination = new URL(to, this.snapshot.view.url)
+    const operation = this.begin(
+      isHashNavigation(this.snapshot.view.url, destination) ? 'idle' : 'loading',
+    )
     try {
-      return await this.navigateOwned(
-        operation,
-        new URL(to, this.snapshot.view.url),
-        options,
-        target,
-      )
+      return await this.navigateOwned(operation, destination, options, target)
     } finally {
       this.finish(operation)
     }
-  }
-
-  private async navigateOwned(
-    operation: AbortController,
-    destination: URL,
-    options: NavigateOptions,
-    target?: HistoryTarget,
-  ): Promise<{ committed: boolean }> {
-    try {
-      for (const blocker of this.blockers.values()) {
-        const allowed = await blocker({
-          currentUrl: this.snapshot.view.url,
-          nextUrl: destination,
-          signal: operation.signal,
-        })
-        if (!this.owns(operation) || allowed === false) {
-          if (target && this.owns(operation)) await this.host.restore(target)
-          return { committed: false }
-        }
-      }
-      const visited = new Set<string>()
-      while (this.owns(operation)) {
-        if (visited.has(destination.href)) throw new Error('Page redirect loop.')
-        visited.add(destination.href)
-        const match =
-          destination.origin === this.snapshot.view.url.origin
-            ? matchClientRoute(this.routes, destination.pathname, this.policy.caseSensitive)
-            : null
-        if (!match) {
-          this.host.hardNavigate(destination)
-          return { committed: false }
-        }
-        destination = normalizeUrlPath(
-          destination,
-          this.policy.caseSensitive
-            ? destination.pathname
-            : canonicalPathname(destination.pathname, match.route.pattern),
-          this.policy.trailingSlash,
-        )
-        try {
-          await prepareClientRoute(match.route)
-          if (!this.owns(operation)) break
-          const result = await this.read(
-            operation,
-            match.route,
-            destination,
-            match.params,
-            'navigate',
-          )
-          if (!this.owns(operation)) break
-          await this.host.commit(destination, options, target, () => this.owns(operation))
-          if (!this.owns(operation)) break
-          this.publish(result.view, 'idle')
-          return { committed: true }
-        } catch (error) {
-          if (!this.owns(operation)) break
-          if (error instanceof RedirectSignal) {
-            destination = new URL(error.url, destination)
-            options = { ...options, replace: true }
-            continue
-          }
-          // A fresh server document can recover from unavailable target chunks.
-          this.host.report(error)
-          this.host.hardNavigate(destination)
-          return { committed: false }
-        }
-      }
-    } catch (error) {
-      if (this.owns(operation)) this.host.report(error)
-    }
-    if (target && this.owns(operation)) await this.host.restore(target)
-    return { committed: false }
   }
 
   /** Reruns all current loaders, regardless of shouldRevalidate, under a new operation. */
@@ -374,35 +174,6 @@ export class PageController {
       await this.revalidate(operation, 'reload')
     } finally {
       this.finish(operation)
-    }
-  }
-
-  private async revalidate(
-    operation: AbortController,
-    reason: 'reload' | 'action',
-    retryId?: string,
-  ): Promise<PageError | undefined> {
-    const current = this.snapshot.view
-    try {
-      const result = await this.read(
-        operation,
-        current.route,
-        current.url,
-        current.params,
-        reason,
-        retryId,
-      )
-      if (!this.owns(operation)) return
-      this.publish(result.view, reason === 'action' ? 'submitting' : 'loading')
-      return result.error
-    } catch (error) {
-      if (!this.owns(operation)) return
-      if (error instanceof RedirectSignal) {
-        await this.navigateOwned(operation, new URL(error.url, current.url), { replace: true })
-        return
-      }
-      this.host.report(error)
-      return toPageError(error)
     }
   }
 
@@ -474,4 +245,262 @@ export class PageController {
       this.finish(operation)
     }
   }
+
+  private publish(view: PageView, state: NavigationState['state']): void {
+    this.snapshot = { view, navigation: { state } }
+    for (const listener of this.listeners) listener()
+  }
+
+  private begin(state: NavigationState['state']): AbortController {
+    this.operation?.abort()
+    const operation = new AbortController()
+    this.operation = operation
+    this.publish(this.snapshot.view, state)
+    return operation
+  }
+
+  private owns(operation: AbortController): boolean {
+    return this.operation === operation && !operation.signal.aborted
+  }
+
+  private finish(operation: AbortController): void {
+    if (!this.owns(operation)) return
+    this.operation = undefined
+    if (this.snapshot.navigation.state !== 'idle') this.publish(this.snapshot.view, 'idle')
+  }
+
+  private async navigateOwned(
+    operation: AbortController,
+    destination: URL,
+    options: NavigateOptions,
+    target?: HistoryTarget,
+  ): Promise<{ committed: boolean }> {
+    try {
+      for (const blocker of this.blockers.values()) {
+        const allowed = await blocker({
+          currentUrl: this.snapshot.view.url,
+          nextUrl: destination,
+          signal: operation.signal,
+        })
+        if (!this.owns(operation) || allowed === false) {
+          if (target && this.owns(operation)) await this.host.restore(target)
+          return { committed: false }
+        }
+      }
+      const visited = new Set<string>()
+      while (this.owns(operation)) {
+        if (visited.has(destination.href)) throw new Error('Page redirect loop.')
+        visited.add(destination.href)
+        if (
+          destination.origin === this.snapshot.view.url.origin &&
+          destination.pathname.includes('//')
+        ) {
+          this.host.hardNavigate(destination)
+          return { committed: false }
+        }
+        const hashOnly = isHashNavigation(this.snapshot.view.url, destination)
+        const match = hashOnly
+          ? { route: this.snapshot.view.route, params: this.snapshot.view.params }
+          : destination.origin === this.snapshot.view.url.origin
+            ? matchClientRoute(this.routes, destination.pathname, this.policy.caseSensitive)
+            : null
+        if (!match) {
+          this.host.hardNavigate(destination)
+          return { committed: false }
+        }
+        destination = normalizeUrlPath(
+          destination,
+          this.policy.caseSensitive
+            ? destination.pathname
+            : canonicalPathname(destination.pathname, match.route.pattern),
+          this.policy.trailingSlash,
+        )
+        try {
+          if (!hashOnly) {
+            if (this.snapshot.navigation.state !== 'loading')
+              this.publish(this.snapshot.view, 'loading')
+            await prepareClientRoute(match.route)
+          }
+          if (!this.owns(operation)) break
+          const result = await this.read(
+            operation,
+            match.route,
+            destination,
+            match.params,
+            'navigate',
+          )
+          if (!this.owns(operation)) break
+          await this.host.commit(destination, options, target, () => this.owns(operation))
+          if (!this.owns(operation)) break
+          this.publish(result.view, 'idle')
+          return { committed: true }
+        } catch (error) {
+          if (!this.owns(operation)) break
+          if (error instanceof RedirectSignal) {
+            destination = new URL(error.url, destination)
+            options = { ...options, replace: true }
+            continue
+          }
+          // A fresh server document can recover from unavailable target chunks.
+          this.host.report(error)
+          this.host.hardNavigate(destination)
+          return { committed: false }
+        }
+      }
+    } catch (error) {
+      if (this.owns(operation)) this.host.report(error)
+    }
+    if (target && this.owns(operation)) await this.host.restore(target)
+    return { committed: false }
+  }
+
+  private async revalidate(
+    operation: AbortController,
+    reason: 'reload' | 'action',
+    retryId?: string,
+  ): Promise<PageError | undefined> {
+    const current = this.snapshot.view
+    try {
+      const result = await this.read(
+        operation,
+        current.route,
+        current.url,
+        current.params,
+        reason,
+        retryId,
+      )
+      if (!this.owns(operation)) return
+      this.publish(result.view, reason === 'action' ? 'submitting' : 'loading')
+      return result.error
+    } catch (error) {
+      if (!this.owns(operation)) return
+      if (error instanceof RedirectSignal) {
+        await this.navigateOwned(operation, new URL(error.url, current.url), { replace: true })
+        return
+      }
+      this.host.report(error)
+      return toPageError(error)
+    }
+  }
+
+  private async read(
+    operation: AbortController,
+    route: ClientRoute,
+    url: URL,
+    params: PageView['params'],
+    reason: 'navigate' | 'action' | 'reload',
+    retryId?: string,
+  ): Promise<{ view: PageView; error?: PageError }> {
+    const current = this.snapshot.view
+    const hashOnly = reason === 'navigate' && isHashNavigation(current.url, url)
+    const scopes: Record<string, ScopeSnapshot> = {}
+    let firstError: PageError | undefined
+    const executed = new Set<string>()
+    const defaultShouldRevalidate =
+      reason !== 'navigate' ||
+      current.url.pathname !== url.pathname ||
+      current.url.search !== url.search
+    const results = await Promise.all(
+      route.scopes.map(async (scope) => {
+        const previous = current.scopes[scope.id]
+        const missing = !previous || previous.status === 'idle'
+        try {
+          const execute =
+            scope.loader &&
+            (retryId !== undefined
+              ? scope.id === retryId && previous?.status === 'error'
+              : missing ||
+                reason === 'reload' ||
+                (scope.shouldRevalidate
+                  ? scope.shouldRevalidate({
+                      reason,
+                      currentParams: current.params,
+                      currentUrl: current.url,
+                      nextParams: params,
+                      nextUrl: url,
+                      defaultShouldRevalidate,
+                    })
+                  : defaultShouldRevalidate))
+          if (!execute) {
+            scopes[scope.id] =
+              retryId === scope.id && !scope.loader && previous?.status === 'error'
+                ? { status: 'success' }
+                : (previous ?? { status: 'success' })
+            return
+          }
+          executed.add(scope.id)
+          if (hashOnly && this.owns(operation) && this.snapshot.navigation.state !== 'loading') {
+            this.publish(current, 'loading')
+          }
+          const data = await scope.loader!({
+            client: this.client,
+            params,
+            url,
+            identity: current.identity,
+            signal: operation.signal,
+          })
+          scopes[scope.id] = { status: 'success', data }
+        } catch (error) {
+          if (error instanceof RedirectSignal) return error
+          const failure = toPageError(error)
+          scopes[scope.id] = { status: 'error', error: failure }
+        }
+      }),
+    )
+    operation.signal.throwIfAborted()
+    const redirect = results.find((result) => result instanceof RedirectSignal)
+    if (redirect) throw redirect
+    const view = {
+      route,
+      url,
+      params,
+      identity: current.identity,
+      scopes,
+      revision: current.revision + 1,
+      resetScopes: retryId !== undefined ? new Set([retryId]) : hashOnly ? executed : undefined,
+    }
+    // Scope-local metadata failures preserve successful outer loaders.
+    for (const scope of route.scopes) {
+      const snapshot = scopes[scope.id]
+      if (executed.has(scope.id) && snapshot?.status === 'error' && !firstError)
+        firstError = snapshot.error
+    }
+    const meta = this.metadata(view, (id, error) => {
+      const failure = toPageError(error)
+      firstError ??= failure
+      scopes[id] = { status: 'error', error: failure }
+      this.host.report(error)
+    })
+    return { view: { ...view, meta }, error: firstError }
+  }
+
+  private metadata(
+    view: Omit<PageView, 'meta'>,
+    failed?: (id: string, error: unknown) => void,
+  ): MetaDescriptor {
+    const descriptors = view.route.scopes.map((scope) => {
+      const snapshot = view.scopes[scope.id]
+      if (!scope.meta || snapshot?.status !== 'success') return undefined
+      try {
+        return scope.meta({ data: snapshot.data, params: view.params, url: view.url })
+      } catch (error) {
+        if (!failed || error instanceof RedirectSignal) throw error
+        failed(scope.id, error)
+        return undefined
+      }
+    })
+    return mergeMetaDescriptors([
+      { links: this.styles[view.route.pattern]?.map((href) => ({ rel: 'stylesheet', href })) },
+      ...descriptors,
+    ])
+  }
+}
+
+function isHashNavigation(current: URL, next: URL): boolean {
+  return (
+    current.origin === next.origin &&
+    current.pathname === next.pathname &&
+    current.search === next.search &&
+    current.hash !== next.hash
+  )
 }

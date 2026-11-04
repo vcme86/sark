@@ -17,8 +17,8 @@ for (const target of ['node', 'cloudflare'] as const) {
     project.write(
       'app.ts',
       `import './mock-idp'
-import { defineApp } from '@olivaw/sark/server'
-import { defineAuth } from '@olivaw/sark/auth/session'
+import { defineApp } from '@olivaw/sark'
+import { defineAuth } from '@olivaw/sark/auth'
 import { defineOAuth } from '@olivaw/sark/auth/oauth'
 export const app = defineApp({ csrf: false, cookie: { secret: 'oauth-cookie-secret-with-enough-length' } })
 export const auth = defineAuth({ secret: '${secret}', cookie: { secure: false }, expiresIn: 60000 })
@@ -67,18 +67,18 @@ export function authorize(input) { const url = new URL(input); nonce = url.searc
     )
     project.write(
       'api/authorize.post.ts',
-      `import { route, z } from '@olivaw/sark/server'
+      `import { route, z } from '@olivaw/sark'
 import { authorize } from '../mock-idp'
 export default route().validate({ text: z.string() }).handler((_ctx, input) => { authorize(input.text); return null })`,
     )
     project.write(
       'api/me.get.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(ctx => ({ sub: ctx.var.auth.identity?.sub ?? null }))`,
     )
     project.write(
       'api/signout.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(async ctx => { await ctx.var.auth.signOut(); return null })`,
     )
     project.write(

@@ -31,9 +31,9 @@ describe('Health generated type contracts (P10)', () => {
   it('supplies declared resources to HealthCheckContext and strictly excludes HTTP services', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineDatabase } from '@olivaw/sark/db/sqlite'
-import { defineHealth } from '@olivaw/sark/health'
+import { defineHealth } from '@olivaw/sark/node'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: 'localhost' })

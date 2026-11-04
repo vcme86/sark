@@ -5,7 +5,7 @@ export {
   type LocalStorageDeclaration,
   type SaveUploadOptions,
   type SavedUploadFile,
-} from '../../services/storage/local'
+} from '../../features/storage/local'
 
 export {
   type FileBody,
@@ -18,4 +18,4 @@ export {
   StorageError,
   type StoredContent,
   type StoredFile,
-} from '../../services/storage/types'
+} from '../../features/storage/types'

@@ -1,1 +1,1 @@
-export { createMfaAssembly } from '../../services/auth/mfa/assembly'
+export { createMfaAssembly } from '../../features/auth/mfa/assembly'

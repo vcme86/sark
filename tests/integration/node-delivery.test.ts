@@ -2,10 +2,10 @@ import { once } from 'node:events'
 
 import { describe, expect, it } from 'vitest'
 
+import { defineNodeRuntime } from '../../src/entries/node'
+import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { startNodeServer } from '../../src/entries/runtime/node'
-import { createApp, defineApp, route } from '../../src/entries/server'
-import { defineNodeRuntime } from '../../src/entries/server/node'
 import { routeEntry as entry } from '../helpers/http-app'
 
 describe('node delivery', () => {

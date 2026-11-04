@@ -16,7 +16,7 @@ it('runs generated jobs, rate limiting and async event logging in workerd using 
 import type { R2Bucket } from '@cloudflare/workers-types'
 import { defineJobs } from '@olivaw/sark/jobs'
 import { defineLogging } from '@olivaw/sark/logging'
-import { defineRateLimit } from '@olivaw/sark/middleware/rate-limit'
+import { defineRateLimit } from '@olivaw/sark/middleware'
 type Env = { LOGS: R2Bucket }
 export const rateLimit = defineRateLimit({ binding: 'LIMITER', key: ctx => ctx.req.url })
 export const logging = defineLogging((env: Env) => ({
@@ -44,21 +44,21 @@ export const jobs = defineJobs((env: Env) => [
     project.write(
       'api/hello.get.ts',
       `
-import { getLogger, route } from '@olivaw/sark/server'
+import { getLogger, route } from '@olivaw/sark'
 export default route().handler(() => { getLogger().info('hello workerd'); return { ok: true } })
 `,
     )
     project.write(
       'api/quota.get.ts',
       `
-import { route } from '@olivaw/sark/server'
+import { route } from '@olivaw/sark'
 export default route().handler(() => ({ allowed: true }))
 `,
     )
     project.write(
       'api/logs.get.ts',
       `
-import { route } from '@olivaw/sark/server'
+import { route } from '@olivaw/sark'
 export default route().handler(async ctx => {
   const object = await ctx.env.LOGS.get(ctx.req.query('key'))
   return object ? new Response(await object.text()) : new Response(null, { status: 404 })
@@ -68,7 +68,7 @@ export default route().handler(async ctx => {
     project.write(
       'api/echo.ws.ts',
       `
-import { getLogger, route } from '@olivaw/sark/server'
+import { getLogger, route } from '@olivaw/sark'
 export default route().handler(() => ({
   onMessage(socket, data) { getLogger().info('socket work'); socket.send(data); socket.close() },
 }))

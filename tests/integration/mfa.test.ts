@@ -19,8 +19,8 @@ describe('MFA End-to-End Application Integration', () => {
     try {
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
-import { defineAuth } from '@olivaw/sark/auth/session'
+        `import { defineApp } from '@olivaw/sark'
+import { defineAuth } from '@olivaw/sark/auth'
 import { defineTotp } from '@olivaw/sark/auth/totp'
 import { sqlTotp } from '@olivaw/sark/auth/totp/sqlite'
 import { defineMfa } from '@olivaw/sark/auth/mfa'
@@ -51,7 +51,7 @@ export const mfa = defineMfa({
 
       project.write(
         'api/login.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   const body = await ctx.req.json()
@@ -62,7 +62,7 @@ export default route().handler(async ctx => {
 
       project.write(
         'api/mfa/complete.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   const { challenge, code } = await ctx.req.json()
@@ -76,7 +76,7 @@ export default route().handler(async ctx => {
 
       project.write(
         'api/enroll.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   if (!ctx.var.auth.identity) {
@@ -89,7 +89,7 @@ export default route().handler(async ctx => {
 
       project.write(
         'api/confirm.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   const { challenge, code } = await ctx.req.json()
@@ -100,7 +100,7 @@ export default route().handler(async ctx => {
 
       project.write(
         'api/stepup.post.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   if (!ctx.var.auth.identity) {
@@ -113,7 +113,7 @@ export default route().handler(async ctx => {
 
       project.write(
         'api/profile.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 
 export default route().handler(async ctx => {
   return { identity: ctx.var.auth.identity ?? null }
@@ -161,7 +161,7 @@ const otplib = new TOTP({
 })
 
 const { definition } = await import(${JSON.stringify(url)})
-const { createApp } = await import('@olivaw/sark/server')
+const { createApp } = await import('@olivaw/sark')
 const app = await createApp(definition)
 
 app.db.$client.exec(\`
@@ -324,8 +324,8 @@ try {
       try {
         project.write(
           'app.ts',
-          `import { defineApp } from '@olivaw/sark/server'
-import { defineAuth } from '@olivaw/sark/auth/session'
+          `import { defineApp } from '@olivaw/sark'
+import { defineAuth } from '@olivaw/sark/auth'
 ${factor === 'totp' ? `import { defineTotp } from '@olivaw/sark/auth/totp'` : `import { defineWebAuthn } from '@olivaw/sark/auth/webauthn'`}
 import { ${factor === 'totp' ? 'sqlTotp' : 'sqlWebAuthn'} } from '@olivaw/sark/auth/${factor}/sqlite'
 import { defineMfa } from '@olivaw/sark/auth/mfa'
@@ -392,7 +392,7 @@ registerHooks({
 })
 
 const { definition } = await import(${JSON.stringify(url)})
-const { createApp } = await import('@olivaw/sark/server')
+const { createApp } = await import('@olivaw/sark')
 const app = await createApp(definition)
 
 try {

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { createApp, defineApp, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 
 afterEach(() => vi.unstubAllEnvs())

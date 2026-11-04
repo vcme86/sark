@@ -15,7 +15,7 @@ describe('Cloudflare R2 Object Storage Integration via Real Workerd', () => {
 
     project.write(
       'app.ts',
-      `import { defineApp } from '@olivaw/sark/server'
+      `import { defineApp } from '@olivaw/sark'
 import { defineStorage } from '@olivaw/sark/storage/r2'
 import type { R2Bucket } from '@cloudflare/workers-types'
 
@@ -30,7 +30,7 @@ export const storage = {
 
     project.write(
       'api/r2-test.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 import { StorageError } from '@olivaw/sark/storage/r2'
 
 export default route().handler(async (c) => {
@@ -133,7 +133,7 @@ export default route().handler(async (c) => {
 
     project.write(
       'api/r2-range.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(async (c) => {
   const store = c.var.storage.media
   const key = 'ranges/data.txt'
@@ -169,7 +169,7 @@ export default route().handler(async (c) => {
 
     project.write(
       'api/r2-concurrent.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 import { StorageError } from '@olivaw/sark/storage/r2'
 
 export default route().handler(async (c) => {
@@ -202,7 +202,7 @@ export default route().handler(async (c) => {
 
     project.write(
       'api/r2-upload.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(async (c) => {
   const stored = await c.var.storage.media.put('request-stream.bin', c.req.raw.body!, {
     contentLength: Number(c.req.header('content-length')),
@@ -218,7 +218,7 @@ export default route().handler(async (c) => {
 
     project.write(
       'api/r2-streams.post.ts',
-      `import { route } from '@olivaw/sark/server'
+      `import { route } from '@olivaw/sark'
 export default route().handler(async (c) => {
   const store = c.var.storage.media
   const results: Record<string, unknown> = {}
@@ -399,7 +399,7 @@ export default worker`,
       if (client) await client.send(new CreateBucketCommand({ Bucket: bucket }))
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 import { defineStorage } from '@olivaw/sark/storage/r2'
 import { definePresign } from '@olivaw/sark/storage/presign'
 import type { R2Bucket } from '@cloudflare/workers-types'
@@ -411,7 +411,7 @@ export const storage = { files: defineStorage((env: { FILES: R2Bucket }) => ({
       )
       project.write(
         'api/sign.get.ts',
-        `import { route } from '@olivaw/sark/server'
+        `import { route } from '@olivaw/sark'
 export default route().handler(async (c) => ({
   put: await c.var.storage.files.presign({ operation: 'put', key: '直传 +?#% (1).txt', contentType: 'text/plain' }),
   get: await c.var.storage.files.presign({ operation: 'get', key: '直传 +?#% (1).txt' }),

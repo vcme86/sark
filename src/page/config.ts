@@ -4,8 +4,8 @@
  * @module
  */
 
-import { evaluateDeclaration, type RequiresEnv } from '../core/declaration'
-import type { DefaultApi } from '../http/client/client'
+import { evaluateDeclaration, type RequiresEnv } from '../app/declaration'
+import type { DefaultApi } from '../client/client'
 import { DEFAULT_CLIENT_CREDENTIALS } from '../http/defaults'
 import type { PageConfig, PageDeclaration } from './types'
 

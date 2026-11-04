@@ -1,4 +1,5 @@
-import { createDefinition } from '../../src/entries/runtime/core'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { SseDeclaration } from '../../src/app/http/types'
 import {
   type AppConfig,
   createApp,
@@ -6,10 +7,9 @@ import {
   route,
   type RouteDeclaration,
   type RouteHandler,
-} from '../../src/entries/server'
+} from '../../src/entries/root'
+import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import type { SseDeclaration } from '../../src/http/types'
 
 /** Builds a route fixture from a mounted path or route filename. */
 export function routeEntry(

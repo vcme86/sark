@@ -4,7 +4,16 @@
  * @module
  */
 
-export { cors } from '../http/middleware/cors'
-export { csrf, type CsrfOptions } from '../http/middleware/csrf'
-export { compress, type CompressionOptions } from '../http/middleware/compress'
-export type { CorsOptions } from '../http/config'
+export { cors, type CorsOptions } from '../middleware/cors'
+export { csrf, type CsrfOptions } from '../middleware/csrf'
+export { compress, type CompressionOptions } from '../middleware/compress'
+
+export { defineRateLimit } from '../middleware/rate-limit/declaration'
+export { rateLimit } from '../middleware/rate-limit/middleware'
+export type {
+  CloudflareRateLimitConfig,
+  NodeRateLimitConfig,
+  RateLimitConfig,
+  RateLimitDeclaration,
+  RateLimitKey,
+} from '../middleware/rate-limit/types'

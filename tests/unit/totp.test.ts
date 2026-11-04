@@ -3,8 +3,8 @@ import { WebCryptoPlugin } from '@otplib/plugin-crypto-web'
 import { TOTP } from '@otplib/totp'
 import { describe, expect, it } from 'vitest'
 
-import { AuthError } from '../../src/services/auth/error'
-import { decryptTotpSecret, encryptTotpSecret } from '../../src/services/auth/totp/crypto'
+import { AuthError } from '../../src/features/auth/error'
+import { decryptTotpSecret, encryptTotpSecret } from '../../src/features/auth/totp/crypto'
 
 describe('TOTP Cryptography and AAD Binding', () => {
   const currentKey = {

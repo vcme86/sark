@@ -1,9 +1,9 @@
 import type { Context } from 'hono'
 
-import type { ExecutionScope, RequestScope } from '../../core/context'
-import { createClient, type DefaultApi, type HttpClient } from '../../http/client/client'
-import { captureResponsePolicy } from '../../http/response-policy'
+import type { ExecutionScope, RequestScope } from '../../app/context'
+import { createClient, type DefaultApi, type HttpClient } from '../../client/client'
 import type { ResolvedPageConfig } from '../config'
+import { captureResponsePolicy } from './response-policy'
 
 /**
  * Reads page-owned settings from the current instance or event scope.
@@ -30,23 +30,25 @@ export function getResolvedPageConfig<Api = DefaultApi>(
  * Remote redirects are returned without following them or forwarding credentials onward.
  *
  * @param context - Current Hono request and response context.
- * @param localClient - Client dispatching to this application without a network loopback.
  * @param config - Page-owned resolved transport and identity settings.
  * @param scope - Current request metadata, cancellation, and outer Cookie collector.
  * @returns A request-bound client preserving the caller's API type.
  */
 export function createPageClient<Api>(
   context: Context,
-  localClient: HttpClient<Api>,
   config: ResolvedPageConfig<Api>,
   scope: RequestScope,
 ): HttpClient<Api> {
-  if (config.api.serverUrl === undefined) return localClient
-
-  const target = new URL(config.api.serverUrl)
+  const local = config.api.serverUrl === undefined
+  const instance = scope.app
+  const apiPrefix = instance?.definition.apiPrefix
+  if (local && (!instance || apiPrefix === undefined)) {
+    throw new Error('Local page dispatch requires an assembled application and API prefix.')
+  }
+  const target = new URL(local ? apiPrefix : config.api.serverUrl!, scope.externalOrigin)
   const prefix = target.pathname.replace(/\/$/, '')
   return createClient<Api>({
-    baseUrl: config.api.serverUrl,
+    baseUrl: target.href,
     credentials: config.api.credentials,
     async fetch(request) {
       const url = new URL(request.url)
@@ -62,9 +64,16 @@ export function createPageClient<Api>(
       }
       if (!headers.has('x-request-id')) headers.set('x-request-id', scope.requestId)
 
-      const signal = AbortSignal.any([request.signal, scope.signal])
-      const response = await fetch(new Request(request, { headers, signal, redirect: 'manual' }))
-      scope.appendCookies(response.headers.getSetCookie())
+      const response = local
+        ? await instance!.fetchInternal(new Request(request, { headers }))
+        : await fetch(
+            new Request(request, {
+              headers,
+              signal: AbortSignal.any([request.signal, scope.signal]),
+              redirect: 'manual',
+            }),
+          )
+      if (!local) scope.appendCookies(response.headers.getSetCookie())
       captureResponsePolicy(context, response)
       return response
     },

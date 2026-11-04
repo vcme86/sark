@@ -5,7 +5,7 @@
 入口限流保护 HTTP 请求处理成本，不代表业务配额、验证码账户尝试或集群严格总额。它独立于核心配置，按实际后端声明。
 
 ```ts
-import { defineRateLimit } from '@olivaw/sark/middleware/rate-limit'
+import { defineRateLimit } from '@olivaw/sark/middleware'
 
 export const rateLimit = defineRateLimit({
   window: 60000,
@@ -14,13 +14,17 @@ export const rateLimit = defineRateLimit({
 })
 ```
 
-Node window 为有限正数，单位毫秒；limit 为正整数，headers 默认 true。window/limit 必填。缺省 key 使用框架确定的 clientIp，可提供 `key(ctx): string | Promise<string>` 改用已验证身份；应用不把正文自报 ID 当成可信主体。
+Node window 为有限正数，单位毫秒；limit 为正整数，headers 默认 true。window/limit 必填。maxKeys 为当前 Node 计数器最多保存的键数，默认 10000，只接受正整数。缺省 key 使用框架确定的 clientIp，可提供 `key(ctx): string | Promise<string>` 改用已验证身份；应用不把正文自报 ID 当成可信主体。
 
 Workers 声明 `defineRateLimit({ binding: 'HTTP_LIMIT', key? })`，从本次 env 解析平台 limiter。配额、10/60 秒周期在 Wrangler 单独配置；不接受 Node window/limit，不伪造精确剩余和重置时间。
 
+Workers 不运行 Node 内存计数器。Sark 负责选择有效路由策略、取得请求 key、调用 binding 的 `limit({ key })` 并将拒绝转为 HTTP 429；计数、额度及同步由 CF 提供。同一 namespace/key 的共享范围不能通过多创建一个中间件改变。[Workers Rate Limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+
+WAF 的 Rate Limiting Rules 是部署侧规则，Worker binding 是在应用执行到相应位置后调用的平台能力。二者可按不同用途组合，但不会自动互相识别或抵消；部署规则先拒绝的请求不会执行 Sark 路由，应用局部放宽也不能覆盖该拒绝。只需部署侧规则时不必声明 Sark 限流；需要按已验证身份或路由上下文选择 key 时使用 binding 接入，不为同一目的重复设置两套规则。[Rate Limiting Rules](https://developers.cloudflare.com/waf/rate-limiting-rules/)
+
 ## 公开接口
 
-`defineRateLimit` 与 `rateLimit` 均从 `@olivaw/sark/middleware/rate-limit` 导入，选项类型随同导出：
+`defineRateLimit` 与 `rateLimit` 均从 `@olivaw/sark/middleware` 导入，选项类型随同导出：
 
 ```ts
 type RateLimitKey = (ctx: Context) => string | Promise<string>
@@ -29,6 +33,7 @@ interface NodeRateLimitConfig {
   window: number
   limit: number
   headers?: boolean
+  maxKeys?: number
   key?: RateLimitKey
   binding?: never
 }
@@ -39,6 +44,7 @@ interface CloudflareRateLimitConfig {
   window?: never
   limit?: never
   headers?: never
+  maxKeys?: never
 }
 
 type RateLimitConfig = NodeRateLimitConfig | CloudflareRateLimitConfig
@@ -46,19 +52,21 @@ type RateLimitConfig = NodeRateLimitConfig | CloudflareRateLimitConfig
 function rateLimit(options: RateLimitConfig): MiddlewareHandler
 ```
 
-Context 与 MiddlewareHandler 使用本应用的 Hono 上下文类型，保留已声明资源的类型。defineRateLimit 接受 RateLimitConfig 或沿共同声明约定的 Env 工厂，返回框架使用的不透明 RateLimitDeclaration，不是中间件；工厂的环境类型保留在声明中。rateLimit 接受实际选项，返回可直接安装的中间件。
+Context 与 MiddlewareHandler 使用本应用的 Hono 上下文类型，保留已声明资源的类型。defineRateLimit 接受 RateLimitConfig 或沿共同声明约定的 Env 工厂，返回框架使用的不透明 RateLimitDeclaration，不是中间件；工厂的环境类型保留在声明中。rateLimit 只接收公开 RateLimitConfig，在入口解析一次后返回中间件；内部计数器仅接收已解析结果。
 
 app.ts 的固定导出名 rateLimit 是应用声明槽位，与包导出的中间件函数用途不同。同一文件需要两者时，对导入函数使用普通别名，不改变配置导出名。
 
 ## 合并与显式中间件
 
-应用 rateLimit → scope.rateLimit → route.rateLimit 逐字段覆盖，false 关闭对应声明式策略。匹配后执行最终策略一次。局部放宽不会先被全局额度拒绝。
+应用 rateLimit → scope.rateLimit → route.rateLimit 逐字段覆盖，false 关闭对应声明式策略。undefined 不擦除继承字段；false 后的对象重新启用策略，未提供字段从应用策略继承。匹配后执行最终策略一次。局部放宽不会先被全局额度拒绝。
+
+计数与响应头分开准备：空对象及仅 headers 覆盖沿用继承计数，不因关闭响应头重获额度。改变 Node window、limit、key 或 maxKeys 时，按最终路由创建计数器；scope 提供后代默认值，不形成目录总配额。Workers 额度仍由真实 binding/key 决定。key 函数按引用比较，不建立全局配置哈希去重。
 
 局部声明式 rateLimit 需要已启用对应能力，缺少时报组合错误。显式 `rateLimit(options)` 返回一个完整的 Hono 中间件，可以独立安装，不要求重复全局声明；它按注册顺序独立执行，不与声明式策略猜测合并。
 
 ```ts
-import { rateLimit } from '@olivaw/sark/middleware/rate-limit'
-import { route } from '@olivaw/sark/server'
+import { route } from '@olivaw/sark'
+import { rateLimit } from '@olivaw/sark/middleware'
 
 export default route({
   middleware: [rateLimit({ window: 60000, limit: 20 })],
@@ -84,7 +92,7 @@ headers=false 关闭这组自动头，包括 Retry-After；不会移除应用主
 
 Node 的窗口计数与限额判断在当前实例内生效，多副本不是全局额度。平台 limiter 在 Cloudflare location 内近似计数，也不是全球精确配额。[Workers Rate Limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
 
-普通 HTTP 与 SSE 建连/重连执行入口限流，已建立 SSE 不逐事件计数。WS 默认不套全局 HTTP 限流，需要时在握手业务准入显式安装。进程内 SSR 调用跳过外部入口计数，但目标业务配额仍由应用判断。
+普通 HTTP 与 SSE 建连/重连执行入口限流，已建立 SSE 不逐事件计数。WS 默认不套全局 HTTP 限流，需要时在握手业务准入显式安装。未匹配的外部业务请求也执行应用限流，再返回适用的 404/405；不叠加已匹配路由的额度。CORS 预检、构建公开文件、探针及进程内 SSR 不计外部额度，业务配额仍由应用判断。
 
 MFA 的账户尝试次数使用专用原子状态，不能用这种入口近似计数替代。框架不内建分布式额度服务；启用服务时才加载状态实现或 binding 接入。
 

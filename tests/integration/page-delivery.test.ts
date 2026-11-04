@@ -64,8 +64,9 @@ async function assertPage(origin: string, production: boolean) {
     ['help.html', '<h1>Static help</h1>'],
   ]) {
     const resource = await fetch(origin + '/resources/' + encodeURIComponent(file))
-    expect(resource.status, file).toBe(200)
-    expect(await resource.text(), file).toBe(contents)
+    const body = await resource.text()
+    expect(resource.status, file + '\n' + body).toBe(200)
+    expect(body, file).toBe(contents)
     expect(resource.headers.get('X-Business'), file).toBeNull()
   }
   expect((await fetch(origin + '/resources/constructor')).status).toBe(404)
@@ -86,7 +87,7 @@ for (const target of ['node', 'cloudflare'] as const) {
     if (target === 'node')
       project.write(
         'app.ts',
-        `import { defineApp } from '@olivaw/sark/server'
+        `import { defineApp } from '@olivaw/sark'
 export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': crypto.randomUUID() }, middleware: [async (ctx, next) => { await next(); ctx.header('X-Business', 'executed') }] }))`,
       )
     let server: Awaited<ReturnType<typeof createServer>> | undefined
@@ -98,6 +99,10 @@ export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': cryp
       })
       await server.listen()
       const origin = serverUrl(server.httpServer)
+      const firstAsset = await fetch(origin + '/resources/read%20me%23.txt')
+      expect(firstAsset.status, await firstAsset.text()).toBe(200)
+      if (target === 'node') expect(firstAsset.headers.get('X-Instance')).toBeTruthy()
+      else expect(firstAsset.headers.get('X-Application')).toBeNull()
       await assertPage(origin, false)
       const page = () => fetch(origin + '/site/posts/1', { headers: { Accept: 'text/html' } })
       const instanceId = (await page()).headers.get('X-Instance')
@@ -186,8 +191,12 @@ export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': cryp
         })
         expect(resource.status).toBe(200)
         expect(await resource.text()).toBe('public resource')
-        expect(resource.headers.get('cache-control')).toBe('no-cache')
-        expect(resource.headers.get('access-control-allow-origin')).toBe('https://consumer.test')
+        expect(resource.headers.get('cache-control')).toBe(
+          target === 'node' ? 'no-cache' : 'public, max-age=0, must-revalidate',
+        )
+        expect(resource.headers.get('access-control-allow-origin')).toBe(
+          target === 'node' ? 'https://consumer.test' : null,
+        )
         expect(resource.headers.get('X-Business')).toBeNull()
         const etag = resource.headers.get('etag')!
         expect(etag).toBeTruthy()
@@ -245,11 +254,7 @@ it('uses webDir and webPrefix while keeping Vite resources reachable with the ro
 
 it.each([
   ["import { readFileSync } from 'node:fs'", 'readFileSync.toString()', 'node:fs'],
-  [
-    "import { defineApp } from '@olivaw/sark/server'",
-    'defineApp.toString()',
-    '@olivaw/sark/server',
-  ],
+  ["import { defineApp } from '@olivaw/sark'", 'defineApp.toString()', '@olivaw/sark'],
   ["import { app } from '../app'", 'String(app)', 'app.ts'],
 ])(
   'rejects a server dependency from the browser page graph: %s',
@@ -272,3 +277,178 @@ it.each([
   },
   45000,
 )
+
+it('serves native Worker assets without executing application configuration, including conditional reads', async () => {
+  const project = createPageProject('cloudflare')
+  project.write(
+    'app.ts',
+    `import { defineApp } from '@olivaw/sark'
+let requests = 0
+export const app = defineApp(() => ({ headers: { 'X-Worker-Requests': String(++requests) } }))`,
+  )
+  project.write('files/assets/names.txt', 'unhashed public data')
+  let server: Awaited<ReturnType<typeof preview>> | undefined
+  try {
+    const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'production' })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    const metadata = readFileSync(join(project.root, '.build/build-assets.ts'), 'utf8')
+    expect(metadata).not.toContain('"files"')
+    expect(metadata).not.toContain('names.txt')
+    server = await preview({
+      root: project.root,
+      logLevel: 'silent',
+      preview: { host: '127.0.0.1', port: 0 },
+    })
+    const origin = serverUrl(server.httpServer)
+    const first = await fetch(origin + '/resources/read%20me%23.txt')
+    expect(first.status).toBe(200)
+    expect(await first.text()).toBe('public resource')
+    expect(first.headers.get('X-Request-Id')).toBeNull()
+    expect(first.headers.get('X-Worker-Requests')).toBeNull()
+    expect(first.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    const initial = await fetch(origin + '/service/v2/posts/1')
+    expect(initial.headers.get('X-Worker-Requests')).toBe('1')
+    await initial.text()
+    const conditional = await fetch(origin + '/resources/read%20me%23.txt', {
+      headers: { 'If-None-Match': first.headers.get('etag')! },
+    })
+    expect(conditional.status).toBe(304)
+    const head = await fetch(origin + '/resources/read%20me%23.txt', { method: 'HEAD' })
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe('')
+    const plain = await fetch(origin + '/resources/assets/names.txt')
+    expect(await plain.text()).toBe('unhashed public data')
+    expect(plain.headers.get('cache-control')).not.toContain('immutable')
+    const next = await fetch(origin + '/service/v2/posts/2')
+    expect(next.headers.get('X-Worker-Requests')).toBe('2')
+    await next.text()
+  } finally {
+    try {
+      await server?.close()
+    } finally {
+      project.remove()
+    }
+  }
+}, 45000)
+
+it('keeps native static files available when the Worker application configuration fails', async () => {
+  const project = createPageProject('cloudflare')
+  project.write(
+    'app.ts',
+    `import { defineApp } from '@olivaw/sark'
+export const app = defineApp(() => { throw new Error('Missing application secret') })`,
+  )
+  let server: Awaited<ReturnType<typeof preview>> | undefined
+  try {
+    const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'production' })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    server = await preview({
+      root: project.root,
+      logLevel: 'silent',
+      preview: { host: '127.0.0.1', port: 0 },
+    })
+    const origin = serverUrl(server.httpServer)
+    const api = await fetch(origin + '/service/v2/posts/1')
+    expect(api.status).toBe(500)
+    await api.text()
+    const resource = await fetch(origin + '/resources/help.html')
+    expect(resource.status).toBe(200)
+    expect(await resource.text()).toBe('<h1>Static help</h1>')
+  } finally {
+    try {
+      await server?.close()
+    } finally {
+      project.remove()
+    }
+  }
+}, 45000)
+
+it('uses application-owned native headers without merging framework defaults', async () => {
+  const project = createPageProject('cloudflare')
+  project.write(
+    'files/_headers',
+    `/resources/*
+  X-Static-Owner: application
+  Access-Control-Allow-Origin: https://consumer.test
+`,
+  )
+  let server: Awaited<ReturnType<typeof preview>> | undefined
+  try {
+    const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'production' })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    server = await preview({
+      root: project.root,
+      logLevel: 'silent',
+      preview: { host: '127.0.0.1', port: 0 },
+    })
+    const origin = serverUrl(server.httpServer)
+    const resource = await fetch(origin + '/resources/help.html', {
+      headers: { Origin: 'https://consumer.test' },
+    })
+    expect(resource.status).toBe(200)
+    expect(await resource.text()).toBe('<h1>Static help</h1>')
+    expect(resource.headers.get('X-Static-Owner')).toBe('application')
+    expect(resource.headers.get('Access-Control-Allow-Origin')).toBe('https://consumer.test')
+    expect(resource.headers.get('X-Application')).toBeNull()
+    const controlFile = await fetch(origin + '/resources/_headers')
+    expect(controlFile.status).toBe(404)
+    await controlFile.text()
+  } finally {
+    try {
+      await server?.close()
+    } finally {
+      project.remove()
+    }
+  }
+}, 45000)
+
+it('uses native asset-first routing at the origin root without a page build or ASSETS binding', async () => {
+  const project = createPageProject('cloudflare')
+  project.write(
+    'vite.config.mts',
+    readFileSync(join(project.root, 'vite.config.mts'), 'utf8')
+      .replace("base: '/resources'", "base: '/'")
+      .replace("webPrefix: '/site'", 'webDir: false'),
+  )
+  project.write(
+    'wrangler.jsonc',
+    JSON.stringify({
+      name: 'native-static-root',
+      main: '.build/worker.ts',
+      compatibility_date: '2026-10-01',
+      compatibility_flags: ['nodejs_compat'],
+      assets: { html_handling: 'none' },
+    }),
+  )
+  project.write(
+    'app.ts',
+    `import { defineApp } from '@olivaw/sark'
+let requests = 0
+export const app = defineApp(() => ({ headers: { 'X-Worker-Requests': String(++requests) } }))`,
+  )
+  let server: Awaited<ReturnType<typeof preview>> | undefined
+  try {
+    const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'production' })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    server = await preview({
+      root: project.root,
+      logLevel: 'silent',
+      preview: { host: '127.0.0.1', port: 0 },
+    })
+    const origin = serverUrl(server.httpServer)
+    const resource = await fetch(origin + '/read%20me%23.txt')
+    expect(resource.status).toBe(200)
+    expect(await resource.text()).toBe('public resource')
+    expect(resource.headers.get('X-Worker-Requests')).toBeNull()
+    expect(resource.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    const api = await fetch(origin + '/service/v2/posts/1')
+    expect(api.headers.get('X-Worker-Requests')).toBe('1')
+    expect(await api.json()).toEqual({ title: 'Post 1' })
+  } finally {
+    try {
+      await server?.close()
+    } finally {
+      project.remove()
+    }
+  }
+}, 45000)

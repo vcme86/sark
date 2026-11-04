@@ -1,13 +1,15 @@
-export { defineTotp } from '../../services/auth/totp/declaration'
-export type { TotpDeclaration } from '../../services/auth/totp/declaration'
+export { defineTotp } from '../../features/auth/totp/config'
 export type {
-  SqlTotpOptions,
   TotpConfig,
+  TotpDeclaration,
   TotpKey,
   TotpKeyConfig,
+} from '../../features/auth/totp/config'
+export type {
+  RequestTotp,
+  SqlTotpOptions,
   TotpMaintenance,
   TotpRecord,
-  RequestTotp,
   TotpStore,
   TotpStoreDeclaration,
-} from '../../services/auth/totp/types'
+} from '../../features/auth/totp/types'

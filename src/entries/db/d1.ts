@@ -4,5 +4,5 @@
  * @module
  */
 
-export { defineDatabase, type D1Declaration } from '../../services/db/d1'
-export type { D1Config } from '../../services/db/d1'
+export { defineDatabase, type D1Declaration } from '../../features/db/d1'
+export type { D1Config } from '../../features/db/d1'

@@ -1,19 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { rateLimit } from '../../src/entries/middleware/rate-limit'
+import { rateLimit } from '../../src/entries/middleware'
+import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import { defineRateLimit } from '../../src/services/rate-limit/declaration'
-import { NodeRateLimiter } from '../../src/services/rate-limit/node'
+import { createRateLimitAssembly } from '../../src/middleware/rate-limit/assembly'
+import { defineRateLimit } from '../../src/middleware/rate-limit/declaration'
+import { NodeRateLimiter } from '../../src/middleware/rate-limit/node'
 
 describe('rate limit contract', () => {
   it('enforces in-memory bounded fixed-window counter, emits headers, and rejects on exceeded limit', () => {
     const limiter = new NodeRateLimiter({
+      kind: 'node',
+      headers: true,
+      maxKeys: 10000,
       limit: 3,
       window: 1000,
-      headers: true,
     })
 
     const key = '127.0.0.1'
@@ -39,17 +42,19 @@ describe('rate limit contract', () => {
     expect(r4.resetSeconds).toBeGreaterThanOrEqual(1)
   })
 
-  it('rejects non-integer maxKeys in NodeRateLimiter', () => {
-    expect(() => new NodeRateLimiter({ limit: 2, window: 1000 }, 2.5)).toThrow(
-      'Rate limit maxKeys must be a positive integer.',
+  it('rejects invalid maxKeys at the public rateLimit boundary', () => {
+    expect(() => rateLimit({ limit: 2, window: 1000, maxKeys: 2.5 })).toThrow(
+      'Node rate limit "maxKeys" must be a positive integer.',
     )
-    expect(() => new NodeRateLimiter({ limit: 2, window: 1000 }, 0)).toThrow(
-      'Rate limit maxKeys must be a positive integer.',
+    expect(() => rateLimit({ limit: 2, window: 1000, maxKeys: 0 })).toThrow(
+      'Node rate limit "maxKeys" must be a positive integer.',
     )
   })
 
   it('evicts expired entries on access before evicting active keys', async () => {
     const limiter = new NodeRateLimiter({
+      kind: 'node',
+      headers: true,
       limit: 2,
       window: 30, // 30ms window
       maxKeys: 2,
@@ -70,6 +75,8 @@ describe('rate limit contract', () => {
 
   it('evicts oldest keys when maxKeys capacity is reached with unexpired keys', () => {
     const limiter = new NodeRateLimiter({
+      kind: 'node',
+      headers: true,
       limit: 5,
       window: 60000,
       maxKeys: 3,
@@ -88,10 +95,12 @@ describe('rate limit contract', () => {
   it('merges declarative route overrides and handles rateLimit: false', async () => {
     const app = await createApp(
       createDefinition({
-        rateLimit: defineRateLimit({
-          limit: 2,
-          window: 1000,
-        }),
+        admission: createRateLimitAssembly(
+          defineRateLimit({
+            limit: 2,
+            window: 1000,
+          }),
+        ),
         routes: [
           // Inherits app limit: 2
           {
@@ -179,7 +188,7 @@ describe('rate limit contract', () => {
 
     const app = await createApp(
       createDefinition({
-        rateLimit: defineRateLimit({ limit: 1, window: 1000 }),
+        admission: createRateLimitAssembly(defineRateLimit({ limit: 1, window: 1000 })),
         routes: [
           {
             source: 'api/dual.ts',
@@ -206,7 +215,7 @@ describe('rate limit contract', () => {
     let app: any
     app = await createApp(
       createDefinition({
-        rateLimit: defineRateLimit({ limit: 1, window: 1000 }),
+        admission: createRateLimitAssembly(defineRateLimit({ limit: 1, window: 1000 })),
         routes: [
           {
             source: 'api/internal-target.ts',
@@ -261,9 +270,11 @@ describe('rate limit contract', () => {
 
     const definition = createDefinition({
       app: defineApp({}),
-      rateLimit: defineRateLimit((env: any) => ({
-        binding: env.CURRENT_BINDING,
-      })),
+      admission: createRateLimitAssembly(
+        defineRateLimit((env: any) => ({
+          binding: env.CURRENT_BINDING,
+        })),
+      ),
       routes: [
         {
           source: 'api/worker-rl.ts',
@@ -294,4 +305,113 @@ describe('rate limit contract', () => {
     expect(resB.status).toBe(200)
     expect(checkedBindingName).toBe('B')
   })
+})
+
+it('shares inherited counting across empty, undefined and header-only overrides, including unmatched requests', async () => {
+  const routes = [
+    {
+      source: 'one.get.ts',
+      routePath: parseApiFilePath('one.get.ts', '/')!,
+      declaration: route({ rateLimit: {} }).handler(() => null),
+    },
+    {
+      source: 'two.get.ts',
+      routePath: parseApiFilePath('two.get.ts', '/')!,
+      declaration: route({ rateLimit: { headers: false, limit: undefined } }).handler(() => null),
+    },
+  ]
+  const app = await createApp(
+    createDefinition({
+      admission: createRateLimitAssembly(defineRateLimit({ limit: 2, window: 60000 })),
+      routes,
+    }),
+  )
+  try {
+    expect((await app.fetch(new Request('http://localhost/one'))).status).toBe(200)
+    const second = await app.fetch(new Request('http://localhost/two'))
+    expect(second.status).toBe(200)
+    expect(second.headers.has('RateLimit-Limit')).toBe(false)
+    expect((await app.fetch(new Request('http://localhost/missing'))).status).toBe(429)
+    expect((await app.fetch(new Request('http://localhost/one'))).status).toBe(429)
+  } finally {
+    await app.close()
+  }
+})
+
+it('limits unmatched requests without applying endpoint CSRF or body-limit policies', async () => {
+  const app = await createApp(
+    createDefinition({
+      app: defineApp({ csrf: true, bodyLimit: 2 }),
+      admission: createRateLimitAssembly(defineRateLimit({ limit: 2, window: 60000 })),
+      routes: [
+        {
+          routePath: parseApiFilePath('known.get.ts', '/')!,
+          declaration: route().handler(() => null),
+        },
+      ],
+    }),
+  )
+  try {
+    for (const [path, origin, expected] of [
+      ['/missing', 'https://other.example', 404],
+      ['/known', 'http://localhost', 405],
+    ] as const) {
+      const response = await app.fetch(
+        new Request(`http://localhost${path}`, {
+          method: 'POST',
+          headers: { origin, 'content-type': 'text/plain', 'content-length': '9' },
+          body: 'oversized',
+        }),
+      )
+      expect(response.status).toBe(expected)
+      await response.text()
+    }
+    const limited = await app.fetch(new Request('http://localhost/missing'))
+    expect(limited.status).toBe(429)
+    await limited.text()
+  } finally {
+    await app.close()
+  }
+})
+
+it('uses scope defaults per route and supports re-enabling a disabled scope', async () => {
+  const scope = { options: { rateLimit: { limit: 1 } } }
+  const app = await createApp(
+    createDefinition({
+      admission: createRateLimitAssembly(defineRateLimit({ limit: 9, window: 60000 })),
+      routes: ['one', 'two', 'three'].map((name) => ({
+        routePath: parseApiFilePath(`${name}.get.ts`, '/')!,
+        scopes: name === 'three' ? [{ options: { rateLimit: false } }] : [scope],
+        declaration: route(name === 'three' ? { rateLimit: { limit: 1 } } : {}).handler(() => null),
+      })),
+    }),
+  )
+  try {
+    for (const path of ['one', 'two', 'three']) {
+      expect((await app.fetch(new Request(`http://localhost/${path}`))).status).toBe(200)
+      expect((await app.fetch(new Request(`http://localhost/${path}`))).status).toBe(429)
+    }
+  } finally {
+    await app.close()
+  }
+})
+
+it('applies the Worker binding to unmatched requests without duplicate counting', async () => {
+  const binding = { limit: vi.fn(async () => ({ success: false })) }
+  const handler = createWorkerHandler(
+    createDefinition({
+      admission: createRateLimitAssembly(defineRateLimit({ binding: 'LIMITER' })),
+      routes: [],
+    }),
+  )
+  const work: Promise<unknown>[] = []
+  const response = await handler.fetch(
+    new Request('https://example.test/missing'),
+    { LIMITER: binding },
+    { waitUntil: (promise) => work.push(promise), passThroughOnException() {} },
+  )
+  expect(response.status).toBe(429)
+  await response.text()
+  await Promise.all(work)
+  expect(binding.limit).toHaveBeenCalledOnce()
 })

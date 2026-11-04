@@ -6,12 +6,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { startNodeServer } from '../../src/adapter/node/listen'
 import { defineNodeRuntime } from '../../src/adapter/node/runtime'
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { route } from '../../src/app/http/route'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import { defineDatabase, type PostgresDatabase } from '../../src/features/db/postgres'
 import { parseApiFilePath } from '../../src/http/path'
-import { route } from '../../src/http/server/route'
-import type { RouteDeclaration } from '../../src/http/types'
-import { defineDatabase, type PostgresDatabase } from '../../src/services/db/postgres'
 
 // The caller supplies an isolated database; the suite never creates or alters a server installation.
 const databaseUrl = process.env.SARK_TEST_POSTGRES_URL

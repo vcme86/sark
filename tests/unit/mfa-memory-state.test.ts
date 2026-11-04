@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
-import type { AuthAttemptLimit, AuthFlow } from '../../src/services/auth/state/types'
+import { MemoryAuthStateStore } from '../../src/features/auth/state/memory'
+import type { AuthAttemptLimit, AuthFlow } from '../../src/features/auth/state/types'
 
 const createSampleFlow = (
   id: string,

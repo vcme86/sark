@@ -4,4 +4,4 @@
  * @module
  */
 
-export { createVisitorsAssembly } from '../../services/visitors/assembly'
+export { createVisitorsAssembly } from '../../features/visitors/assembly'

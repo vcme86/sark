@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { getCurrentScope } from '../../src/core/context'
+import { getCurrentScope } from '../../src/app/context'
+import { createApp, defineApp, route, z } from '../../src/entries/root'
 import { createWorkerHandler } from '../../src/entries/runtime/cloudflare'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 
 describe('Event configuration and assembly', () => {

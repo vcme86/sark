@@ -10,9 +10,9 @@ import {
 import type { R2Bucket } from '@cloudflare/workers-types'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { definePresign } from '../../src/services/storage/presign'
-import { defineStorage as defineR2Storage } from '../../src/services/storage/r2'
-import { defineStorage, type S3PresignedFileStore } from '../../src/services/storage/s3'
+import { definePresign } from '../../src/features/storage/presign'
+import { defineStorage as defineR2Storage } from '../../src/features/storage/r2'
+import { defineStorage, type S3PresignedFileStore } from '../../src/features/storage/s3'
 
 // Use a dedicated S3-compatible service; each run owns and removes its own bucket.
 const endpoint = process.env.SARK_TEST_S3_ENDPOINT

@@ -4,7 +4,7 @@ export {
   type S3PresignedFileStore,
   type S3StorageConfig,
   type S3StorageDeclaration,
-} from '../../services/storage/s3'
+} from '../../features/storage/s3'
 
 export {
   type FileBody,
@@ -17,4 +17,4 @@ export {
   StorageError,
   type StoredContent,
   type StoredFile,
-} from '../../services/storage/types'
+} from '../../features/storage/types'

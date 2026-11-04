@@ -4,22 +4,22 @@ import { WebCryptoPlugin } from '@otplib/plugin-crypto-web'
 import { TOTP } from '@otplib/totp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthError } from '../../src/services/auth/error'
-import type { FactorProof, FactorVerifier } from '../../src/services/auth/factor'
-import { resolveMfaConfig } from '../../src/services/auth/mfa/config'
-import { MfaService } from '../../src/services/auth/mfa/service'
+import { AuthError } from '../../src/features/auth/error'
+import type { FactorProof, FactorVerifier } from '../../src/features/auth/factor'
+import { resolveMfaConfig } from '../../src/features/auth/mfa/config'
+import { MfaService } from '../../src/features/auth/mfa/service'
 import {
   generateRecoveryCodes,
   hashRecoveryCode,
   verifyRecoveryCode,
-} from '../../src/services/auth/recovery/service'
-import type { RecoveryCodeSet, RecoveryStore } from '../../src/services/auth/recovery/types'
-import type { SessionOptions, SignInInput } from '../../src/services/auth/session/types'
-import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
-import { resolveTotpConfig } from '../../src/services/auth/totp/config'
-import { encryptTotpSecret } from '../../src/services/auth/totp/crypto'
-import { TotpService } from '../../src/services/auth/totp/service'
-import type { TotpRecord, TotpStore } from '../../src/services/auth/totp/types'
+} from '../../src/features/auth/recovery/service'
+import type { RecoveryCodeSet, RecoveryStore } from '../../src/features/auth/recovery/types'
+import type { SessionOptions, SignInInput } from '../../src/features/auth/session/types'
+import { MemoryAuthStateStore } from '../../src/features/auth/state/memory'
+import { resolveTotpConfig } from '../../src/features/auth/totp/config'
+import { encryptTotpSecret } from '../../src/features/auth/totp/crypto'
+import { TotpService } from '../../src/features/auth/totp/service'
+import type { TotpRecord, TotpStore } from '../../src/features/auth/totp/types'
 
 afterEach(() => {
   vi.restoreAllMocks()

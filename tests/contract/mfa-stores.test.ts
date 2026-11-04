@@ -4,27 +4,29 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
-import { createMfaAssembly } from '../../src/services/auth/mfa/assembly'
-import { SqliteRecoveryStore } from '../../src/services/auth/recovery/db/sqlite'
-import { recoveryCodeSets as defaultRecoveryTable } from '../../src/services/auth/recovery/schema/sqlite'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
-import { defineAuth } from '../../src/services/auth/session/config'
-import { createTotpFactor } from '../../src/services/auth/totp/assembly'
-import { decryptTotpSecret, encryptTotpSecret } from '../../src/services/auth/totp/crypto'
-import { SqliteTotpStore, sqlTotp } from '../../src/services/auth/totp/db/sqlite'
-import { defineTotp } from '../../src/services/auth/totp/declaration'
-import { totpFactors as defaultFactorsTable } from '../../src/services/auth/totp/schema/sqlite'
-import type { TotpRecord } from '../../src/services/auth/totp/types'
-import { SqliteWebAuthnStore } from '../../src/services/auth/webauthn/db/sqlite'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { createMfaAssembly } from '../../src/features/auth/mfa/assembly'
+import { SqlRecoveryStore } from '../../src/features/auth/recovery/db/sql'
+import { recoveryCodeSets as defaultRecoveryTable } from '../../src/features/auth/recovery/schema/sqlite'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
+import { defineAuth } from '../../src/features/auth/session/config'
+import { createTotpFactor } from '../../src/features/auth/totp/assembly'
+import { defineTotp } from '../../src/features/auth/totp/config'
+import { decryptTotpSecret, encryptTotpSecret } from '../../src/features/auth/totp/crypto'
+import { SqlTotpStore } from '../../src/features/auth/totp/db/sql'
+import { sqlTotp } from '../../src/features/auth/totp/db/sqlite'
+import { totpFactors as defaultFactorsTable } from '../../src/features/auth/totp/schema/sqlite'
+import type { TotpRecord } from '../../src/features/auth/totp/types'
+import { SqlWebAuthnStore } from '../../src/features/auth/webauthn/db/sql'
 import {
   webauthnCredentials as defaultCredentialsTable,
   webauthnSubjects as defaultSubjectsTable,
-} from '../../src/services/auth/webauthn/schema/sqlite'
-import type { WebAuthnRecord } from '../../src/services/auth/webauthn/types'
-import { defineDatabase as definePostgres } from '../../src/services/db/postgres'
-import { defineDatabase } from '../../src/services/db/sqlite'
+} from '../../src/features/auth/webauthn/schema/sqlite'
+import type { WebAuthnRecord } from '../../src/features/auth/webauthn/types'
+import { defineDatabase as definePostgres } from '../../src/features/db/postgres'
+import { defineDatabase } from '../../src/features/db/sqlite'
+import { checkAuthStores } from '../helpers/auth-store-contracts'
 
 describe('MFA SQLite Stores Contract & Concurrency', () => {
   const sqlite = new Database(':memory:')
@@ -71,8 +73,11 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
     CREATE INDEX IF NOT EXISTS webauthn_credentials_sub_idx ON webauthn_credentials(sub);
   `)
 
-  describe('SqliteTotpStore', () => {
-    const store = new SqliteTotpStore(db, defaultFactorsTable)
+  it('shares the SQLite/D1 persistence contract', () =>
+    checkAuthStores(new SqlTotpStore(db), new SqlRecoveryStore(db), new SqlWebAuthnStore(db)))
+
+  describe('SqlTotpStore', () => {
+    const store = new SqlTotpStore(db, defaultFactorsTable)
 
     it('inserts, conditionally advances and removes one encrypted factor', async () => {
       const record: TotpRecord = {
@@ -134,7 +139,7 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
   it('rotates an existing encrypted factor through the real instance maintenance API', async () => {
     const old = { id: 'old', key: new Uint8Array(32).fill(1) }
     const current = { id: 'current', key: new Uint8Array(32).fill(2) }
-    const store = new SqliteTotpStore(db)
+    const store = new SqlTotpStore(db)
     const original: TotpRecord = {
       factorId: 'factor',
       secret: await encryptTotpSecret('JBSWY3DPEHPK3PXP', old, 'rotating', 'factor'),
@@ -156,11 +161,11 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
     const app = await createApp(
       createDefinition({
         services: {
-          totp: factor.maintenance,
-          mfa: createMfaAssembly({ factors: [factor] }),
           auth: createAuthAssembly(
             defineAuth({ secret: 'long-enough-session-signing-secret-for-test' }),
           ),
+          mfa: createMfaAssembly({ factors: [factor] }),
+          totp: factor.maintenance,
         },
       }),
     )
@@ -185,8 +190,8 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
     expect(sqlite.open).toBe(true)
   })
 
-  describe('SqliteRecoveryStore', () => {
-    const store = new SqliteRecoveryStore(db, defaultRecoveryTable)
+  describe('SqlRecoveryStore', () => {
+    const store = new SqlRecoveryStore(db, defaultRecoveryTable)
 
     it('commits initial recovery hashes and updates under revision match', async () => {
       const committed = await store.commit('user_rec_1', null, {
@@ -218,8 +223,8 @@ describe('MFA SQLite Stores Contract & Concurrency', () => {
     })
   })
 
-  describe('SqliteWebAuthnStore', () => {
-    const store = new SqliteWebAuthnStore(db, defaultSubjectsTable, defaultCredentialsTable)
+  describe('SqlWebAuthnStore', () => {
+    const store = new SqlWebAuthnStore(db, defaultSubjectsTable, defaultCredentialsTable)
 
     it('generates and returns stable user handle for same sub', async () => {
       const handle1 = await store.getOrCreateUserHandle('sub_webauthn_1')

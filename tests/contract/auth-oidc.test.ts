@@ -2,11 +2,11 @@ import { HTTPException } from 'hono/http-exception'
 import { sign } from 'hono/jwt'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
 import { defineOAuth, type OAuthProviderConfig } from '../../src/entries/auth/oauth'
-import { defineApp } from '../../src/entries/server'
-import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
+import { defineApp } from '../../src/entries/root'
+import { createOAuthAssembly } from '../../src/features/auth/oauth/assembly'
 
 const secret = 'oauth-transaction-cookie-secret-123456'
 let signingKey: CryptoKey

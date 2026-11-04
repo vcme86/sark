@@ -4,6 +4,6 @@ export {
   type PresignDeclaration,
   type R2PresignConfig,
   type S3PresignConfig,
-} from '../../services/storage/presign'
+} from '../../features/storage/presign'
 
-export { type PresignResult, type PresignOptions } from '../../services/storage/types'
+export { type PresignResult, type PresignOptions } from '../../features/storage/types'

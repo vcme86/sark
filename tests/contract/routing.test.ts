@@ -1,12 +1,12 @@
 import { configureSync, getConfig, type LogRecord, resetSync } from '@logtape/logtape'
 import { describe, expect, it } from 'vitest'
 
-import { createClient } from '../../src/entries/http'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import { createClient } from '../../src/entries/client'
+import { createApp, HttpError, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, HttpError, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import type { RouteDeclaration } from '../../src/http/types'
 import { executeRequest, routeEntry } from '../helpers/http-app'
 
 function entry(source: string, declaration: RouteDeclaration, prefix = '/api'): RouteEntry {
@@ -219,7 +219,7 @@ it('exposes request identity to handlers and records correlated framework errors
     expect(rejected.status).toBe(500)
     expect(records).toHaveLength(1)
     expect(records[0].properties.requestId).toBe(rejected.headers.get('X-Request-Id'))
-    expect(records[0].properties.args).toEqual([{ error: failure }])
+    expect(records[0].properties.error).toBe(failure)
   } finally {
     await app.close()
     if (previous) configureSync({ ...previous, reset: true })

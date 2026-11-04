@@ -6,9 +6,9 @@
 
 import type { ComponentType, ReactNode } from 'react'
 
-import type { BaseDeclaration } from '../core/declaration'
-import type { DefaultApi, HttpClient } from '../http/client/client'
-import type { RouteScope } from '../http/types'
+import type { BaseDeclaration } from '../app/declaration'
+import type { RouteScope } from '../app/http/types'
+import type { DefaultApi, HttpClient } from '../client/client'
 
 /** Display identity for loaders and hydration; API authorization remains server-owned. */
 export interface IdentitySnapshot {

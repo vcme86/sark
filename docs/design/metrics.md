@@ -6,12 +6,12 @@ metrics 是独立可选的 Node Prometheus 服务。它提供应用 Counter/Hist
 
 采用 @prometheus-io/client（原 prom-client）完成计量、Registry、文本格式化和运行时采集。Sark 负责路由模板、请求/任务/WS 计量位置、所有权与端点，不重新实现采集器。[上游客户端](https://github.com/prometheus/client_js)
 
-Workers 本次使用平台日志、请求/CPU/错误观测，不用随机实例的 /metrics 冒充全应用总量，也不为业务计数另建遥测平台。需要 stats 的业务计数与本模块分开。
+Workers 使用平台日志、请求/CPU/错误观测，不用随机实例的 /metrics 冒充全应用总量，也不为业务计数另建遥测平台。需要 stats 的业务计数与本模块分开。
 
 ## 声明
 
 ```ts
-import { defineMetrics } from '@olivaw/sark/metrics'
+import { defineMetrics } from '@olivaw/sark/node'
 
 export const metrics = defineMetrics({
   path: '/metrics',

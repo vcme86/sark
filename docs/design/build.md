@@ -36,7 +36,7 @@ publicDir 直接使用 Vite 的配置解析结果，关闭时不扫描或复制 
 
 ### 配置解析与传递
 
-共同机制见 [configuration.md](configuration.md)。插件入口集中补齐并校验 Sark 工程选项，产生内部已解析配置，再绑定 Vite 最终解析的根目录、base、publicDir 和目标输出信息；Wrangler 配置使用官方接入所选环境的有效结果。apiDir/webDir 的 false 保留关闭含义；URL 前缀在入口规范化，根前缀保留 `/`。
+共同机制见 [configuration.md](configuration.md)。插件入口集中补齐并校验 Sark 工程选项，产生内部已解析配置，再绑定 Vite 最终解析的根目录、base、publicDir 和目标输出信息；Wrangler 的文件读取、环境合并和触发器配置完全由官方接入负责，Sark 不再次读取或保存有效触发表。apiDir/webDir 的 false 保留关闭含义；URL 前缀在入口规范化，根前缀保留 `/`。
 
 发现、生成、开发分发、HMR 和 CLI 直接使用这份结果，不分别补 target、目录或前缀默认值。可独立调用的工程生成入口也经过同一解析流程；框架内部不重复解析原始选项。
 
@@ -95,22 +95,22 @@ OAuth 端点使用 [oauth.md](oauth.md) 的已解析 signInPath/callbackPath，�
 
 ## 按能力生成装配
 
-官方能力各自提供构建期装配信息：声明名、目标限制、必要依赖、运行时导入、请求处理接入与类型推导规则。tooling/build/capabilities 只汇集这些构建信息，不初始化 SDK。
+tooling/build/project.ts 组织发现与生成，generate.ts 根据发现结果检查目标和固定能力组合，在各能力分支集中生成关联的运行时导入、声明绑定、资源、服务与类型。构建过程不初始化 SDK，也不另建能力注册层。
 
 生成过程只选已发现的能力和页面/连接入口，显式导入对应声明与装配函数。驱动入口持有自己的初始化引用，生成器不执行配置来猜驱动。运行核心没有全量能力注册中心。
 
-装配检查各能力的依赖：认证因素需要 session，CF 的认证流程需要满足 MFA 契约的共享状态，health 需要 Node probes，自动 visitor/user/client 去重需要对应身份来源。数据库先于借用者创建，身份解析先于业务执行；用户无须排列导出顺序。
+装配检查各能力的固定组合，生成器在所属能力分支集中收集导入、声明、资源、服务与类型输出，不建设通用能力登记语言。运行时消费生成顺序，不再解释依赖图。组合要求包括：认证因素需要 session，CF 的认证流程需要满足 MFA 契约的共享状态，health 需要 Node probes，自动 visitor/user/client 去重需要对应身份来源。数据库驱动来源沿正常导入、局部别名、namespace 导入及显式再导出追踪；存储组合在所属运行准备入口检查全部 target，再创建 store，不另建存储 AST 解释器。数据库先于借用者创建，身份解析先于业务执行；用户无须排列导出顺序。
 
 ### 目标支持范围与诊断
 
 支持范围由 Sark 选定的接入负责，不等于上游协议或 SDK 的全部适用环境：
 
-- 仅 Node：server/node、assets/node、db/sqlite、db/postgres、storage/local、storage/s3、health、metrics，以及 Node 文件 sink；在 Workers 中启用这些接入时报目标错误
+- 仅 Node：node 的宿主声明、db/sqlite、db/postgres、storage/local、storage/s3，以及 Node 文件 sink；在 Workers 中启用这些接入时报目标错误
 - 仅 Workers：db/d1、storage/r2 的平台 binding 接入；Node 不接受 D1/R2 binding 声明。通过 Node 的 storage/s3 访问 R2 S3 API 属于 S3 兼容后端，不是 R2 binding
 - 两目标共有：HTTP、页面、session、OAuth、visitors、stats 共同契约、TOTP/WebAuthn 与共同认证流程。官方领域 SQL 适配按能力和所借数据库区分，sqlite/postgres 为 Node，d1 为 Workers；auth/state/postgres 的短期状态适配为 Node，auth/state/d1 的短期状态适配为 Workers
 - 平台分别接入：storage/presign 的 Node S3 签名/Workers R2 签名、jobs 的 Node 调度/Workers Scheduled、rateLimit 的 Node 窗口/Workers binding、日志的相应平台输出。完整限制由各专项定义
 
-本次 storage/s3 只交付 Node 接入，不据此宣称 S3 协议或 SDK 天然不能用于 Workers。纯类型导入、纯 schema 导入不算初始化相应驱动。
+storage/s3 只交付 Node 接入，不据此宣称 S3 协议或 SDK 天然不能用于 Workers。纯类型导入、纯 schema 导入不算初始化相应驱动。
 
 storage/presign 只能组合到对应目标的对象存储声明：Node 的 storage/s3 使用 AWS SDK v3 预签名并复用所属客户端，Workers 的 storage/r2 使用 AWS S3RequestPresigner 和平台 SHA-256 实现生成预签名；storage/local 不支持预签名。未声明时不生成签名实现或加载签名代码，Workers 的 R2 预签名不引入 storage/s3 运行代码。配置约束见 [storage.md](storage.md)。
 
@@ -135,9 +135,9 @@ storage/presign 只能组合到对应目标的对象存储声明：Node 的 stor
 
 app.ts 导出同版本内部 createDefinition 产生的 definition。导入本身不连接数据库、不打开日志或执行任务。标准入口和公开 createApp 使用同一个定义。应用测试与自定义宿主传递生成定义，不手写 AssemblyInput。
 
-AppDefinition 描述生成定义，Api 描述 endpoint 的精确类型，server 导出的 AppInstance 描述 createApp 返回实例。启用 session 时，生成声明再导出 RequestAuth。默认客户端注册在 @olivaw/sark/http；client 从 http 复用，不能维护第二份 Register。
+AppDefinition 描述生成定义，Api 描述 endpoint 的精确类型，包根导出的 AppInstance 描述 createApp 返回实例。启用 session 时，生成声明再导出 RequestAuth。API 的 Register 由 @olivaw/sark/client 提供，page 的 useClient 和 Loader 复用同一类型注册，不维护第二份 Register。
 
-配置回调只引用 resources-types 和底层契约，services-types 随后合成。server 的类型注册与 HTTP 注册分别声明资源/服务和 Api，不让 Db 通过 client 注册反向推导自身。
+配置回调只引用 resources-types 和底层契约，services-types 随后合成。包根与 client 的 Register 分别声明资源/服务和 Api，不让 Db 通过 client 注册反向推导自身。
 
 声明的环境类型规则由 [application.md](application.md) 定义。resources-types 引用选中声明并提取工厂输入，按能力展开具名集合，合成环境交集；生成的 definition 保留要求。无工厂时 env 可省，有工厂时 createApp 必须收到满足交集的环境。Node 标准入口传原始 ProcessEnv，Workers 使用所选项目的 Wrangler Env；类型检查必须覆盖真实入口对 createApp 的调用，不以断言消除不兼容。
 
@@ -149,9 +149,9 @@ AppDefinition 描述生成定义，Api 描述 endpoint 的精确类型，server 
 
 Vite manifest 提供 chunk、CSS 与依赖。SSR 按实际路由和模块依赖收集样式，客户端导航准备目标模块与 CSS。普通 CSS/CSS Modules 沿 Vite 处理。
 
-浏览器导入 Node 内置模块、数据库、服务端配置或协议验证 SDK 时，构建报出导入链。纯 API 生产入口不得解析 React/页面初始化；独立 http 入口不得提前加载 client 的 React 聚合。
+浏览器导入 Node 内置模块、服务端包根、宿主声明、数据库、服务端能力配置或协议验证 SDK 时，构建报出导入链；visitors 的纯声明与浏览器助手可以从同一入口导入，WebAuthn 浏览器 SDK 使用独立入口。纯 API 生产入口与独立 client 入口不加载 React 或页面运行设施。
 
-page 公开入口只包含同构信号、类型和纯声明构造，Loader/浏览器可安全导入；不从中导入应用 app.ts 或服务初始化。沿上述导入链检查验证该入口，不另建模块扫描系统。
+page 公开入口聚合 definePage、React 组件、Hooks、同构信号与类型，供服务端页面声明、Loader 和浏览器使用；导入声明时也加载 React，但不加载应用 app.ts、秘密配置、驱动或服务初始化。page/cache 是独立的服务端入口，runtime/page-browser 仅供生成的浏览器装配使用。沿实际导入链验证边界，不另建模块扫描系统。
 
 ## Node 构建与启动
 
@@ -166,7 +166,7 @@ dist/
 └── manifest.json            有页面时的资源清单
 ```
 
-start.ts 编译为 server.mjs，先加载 Node 环境，再动态导入应用定义，调用 createApp 完成声明解析与资源创建。Node 宿主复用本次 runtime 解析结果，将有效 port/hostname 传给 Hono 的监听器并安装信号，不重复执行 runtime 工厂。监听字段按 [application.md](application.md) 的优先级处理；Vite 开发监听仍由 Vite 的 server 配置管理。服务端打包保留这条求值边界，不把配置模块提前内联求值；否则对象配置读取环境的时机会错误。server/ 中的私有 chunk 不进入浏览器静态文件清单。
+start.ts 编译为 server.mjs，先加载 Node 环境，再动态导入应用定义，先准备 Node runtime/health，再调用 createApp 完成应用声明解析与资源创建；开发与生产采用相同顺序。Node 宿主复用本次 runtime 解析结果，将有效 port/hostname 传给 Hono 的监听器并安装信号，不重复执行 runtime 工厂。监听字段按 [application.md](application.md) 的优先级处理；Vite 开发监听仍由 Vite 的 server 配置管理。服务端打包保留这条求值边界，不把配置模块提前内联求值；否则对象配置读取环境的时机会错误。server/ 中的私有 chunk 不进入浏览器静态文件清单。
 
 运行产物不依赖 Vite。外置运行依赖与原生驱动必须随部署安装，不能把未打包误当成不需要。
 
@@ -176,7 +176,7 @@ start.ts 编译为 server.mjs，先加载 Node 环境，再动态导入应用定
 
 ## Workers 构建与启动
 
-CF 目标复用 @cloudflare/vite-plugin，在 workerd 内开发和预览。配置使用同一份 Wrangler，main 指向生成的 .build/worker.ts，插件使用 ssr 环境；Sark 在所需入口解析前完成生成。
+CF 目标复用 @cloudflare/vite-plugin，在 workerd 内开发和预览。配置使用同一份 Wrangler，main 指向生成的 .build/worker.ts，插件使用 ssr 环境；Sark 在所需入口解析前完成生成。Sark 不声明 Wrangler peer；开发验证保留 Wrangler 以满足官方 Vite 插件的 peer，应用按该插件要求安装平台工具。
 
 ```ts
 import { cloudflare } from '@cloudflare/vite-plugin'
@@ -184,11 +184,13 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 plugins: [react(), sark({ target: 'cloudflare' }), cloudflare({ viteEnvironment: { name: 'ssr' } })]
 ```
 
-Wrangler 是 compatibility_date、bindings、secrets、triggers.crons 的唯一来源。构建环境选择采用官方插件的 CLOUDFLARE_ENV 规则；检查使用所选环境的有效配置，不只读取顶层原文。
+Wrangler 是 compatibility_date、bindings、secrets、triggers.crons 的唯一来源。构建环境选择与有效配置解析采用官方插件的 CLOUDFLARE_ENV 规则，Sark 不再次读取文件或自行合并环境。
 
 Worker 输出目录及生成的 wrangler.json 以官方插件结果为准，不生成供 node 执行的 server.mjs。浏览器公开文件通过插件接入平台静态资源服务，不在 Worker 读取本地 dist 目录。部署与预览使用构建生成的 Wrangler 配置，sark start 仅用于 Node。
 
-Scheduled 映射逐项核对有效 crons：每个配置触发有处理任务，每个 onCron 有实际触发。相同 cron 可派发多个具名任务；未知运行事件报告配置错误。不改写 CF 星期和 UTC 语义。
+CF 默认采用原生静态资源优先路由，静态命中不进入应用 Worker。构建只向 Worker 提供页面所需的浏览器入口和 CSS 信息，不嵌入静态文件分发表。响应头默认值通过 client 输出的原生 `_headers` 交付；应用提供该文件时整份优先，具体规则见 [assets.md](assets.md)。不在 Worker 包装静态响应，也不为头规则执行 app 工厂或重新读取 Wrangler。非根 base 的原生接入见 [deployment.md](deployment.md)。
+
+Scheduled 的应用索引来自任务 onCron，平台投递来自 Wrangler。Sark 不全量对照两张表；静态可知的声明目标错误在生成时诊断，运行声明在事件准备时解析，实际收到的未知 cron 报错。相同 cron 可派发多个具名任务，不改写 CF 星期和 UTC 语义。
 
 ## 开发替换与类型检查
 

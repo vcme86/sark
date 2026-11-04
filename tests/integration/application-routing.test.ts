@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { createServer } from 'vite'
 import { expect, it, vi } from 'vitest'
 
-import { createApp } from '../../src/entries/server'
-import { createClient } from '../../src/http/client/client'
+import { createClient } from '../../src/client/client'
+import { createApp } from '../../src/entries/root'
 import { type NavigationHost, PageController } from '../../src/page/browser/controller'
 import { generateProject } from '../../src/tooling/build/project'
 import { createProject, serverUrl, viteEntry } from '../helpers/project'
@@ -15,7 +15,7 @@ it('loads development server environment files from the resolved Vite envDir', a
   project.write('config/.env.development', `${key}=local-value`)
   project.write(
     'app.ts',
-    `import { defineApp } from '@olivaw/sark/server'
+    `import { defineApp } from '@olivaw/sark'
 export const app = defineApp(env => {
   if (typeof env[${JSON.stringify(key)}] !== 'string') throw new Error('development value missing')
   return { headers: { 'X-Environment': env[${JSON.stringify(key)}] } }
@@ -23,7 +23,7 @@ export const app = defineApp(env => {
   )
   project.write(
     'api/ping.get.ts',
-    "import { route } from '@olivaw/sark/server'; export default route().handler(() => ({ ok: true }))",
+    "import { route } from '@olivaw/sark'; export default route().handler(() => ({ ok: true }))",
   )
   project.write(
     'vite.config.mts',
@@ -59,7 +59,7 @@ it('uses the trusted public origin for page data and browser bootstrap behind a 
   const project = createProject()
   project.write(
     'app.ts',
-    "import { defineApp } from '@olivaw/sark/server'; export const app = defineApp({ trustedProxies: ['loopback'] })",
+    "import { defineApp } from '@olivaw/sark'; export const app = defineApp({ trustedProxies: ['loopback'] })",
   )
   project.write(
     'app/index.tsx',
@@ -141,7 +141,7 @@ it('orders API and website routes by their complete mounted paths', async () => 
   project.write('app.ts', '')
   project.write(
     'api/[id]/edit.get.ts',
-    "import { route } from '@olivaw/sark/server'; export default route().handler(() => ({ selected: 'specific-api' }))",
+    "import { route } from '@olivaw/sark'; export default route().handler(() => ({ selected: 'specific-api' }))",
   )
   project.write(
     'app/site/[section]/[id].tsx',
@@ -168,7 +168,7 @@ it('serves ordinary non-ASCII static route segments through API and website rout
   project.write('app.ts', '')
   project.write(
     'api/你好.get.ts',
-    "import { route } from '@olivaw/sark/server'; export default route().handler(() => ({ greeting: true }))",
+    "import { route } from '@olivaw/sark'; export default route().handler(() => ({ greeting: true }))",
   )
   project.write('app/文章.tsx', 'export default function Page() { return <h1>文章</h1> }')
   project.write(

@@ -4,5 +4,5 @@
  * @module
  */
 
-export { defineLogging } from '../services/logging/declaration'
-export type { LoggingConfig, LoggingDeclaration } from '../services/logging/types'
+export { defineLogging } from '../features/logging/declaration'
+export type { LoggingConfig, LoggingDeclaration } from '../features/logging/types'

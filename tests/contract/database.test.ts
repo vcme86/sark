@@ -1,15 +1,15 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 
-import { assembleApp } from '../../src/core/create'
+import { assembleApp } from '../../src/app/create'
+import type { RouteDeclaration } from '../../src/app/http/types'
 import { defineDatabase as defineD1 } from '../../src/entries/db/d1'
 import { defineDatabase as definePostgres } from '../../src/entries/db/postgres'
 import { defineDatabase as defineSqlite } from '../../src/entries/db/sqlite'
+import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route } from '../../src/entries/server'
+import { resolvePostgresConfig } from '../../src/features/db/postgres'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteDeclaration } from '../../src/http/types'
-import { resolvePostgresConfig } from '../../src/services/db/postgres'
 
 const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),

@@ -23,7 +23,7 @@ export const webauthn = defineWebAuthn({
 
 WebAuthn 请求操作统一挂载在 ctx.var.webauthn，沿当前请求的身份、取消及响应 Cookie 生命周期执行，不提供无请求身份的注册或登录服务。
 
-rpId、rpName 及 origins 的必需环境值可以为 undefined，由所属配置入口验证；解析结果仍保证有效 RP 与非空来源列表。
+rpId、rpName 及 origins 的必需环境值可以为 undefined，由所属配置入口验证；解析结果仍保证有效 RP 与非空来源列表。HTTP(S) 来源由标准 URL 解析，只接受源或根路径形式，拒绝凭据、业务路径、查询和片段，并规范为 origin；非 Web 来源标识保持原值。RP 关系、安全上下文、Related Origins 与凭据证明继续由浏览器和 SimpleWebAuthn 验证，不另建协议规则。
 
 loadAccountLabel 由应用返回 { userName, displayName }。两者来自服务端账户资料，不从浏览器提交名称决定主体。store、rpId、rpName、非空 origins 和 user 映射必需；需要第一方 session 与共同 MFA。
 
@@ -125,7 +125,7 @@ auth/webauthn/sqlite、auth/webauthn/postgres、auth/webauthn/d1 导出 sqlWebAu
 
 BLOB/BYTEA 与 Uint8Array 无损往返，使用上游前先转换 ORM 返回的原生字节视图；不把 JSON 数字数组或 Buffer 的序列化对象误当公钥。
 
-SQLite/D1 共用 SQLite 表定义，PG 使用独立定义。应用传兼容 Drizzle 表对象可改变物理名，须保留 subjects.sub、subjects.userHandle、credentials.credentialId 各自的唯一约束，并保留凭据主体查询索引；不兼容模型实现 WebAuthnStore。默认表不要求框架用户表或特定用户主键，账户关联政策仍由应用维护。
+SQLite/D1 共用 SQLite 表定义和所属领域查询，直接使用 Drizzle 的同步/异步 SQLite 能力，不另建 SQL 执行抽象；PG 使用独立定义。应用传兼容 Drizzle 表对象可改变物理名，须保留 subjects.sub、subjects.userHandle、credentials.credentialId 各自的唯一约束，并保留凭据主体查询索引；不兼容模型实现 WebAuthnStore。默认表不要求框架用户表或特定用户主键，账户关联政策仍由应用维护。
 
 默认 schema、适配、迁移接入和契约测试随 WebAuthn 一起交付，不把它们推给普通应用。迁移和资源规则沿 [database.md](database.md)。
 

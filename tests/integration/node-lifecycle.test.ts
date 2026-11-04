@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getCurrentScope } from '../../src/core/context'
-import { applicationLifecycles } from '../../src/core/lifecycle'
+import { getCurrentScope } from '../../src/app/context'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import { applicationLifecycles } from '../../src/app/lifecycle'
 import { defineJobs } from '../../src/entries/jobs'
+import { defineNodeRuntime } from '../../src/entries/node'
+import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { startNodeServer } from '../../src/entries/runtime/node'
-import { createApp, defineApp, route } from '../../src/entries/server'
-import { defineNodeRuntime } from '../../src/entries/server/node'
+import { createNodeJobsAssembly } from '../../src/features/jobs/assembly-node'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteDeclaration } from '../../src/http/types'
-import { createNodeJobsAssembly } from '../../src/services/jobs/assembly-node'
 
 const entry = (file: string, declaration: RouteDeclaration) => ({
   routePath: parseApiFilePath(file, '/api')!,
@@ -79,7 +79,7 @@ describe('Node lifecycle integration', () => {
       },
     ])
     const app = await createApp(
-      createDefinition({ jobs, services: { jobs: createNodeJobsAssembly(jobs) } }),
+      createDefinition({ services: { jobs: createNodeJobsAssembly(jobs) } }),
     )
     const host = await startNodeServer(
       app,
@@ -106,7 +106,6 @@ describe('Node lifecycle integration', () => {
     ])
     const app = await createApp(
       createDefinition({
-        jobs,
         services: { jobs: createNodeJobsAssembly(jobs) },
         resources: {
           connection: {

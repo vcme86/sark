@@ -22,7 +22,7 @@ export const storage = {
 - r2：binding 必填，由 env 工厂取得 R2Bucket；可选 publicUrl 表示已配置的公开域名
 - s3：bucket、region 必填，endpoint 用于 S3 兼容服务；凭据与 forcePathStyle 沿 SDK 支持配置，可选 publicUrl
 
-dir、bucket、region、binding 及 Sark 声明的必需签名凭据属性可直接接收可能缺失的环境值；所属入口在创建资源前校验，解析结果保证必需值有效。上游原生 SDK 选项保持其原类型，业务单次操作参数也不因此放宽。
+dir、bucket、region、binding 及 Sark 声明的必需签名凭据属性可直接接收可能缺失的环境值；所属入口在创建资源前校验，解析结果保证必需值有效。上游原生 SDK 选项保持其原类型，业务单次操作参数也不因此放宽。所属运行准备入口先检查全部具名存储的 target 和创建能力，再创建第一项 store；不执行工厂猜测目标，也不承诺构建期跟踪所有存储表达式。
 
 本地 dir 由应用选择，Node 运行根目录只作为相对路径的解析基准，不是文件系统沙箱。存储 key 和上传 filename 的边界是应用选定的目标目录；应用负责目录选择与业务授权，不将请求值直接当作目录配置。
 

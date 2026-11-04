@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createClient, HttpError } from '../../src/entries/http'
+import { createClient, HttpError } from '../../src/entries/client'
+import { createApp, defineApp, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 
 it('always appends relative endpoints, including paths that begin with the base pathname', async () => {

@@ -2,11 +2,11 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { sark } from '@olivaw/sark/vite'
 import { build } from 'vite'
 import { describe, expect, it } from 'vitest'
 
 import { parseApiFilePath } from '../../src/http/path'
-import { sark } from '../../src/tooling/vite'
 import { createProject } from '../helpers/project'
 
 describe('Contract: Built Package Exports', () => {
@@ -30,38 +30,69 @@ describe('Contract: Built Package Exports', () => {
     expect(child.status, child.stderr).toBe(0)
   })
 
-  it('imports @olivaw/sark/server from build output', async () => {
-    const server = await import('@olivaw/sark/server')
-    expect(server.createApp).toBeDefined()
-    expect(server.defineApp).toBeDefined()
-    expect(server.route).toBeDefined()
-    expect(server.HttpError).toBeDefined()
-    expect(server.dedup).toBeDefined()
-    expect(server.getLogger).toBeDefined()
-    expect(server.z).toBeDefined()
-    expect(server.getCookie).toBeDefined()
-    expect(server.setCookie).toBeDefined()
-  })
+  it.each(['', '/client', '/node', '/page', '/visitors'])(
+    'loads the %s entry without unselected SDKs or initialization',
+    (entry) => {
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+import assert from 'node:assert/strict'
+import { registerHooks } from 'node:module'
+const entry = ${JSON.stringify('@olivaw/sark')} + ${JSON.stringify(entry)}
+const optional = ['@aws-sdk/', '@simplewebauthn/', '@otplib/', 'drizzle-orm', 'better-sqlite3', 'postgres', 'openid-client', 'croner']
+registerHooks({ resolve(specifier, context, next) {
+  if (optional.some(name => specifier === name || specifier.startsWith(name.endsWith('/') ? name : name + '/'))) {
+    throw new Error('Unselected dependency loaded by ' + entry + ': ' + specifier)
+  }
+  if (entry !== '@olivaw/sark/page' && (specifier === 'react' || specifier.startsWith('react/') || specifier.startsWith('react-dom'))) {
+    throw new Error('Non-page entry loaded React: ' + entry)
+  }
+  return next(specifier, context)
+} })
+globalThis.fetch = () => { throw new Error('Import performed a network request') }
+const api = await import(entry)
+if (entry.endsWith('/node')) {
+  assert.equal(api.defineAssets([{ path: '/files', dir: './unopened-directory' }]).kind, 'assets')
+  assert.equal(api.defineHealth({ readiness: { business: () => { throw new Error('Declaration ran a check') } } }).kind, 'health')
+  assert.equal(api.defineNodeRuntime({ port: 0 }).value.port, 0)
+}
+`,
+        ],
+        { encoding: 'utf8', timeout: 10000 },
+      )
+      expect(child.status, child.stderr).toBe(0)
+    },
+  )
 
-  it('imports @olivaw/sark/http from build output', async () => {
-    const http = await import('@olivaw/sark/http')
-    expect(http.createClient).toBeDefined()
-    expect(http.HttpError).toBeDefined()
-
-    const client = http.createClient({ baseUrl: 'http://localhost:3000/api' })
-    expect(client.get).toBeDefined()
-    expect(client.post).toBeDefined()
-    expect(client.requestRaw).toBeDefined()
-  })
-
-  it('imports @olivaw/sark/utils from build output', async () => {
-    const utils = await import('@olivaw/sark/utils')
-    expect(utils.parseCookie).toBeDefined()
-    expect(utils.serializeCookie).toBeDefined()
-
-    const parsed = utils.parseCookie('session=abc; theme=dark')
-    expect(parsed.session).toBe('abc')
-    expect(parsed.theme).toBe('dark')
+  it('uses the standalone HTTP client and Cookie helpers from one entry', async () => {
+    const {
+      createClient,
+      HttpError,
+      parseCookie,
+      serializeCookie,
+      parseSignedCookie,
+      serializeSignedCookie,
+    } = await import('@olivaw/sark/client')
+    const client = createClient({
+      baseUrl: 'https://api.example.test/api',
+      fetch: async (request) => {
+        if (new URL(request.url).pathname === '/api/missing')
+          return new HttpError(404, 'Missing').toResponse()
+        return Response.json({ method: request.method, cookie: request.headers.get('Cookie') })
+      },
+    })
+    const cookie = serializeCookie('theme', 'dark')
+    expect(parseCookie(cookie).theme).toBe('dark')
+    expect(await client.get('/settings', { headers: { Cookie: cookie } })).toEqual({
+      method: 'GET',
+      cookie,
+    })
+    await expect(client.get('/missing')).rejects.toBeInstanceOf(HttpError)
+    const signed = await serializeSignedCookie('session', 'reader', 'test-signing-key')
+    expect((await parseSignedCookie(signed, 'test-signing-key')).session).toBe('reader')
   })
 
   it('executes public middleware and Node runtime entries through HTTP', async () => {
@@ -71,12 +102,14 @@ describe('Contract: Built Package Exports', () => {
       { startNodeServer },
       { defineNodeRuntime },
       { cors, csrf, compress },
+      { requireStepUp },
     ] = await Promise.all([
-      import('@olivaw/sark/server'),
+      import('@olivaw/sark'),
       import('@olivaw/sark/runtime/core'),
       import('@olivaw/sark/runtime/node'),
-      import('@olivaw/sark/server/node'),
+      import('@olivaw/sark/node'),
       import('@olivaw/sark/middleware'),
+      import('@olivaw/sark/auth'),
     ])
     const payload = { value: 'A'.repeat(5000) }
     const instance = await createApp(
@@ -93,6 +126,12 @@ describe('Contract: Built Package Exports', () => {
           {
             routePath: parseApiFilePath('ping.all.ts', '/api')!,
             declaration: route().handler(() => payload),
+          },
+          {
+            routePath: parseApiFilePath('sensitive.get.ts', '/api')!,
+            declaration: route({ middleware: [requireStepUp({ maxAge: 60000 })] }).handler(() => ({
+              allowed: true,
+            })),
           },
         ],
       }),
@@ -128,75 +167,58 @@ describe('Contract: Built Package Exports', () => {
       })
       expect(rejected.status).toBe(403)
       expect((await rejected.json()).error.code).toBe('csrf_forbidden')
+      const sensitive = await fetch(`http://127.0.0.1:${host.port}/api/sensitive`)
+      expect(sensitive.status).toBe(403)
+      expect((await sensitive.json()).error.code).toBe('step_up_required')
     } finally {
       await host.close()
     }
   })
 
-  it('imports @olivaw/sark/runtime/core from build output', async () => {
-    const runtimeCore = await import('@olivaw/sark/runtime/core')
-    expect(runtimeCore.createDefinition).toBeDefined()
+  it('renders the public page Link during SSR without a browser or provider', async () => {
+    const { createElement } = await import('react')
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const { definePage, Link, redirect, RedirectSignal } = await import('@olivaw/sark/page')
+    expect(definePage({}).kind).toBe('page')
+    expect(renderToStaticMarkup(createElement(Link, { to: '/articles' }, 'Articles'))).toBe(
+      '<a href="/articles">Articles</a>',
+    )
+    expect(() => redirect('/signin')).toThrow(RedirectSignal)
   })
 
-  it('imports @olivaw/sark/runtime/node from build output', async () => {
-    const runtimeNode = await import('@olivaw/sark/runtime/node')
-    expect(Object.keys(runtimeNode).toSorted()).toEqual(['loadNodeEnv', 'startNodeServer'])
-  })
-
-  it('imports @olivaw/sark/runtime/cloudflare from build output', async () => {
-    const runtimeCf = await import('@olivaw/sark/runtime/cloudflare')
-    expect(Object.keys(runtimeCf).toSorted()).toEqual(['createWorkerHandler'])
-  })
-
-  it('imports @olivaw/sark/vite from build output', async () => {
-    const vite = await import('@olivaw/sark/vite')
-    expect(vite.sark).toBeDefined()
-    const plugin = vite.sark({ target: 'node' })
-    expect(plugin.name).toBe('@olivaw/sark')
-  })
-
-  it('imports @olivaw/sark/page with strictly public non-secret exports', async () => {
-    const page = await import('@olivaw/sark/page')
-    expect(Object.keys(page).toSorted()).toEqual([
-      'NotFoundSignal',
-      'RedirectSignal',
-      'definePage',
-      'notFound',
-      'redirect',
-    ])
-    expect(page).not.toHaveProperty('resolvePageConfig')
-  })
-
-  it('imports @olivaw/sark/client from build output', async () => {
-    const client = await import('@olivaw/sark/client')
-    expect(client.Link).toBeDefined()
-    expect(client.Outlet).toBeDefined()
-    expect(client.useNavigate).toBeDefined()
-    expect(client.useAction).toBeDefined()
-    expect(client.useBlocker).toBeDefined()
-  })
-
-  it('imports @olivaw/sark/auth/session from build output', async () => {
-    const session = await import('@olivaw/sark/auth/session')
-    expect(session.defineAuth).toBeDefined()
-    expect(session.requireStepUp).toBeDefined()
-    expect(session.signToken).toBeDefined()
-    expect(session.verifyToken).toBeDefined()
-    // Internal functions must not be leaked into public entry
+  it('signs and verifies identities through the public auth entry without exposing internals', async () => {
+    const session = await import('@olivaw/sark/auth')
+    const input = { sub: 'reader', ver: 4, roles: ['editor'], claims: { tenant: 'publication' } }
+    const options = {
+      secret: 'public-auth-entry-signing-key-at-least-32-bytes',
+      issuer: 'publication',
+      audience: 'reader',
+      expiresIn: 60000,
+    }
+    const token = await session.signToken(input, options)
+    expect(await session.verifyToken(token, options)).toMatchObject(input)
+    expect(
+      await session.verifyToken(token, {
+        ...options,
+        secret: 'different-auth-entry-signing-key-at-least-32-bytes',
+      }),
+    ).toBeNull()
     expect(session).not.toHaveProperty('createAuthService')
     expect(session).not.toHaveProperty('formatSetCookie')
     expect(session).not.toHaveProperty('resolveAuthConfig')
-  })
-
-  it('imports @olivaw/sark/auth/oauth from build output', async () => {
-    const oauth = await import('@olivaw/sark/auth/oauth')
-    expect(oauth.defineOAuth).toBeDefined()
   })
 })
 
 it.each([
   'db/d1',
-  'auth/session',
+  '',
+  'node',
+  'middleware',
+  'auth',
+  'jobs',
+  'logging',
+  'storage/r2',
+  'vite',
   'auth/oauth',
   'auth/mfa',
   'auth/totp',
@@ -209,7 +231,7 @@ it.each([
   const project = createProject()
   project.write(
     'entry.ts',
-    `import * as capability from '@olivaw/sark/${entry}'; console.log(capability)`,
+    `import * as capability from '@olivaw/sark${entry ? '/' + entry : ''}'; console.log(capability)`,
   )
   try {
     await expect(

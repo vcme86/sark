@@ -44,7 +44,7 @@ identity 是可选的 SSR 映射回调，签名为 `({ client, signal }) => Iden
 
 未配置 identity 时，单体默认将已验证身份的 sub 和可选 roles 映射到 user，无身份则 user=null；不自动生成 displayName。分离模式默认匿名展示快照，API 仍自己认证。应用可通过 identity 或 Loader 数据提供展示名；框架不猜 /me 的名称与响应字段，页面服务不必持有后端 DB/签名密钥。
 
-API 类型通过工程 apiTypes 或独立类型引用交付。浏览器运行时配置只保留公开 API 基址 browserUrl 及 credentials 等必要传输策略；serverUrl、Env、回调和秘密不发送到浏览器。独立 HTTP 消费者可直接使用 http 入口，无须 React。
+API 类型通过工程 apiTypes 或独立类型引用交付。浏览器运行时配置只保留公开 API 基址 browserUrl 及 credentials 等必要传输策略；serverUrl、Env、回调和秘密不发送到浏览器。独立 HTTP 消费者直接使用 client 入口，无须 React。
 
 ## 远端请求与 Cookie 传递
 

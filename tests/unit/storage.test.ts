@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { validateUploadFilename } from '../../src/services/storage/local'
+import { validateUploadFilename } from '../../src/features/storage/local'
 import {
   validateR2PresignConfig,
   validateS3PresignConfig,
-} from '../../src/services/storage/presign-config'
-import { buildPublicUrl, StorageError, validateStorageKey } from '../../src/services/storage/types'
+} from '../../src/features/storage/presign-config'
+import { buildPublicUrl, StorageError, validateStorageKey } from '../../src/features/storage/types'
 
 describe('Storage Unit Tests', () => {
   describe('validateStorageKey', () => {

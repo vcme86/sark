@@ -69,13 +69,17 @@ describe('generated HTTP type contracts', () => {
     const files: Record<string, string> = {
       'app.ts': '',
       'contracts.ts': String.raw`
-import { createClient } from '@olivaw/sark/http'
-import { createApp, defineApp, route, type Context, type MiddlewareHandler } from '@olivaw/sark/server'
+import { createClient } from '@olivaw/sark/client'
+import { createApp, defineApp, route, z, type Context, type MiddlewareHandler } from '@olivaw/sark'
 import { createDefinition } from '@olivaw/sark/runtime/core'
-import { defineNodeRuntime } from '@olivaw/sark/server/node'
+import { defineNodeRuntime } from '@olivaw/sark/node'
 import type { TypedResponse } from 'hono'
 import type { Api } from './.build/app'
 
+// @ts-expect-error A schema factory is not a validation schema.
+route().validate({ json: z.string }).handler(() => null)
+// @ts-expect-error Unknown route option.
+route({ cros: false }).handler(() => null)
 const client = createClient<Api>({ baseUrl: 'https://example.test' })
 const middleware: MiddlewareHandler = async (ctx, next) => {
   const requestId: string = ctx.var.requestId
@@ -230,7 +234,7 @@ void [validChat, invalidChat, comboWsPost, comboSsePost]
     }
     for (const [name, declaration] of Object.entries(routes)) {
       files[`api/${name}.ts`] =
-        `import { route, z } from '@olivaw/sark/server'\nexport default ${declaration}\n`
+        `import { route, z } from '@olivaw/sark'\nexport default ${declaration}\n`
     }
     const result = await checkGeneratedTypes(files)
     expect(result.status, result.output).toBe(0)
@@ -242,10 +246,10 @@ void [validChat, invalidChat, comboWsPost, comboSsePost]
       const result = await checkGeneratedTypes(
         {
           'app.ts': '',
-          'api/items.[id].get.ts': `import { route, z } from '@olivaw/sark/server'
+          'api/items.[id].get.ts': `import { route, z } from '@olivaw/sark'
 export default route().validate({ params: z.object({ id: z.string() }) }).handler(() => ({ ok: true as const }))`,
-          'contracts.ts': `import { createClient } from '@olivaw/sark/http'
-import { useClient } from '@olivaw/sark/client'
+          'contracts.ts': `import { createClient } from '@olivaw/sark/client'
+import { useClient } from '@olivaw/sark/page'
 import type { ActionArgs, LoaderArgs } from '@olivaw/sark/page'
 const client = createClient()
 const result: Promise<{ ok: true }> = client.get('/items/:id', { params: { id: '1' } })
@@ -281,11 +285,11 @@ function checkPageClients(loader: LoaderArgs<{ id: string }>, action: ActionArgs
     try {
       project.write(
         'contracts.ts',
-        `import { createClient } from '../../src/entries/http'
-import { useClient } from '../../src/entries/client'
+        `import { createClient } from '../../src/entries/client'
+import { useClient } from '../../src/entries/page'
 import type { ActionArgs, LoaderArgs } from '../../src/entries/page'
 
-declare module '../../src/entries/http' {
+declare module '../../src/entries/client' {
   interface Register {
     api: { '/items/:id': { GET: { input: { params: { id: string } }; output: { ok: true } } } }
   }
@@ -323,9 +327,9 @@ function checkClients(loader: LoaderArgs<{ id: string }>, action: ActionArgs<{ i
       const result = await checkGeneratedTypes({
         'app.ts':
           declaration === 'app'
-            ? `import { defineApp } from '@olivaw/sark/server'
+            ? `import { defineApp } from '@olivaw/sark'
 export const app = defineApp((env: { REQUIRED_HOST: string }) => ({ hosts: env.REQUIRED_HOST }))`
-            : `import { defineNodeRuntime } from '@olivaw/sark/server/node'
+            : `import { defineNodeRuntime } from '@olivaw/sark/node'
 export const runtime = defineNodeRuntime((env: { REQUIRED_PORT: string }) => ({ port: Number(env.REQUIRED_PORT) }))`,
       })
       expect(result.status).not.toBe(0)
@@ -339,7 +343,7 @@ export const runtime = defineNodeRuntime((env: { REQUIRED_PORT: string }) => ({ 
     async (compatible) => {
       const result = await checkGeneratedTypes(
         {
-          'app.ts': `import { defineApp } from '@olivaw/sark/server'
+          'app.ts': `import { defineApp } from '@olivaw/sark'
 export const app = defineApp((env: { REQUIRED_BINDING: string }) => ({ headers: { 'X-Binding': env.REQUIRED_BINDING } }))`,
           'worker-configuration.d.ts': `declare global { interface Env { ${compatible ? 'REQUIRED_BINDING' : 'OTHER_BINDING'}: string } }
 export {}`,

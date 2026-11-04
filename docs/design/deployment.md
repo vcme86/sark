@@ -122,7 +122,7 @@ SIGTERM/SIGINT 进入 draining，readiness 立即 503，停止新业务和触发
   "name": "example",
   "main": "./.build/worker.ts",
   "compatibility_date": "2026-10-01",
-  "assets": { "binding": "ASSETS", "run_worker_first": true, "html_handling": "none" },
+  "assets": { "html_handling": "none" },
   "d1_databases": [{ "binding": "DB", "database_name": "example", "database_id": "<database-id>" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "example-files" }],
   "triggers": { "crons": ["0 3 * * *"] },
@@ -131,7 +131,25 @@ SIGTERM/SIGINT 进入 draining，readiness 立即 503，停止新业务和触发
 
 这是同时使用页面/DB/文件/任务的示例，未选能力删除相应 binding。日期由应用锁定并在目标验证；AsyncLocalStorage 按对应日期的支持和必要标记处理，不机械添加整个 Node 兼容层。
 
-静态构建文件由生成的实际清单分流到 ASSETS，业务路由走 Worker；不把任意 API 404 重写成 SPA index.html。Vite 插件负责输出资源目录和生成部署配置，应用不手写 Node dist 路径来模拟平台文件系统。
+静态构建文件使用平台默认的静态资源优先路由，匹配文件时直接交付，未匹配时进入 Worker 处理 SSR 页面与 API；不把 API 404 重写成 SPA index.html。官方 Vite 插件负责 client 输出目录和部署配置，无须手写 assets.directory，也不必声明框架不使用的 ASSETS binding。
+
+静态直接交付不占用用户 Worker 调用额度；动态请求仍按平台规则计费。框架不为了应用日志、请求 ID 或动态头把静态请求送入 Worker。静态响应策略使用原生 `_headers`，规则与覆盖方式见 [assets.md](assets.md)。[Worker 路由](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/)、[静态资源计费](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)
+
+设置 `run_worker_first: true`，或让资源路径命中 Worker-first 模式，会调用用户 Worker 并占用其额度；静态路径的否定模式保留平台直接交付。
+
+Vite base 非根路径时，原生 assets.base_path 使用同一公开前缀。例如资源位于 `/resources/`、页面和 API 位于该前缀之外：
+
+```jsonc
+{
+  "assets": {
+    "base_path": "/resources",
+    "run_worker_first": ["/*", "!/resources/*"],
+    "html_handling": "none",
+  },
+}
+```
+
+该原生分流让资源路径直接进入静态服务，其余路径进入 Worker，也避免 Vite 开发服务器把前缀外的动态请求当作资源 base 错误。资源前缀用于公开文件，不与动态路由共占；根 base 沿默认静态优先规则，无须全量 Worker-first。base_path 与 Vite base 可在 Vite 配置中使用同一常量，通过官方插件的 config 选项交付，不增加另一套 Sark 平台配置或修改官方插件内部状态。[原生子路径挂载](https://developers.cloudflare.com/workers/static-assets/routing/advanced/serving-a-subdirectory/)
 
 `html_handling: "none"` 保留 publicDir 中 HTML 文件的原始 URL，避免平台去除 `.html` 后跳转到未注册的页面路径。
 

@@ -111,7 +111,7 @@ export const database = { dummy: true }
 
         const typesDtsCode = readFileSync(join(genDir, 'types.d.ts'), 'utf-8')
         expect(typesDtsCode).toContain('resources: Resources')
-        expect(typesDtsCode).toContain("declare module '@olivaw/sark/server'")
+        expect(typesDtsCode).toContain("declare module '@olivaw/sark'")
       } finally {
         rmSync(testDir, { recursive: true, force: true })
       }

@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { type ClientOptions, createClient } from '../../src/entries/http'
+import { type ClientOptions, createClient } from '../../src/entries/client'
+import { createApp, defineApp, route, setCookie } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, setCookie } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 
 afterEach(() => {

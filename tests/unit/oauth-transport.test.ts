@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { resolveOAuthProviders } from '../../src/services/auth/oauth/config'
-import { fetchGitHubProfile } from '../../src/services/auth/oauth/providers/github'
-import { exchangeWeChatCode } from '../../src/services/auth/oauth/providers/wechat'
+import { resolveOAuthProviders } from '../../src/features/auth/oauth/config'
+import { fetchGitHubProfile } from '../../src/features/auth/oauth/providers/github'
+import { exchangeWeChatCode } from '../../src/features/auth/oauth/providers/wechat'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -102,7 +102,7 @@ it.each([
       'fetch',
       vi.fn(async () => Response.json({ errcode })),
     )
-    const { isAuthorizationFailure } = await import('../../src/services/auth/oauth/error')
+    const { isAuthorizationFailure } = await import('../../src/features/auth/oauth/error')
     await expect(
       exchangeWeChatCode(
         provider('wechat'),

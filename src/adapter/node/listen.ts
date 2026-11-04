@@ -5,22 +5,20 @@
  */
 
 import { serve, type ServerType } from '@hono/node-server'
-import { Hono, type MiddlewareHandler } from 'hono'
-import { compress as honoCompress } from 'hono/compress'
 
-import type { RequiresEnv } from '../../core/declaration'
-import { applicationLifecycles } from '../../core/lifecycle'
-import { getLogger } from '../../core/logging'
-import type { AppInstance } from '../../core/types'
+import type { RequiresEnv } from '../../app/declaration'
+import { applicationLifecycles } from '../../app/lifecycle'
+import { getLogger } from '../../app/logging'
+import type { AppInstance } from '../../app/types'
 import type { StaticAssets } from '../../http/assets'
-import type { ResolvedCompressionOptions } from '../../http/compression'
-import { requestCompressionPolicies } from '../../http/middleware/compress'
-import { cors } from '../../http/middleware/cors'
-import { applyResponseHeaders } from '../../http/server/request-context'
+import { createNodeDeliveryApp } from './app'
 import { waitUntil } from './deadline'
-import { mountNodeProbes } from './probes'
-import { type NodeRuntimeDeclaration, resolveNodeRuntime } from './runtime'
-import { createNodeStaticHandler } from './static'
+import { bindNodeDelivery } from './delivery'
+import {
+  type NodeRuntimeDeclaration,
+  type PreparedNodeRuntime,
+  prepareNodeRuntime,
+} from './runtime'
 
 /** Controller handle exposing the running Node.js HTTP server and shutdown trigger. */
 export interface NodeServerControl {
@@ -91,51 +89,39 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
 ): Promise<NodeServerControl> {
   const env = args[0] ?? process.env
   try {
-    const config = resolveNodeRuntime(runtimeDecl, env)
-    applicationLifecycles.get(instance)!.configureShutdown(config.shutdown)
-
-    const deliveryApp = new Hono()
-
-    // Probes bypass business admission and compression, including during draining.
-    mountNodeProbes(deliveryApp, instance, config.probes, env)
-
-    const compressors = new WeakMap<ResolvedCompressionOptions, MiddlewareHandler>()
-    deliveryApp.use('*', async (ctx, next) => {
-      await next()
-      const override = requestCompressionPolicies.get(ctx.req.raw)
-      const policy = override === undefined ? config.compress : override
-      if (policy === false || ctx.req.header('range')) return
-      if (ctx.res.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) return
-
-      let compressor = compressors.get(policy)
-      if (!compressor) {
-        compressor = honoCompress(policy)
-        compressors.set(policy, compressor)
-      }
-      return compressor(ctx, async () => {})
-    })
-
-    const build = args[1]
-    if (build) {
-      const staticHandler = createNodeStaticHandler({
-        rootDir: build.rootDir,
-        assets: build.assets,
-      })
-      const staticCors = instance.config.cors === false ? undefined : cors(instance.config.cors)
-      deliveryApp.use('*', async (ctx, next) => {
-        if (ctx.req.method === 'GET' || ctx.req.method === 'HEAD') {
-          const staticRes = await staticHandler(ctx.req.raw)
-          if (staticRes) {
-            ctx.res = ctx.newResponse(staticRes.body, staticRes)
-            if (staticCors) await staticCors(ctx, async () => {})
-            return applyResponseHeaders(ctx.res, instance.config, crypto.randomUUID())
-          }
-        }
-        return next()
+    const config = prepareNodeRuntime(instance.definition, runtimeDecl, env)
+    // The prepared entry owns asynchronous startup failures; this boundary owns preparation failures.
+    return listenNodeServer(instance, config, args[1])
+  } catch (error) {
+    try {
+      await instance.close()
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Node preparation and cleanup failed', {
+        cause: cleanupError,
       })
     }
+    throw error
+  }
+}
 
-    deliveryApp.all('*', (ctx) => instance.fetch(ctx.req.raw, ctx.env))
+/**
+ * Starts delivery from prepared settings without evaluating configuration again.
+ *
+ * @param instance - Ready application whose resources this host closes on startup failure or shutdown.
+ * @param config - Runtime and health settings prepared before application creation.
+ * @param build - Optional deployed public resource mapping and output root.
+ * @returns Listener control with the actual bound port and shared close operation.
+ * @throws If probes, WebSocket support, or listening fail; cleanup failures are aggregated.
+ */
+export async function listenNodeServer(
+  instance: AppInstance<any>,
+  config: PreparedNodeRuntime,
+  build?: NodeBuildAssets,
+): Promise<NodeServerControl> {
+  try {
+    applicationLifecycles.get(instance)!.configureShutdown(config.shutdown)
+
+    const deliveryApp = createNodeDeliveryApp(instance, config, build)
 
     const hasWs = instance.definition.routes.some(
       (r: { routePath: { isWs?: boolean } }) => r.routePath.isWs,
@@ -155,7 +141,10 @@ export async function startNodeServer<R extends NodeRuntimeDeclaration | undefin
       const onError = (error: Error) => reject(error)
       serverInstance = serve(
         {
-          fetch: (request, serverEnv) => deliveryApp.fetch(request, serverEnv),
+          fetch: (request, serverEnv) => {
+            bindNodeDelivery(request, serverEnv)
+            return deliveryApp.fetch(request, serverEnv)
+          },
           port: config.port,
           hostname: config.hostname,
         },

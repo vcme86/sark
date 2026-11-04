@@ -4,19 +4,19 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { PostgresRecoveryStore } from '../../src/services/auth/recovery/db/postgres'
-import { recoveryCodeSets } from '../../src/services/auth/recovery/schema/postgres'
-import { PostgresAuthStateStore, sqlAuthState } from '../../src/services/auth/state/postgres'
-import { authAttemptWindows, authChallenges } from '../../src/services/auth/state/schema/postgres'
-import type { AuthFlow } from '../../src/services/auth/state/types'
-import { PostgresTotpStore } from '../../src/services/auth/totp/db/postgres'
-import { totpFactors } from '../../src/services/auth/totp/schema/postgres'
-import { PostgresWebAuthnStore } from '../../src/services/auth/webauthn/db/postgres'
+import { PostgresRecoveryStore } from '../../src/features/auth/recovery/db/postgres'
+import { recoveryCodeSets } from '../../src/features/auth/recovery/schema/postgres'
+import { PostgresAuthStateStore, sqlAuthState } from '../../src/features/auth/state/postgres'
+import { authAttemptWindows, authChallenges } from '../../src/features/auth/state/schema/postgres'
+import type { AuthFlow } from '../../src/features/auth/state/types'
+import { PostgresTotpStore } from '../../src/features/auth/totp/db/postgres'
+import { totpFactors } from '../../src/features/auth/totp/schema/postgres'
+import { PostgresWebAuthnStore } from '../../src/features/auth/webauthn/db/postgres'
 import {
   webauthnCredentials,
   webauthnSubjects,
-} from '../../src/services/auth/webauthn/schema/postgres'
-import { defineDatabase } from '../../src/services/db/postgres'
+} from '../../src/features/auth/webauthn/schema/postgres'
+import { defineDatabase } from '../../src/features/db/postgres'
 import { postgresTableMetadata } from '../helpers/auth-schema'
 
 const url = process.env.SARK_TEST_POSTGRES_URL

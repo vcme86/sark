@@ -3,16 +3,16 @@ import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { AuthFacts } from '../../src/services/auth/contracts'
-import { resolveMfaConfig } from '../../src/services/auth/mfa/config'
-import { MfaService } from '../../src/services/auth/mfa/service'
-import { MemoryAuthStateStore } from '../../src/services/auth/state/memory'
-import { resolveWebAuthnConfig } from '../../src/services/auth/webauthn/config'
-import { SqliteWebAuthnStore } from '../../src/services/auth/webauthn/db/sqlite'
+import type { AuthFacts } from '../../src/features/auth/contracts'
+import { resolveMfaConfig } from '../../src/features/auth/mfa/config'
+import { MfaService } from '../../src/features/auth/mfa/service'
+import { MemoryAuthStateStore } from '../../src/features/auth/state/memory'
+import { resolveWebAuthnConfig } from '../../src/features/auth/webauthn/config'
+import { SqlWebAuthnStore } from '../../src/features/auth/webauthn/db/sql'
 import {
   authenticationCredentialId,
   WebAuthnService,
-} from '../../src/services/auth/webauthn/service'
+} from '../../src/features/auth/webauthn/service'
 import { createCredential } from '../helpers/webauthn'
 
 const close: Array<() => void> = []
@@ -26,7 +26,7 @@ async function fixture(identityResolver?: (sub: string) => Promise<{ sub: string
   close.push(() => sqlite.close())
   sqlite.exec(`CREATE TABLE webauthn_subjects (sub TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL);
     CREATE TABLE webauthn_credentials (credential_id TEXT PRIMARY KEY, sub TEXT NOT NULL, user_handle TEXT NOT NULL, public_key BLOB NOT NULL, counter INTEGER NOT NULL, transports TEXT, device_type TEXT, backed_up INTEGER NOT NULL, revision TEXT NOT NULL, created_at INTEGER NOT NULL);`)
-  const store = new SqliteWebAuthnStore(drizzle(sqlite))
+  const store = new SqlWebAuthnStore(drizzle(sqlite))
   const state = new MemoryAuthStateStore()
   const config = resolveWebAuthnConfig({
     rpId: 'auth.example.com',

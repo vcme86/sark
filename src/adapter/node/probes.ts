@@ -6,14 +6,23 @@
 
 import type { Hono } from 'hono'
 
-import { getApplicationRoutes } from '../../core/context'
-import type { AppDefinition } from '../../core/definition'
-import { applicationLifecycles } from '../../core/lifecycle'
-import type { AppInstance } from '../../core/types'
-import { requestContext } from '../../http/server/request-context'
-import { resolveHealthConfig } from '../../services/health/declaration'
-import { createHealthCheckRunner } from '../../services/health/runner'
-import type { HealthDeclaration, ResolvedHealthConfig } from '../../services/health/types'
+import { getApplicationRoutes } from '../../app/context'
+import type { AppDefinition } from '../../app/definition'
+import { publicRequest } from '../../app/http/public'
+import { applicationLifecycles } from '../../app/lifecycle'
+import { applicationLogging } from '../../app/logging'
+import type { AppInstance } from '../../app/types'
+/** Checks prepared before resources open, bound only after the instance is ready. */
+export interface PreparedHealthChecks {
+  readonly auth?: (request: Request) => boolean | Promise<boolean>
+  createRunner(
+    resources: () => Record<string, unknown>,
+    lifecycle: { beginWork: () => void; endWork: () => void; isDraining: () => boolean },
+  ): { runReadiness(): Promise<{ ok: boolean; failed: string[] }> }
+}
+
+/** Domain preparation selected by generated Node applications. */
+export type HealthPreparation = (env: unknown, enabled: boolean) => PreparedHealthChecks
 
 /**
  * Mounts probes outside business admission.
@@ -26,29 +35,16 @@ import type { HealthDeclaration, ResolvedHealthConfig } from '../../services/hea
  * @param hono - Delivery layer Hono application.
  * @param instance - Active Sark application instance with assembled route metadata.
  * @param probesConfig - Configured endpoint paths or `false` to disable probes.
- * @param env - Host environment for declaration evaluation.
+ * @param healthConfig - Prepared domain checks and authorization policy.
  * @throws If an enabled probe conflicts with a business endpoint.
  */
 export function mountNodeProbes(
   hono: Hono<any>,
   instance: AppInstance<AppDefinition>,
   probesConfig: false | { liveness: string; readiness: string },
-  env: unknown = process.env,
+  healthConfig?: PreparedHealthChecks,
 ): void {
-  const healthDecl = (instance.definition as unknown as { health?: HealthDeclaration }).health
-  if (probesConfig === false) {
-    if (healthDecl) {
-      throw new Error(
-        'Configuration conflict: health checks declared while runtime.probes is disabled.',
-      )
-    }
-    return
-  }
-
-  let healthConfig: ResolvedHealthConfig | undefined
-  if (healthDecl) {
-    healthConfig = resolveHealthConfig(healthDecl, env)
-  }
+  if (probesConfig === false) return
 
   const { liveness, readiness } = probesConfig
   const normalize = (path: string) => {
@@ -73,15 +69,11 @@ export function mountNodeProbes(
     }
   }
 
-  const context = requestContext(
-    () => instance.config,
-    () => instance,
-  )
+  const context = publicRequest(instance.config, applicationLogging.get(instance), instance)
 
   const lifecycle = applicationLifecycles.get(instance)
   const runner = healthConfig
-    ? createHealthCheckRunner(
-        healthConfig,
+    ? healthConfig.createRunner(
         () => {
           const declared = instance.definition.resources ?? {}
           const result: Record<string, unknown> = {}

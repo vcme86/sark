@@ -10,8 +10,10 @@ import {
   createNodeWebSocketBridge,
   type NodeWebSocketBridge,
 } from '../../src/adapter/node/websocket'
-import { getCurrentScope, getRequestId } from '../../src/core/context'
-import { createDefinition } from '../../src/entries/runtime/core'
+import { getCurrentScope, getRequestId } from '../../src/app/context'
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { RouteDeclaration, Socket, SseDeclaration } from '../../src/app/http/types'
+import { getWsUpgradeState } from '../../src/app/http/websocket'
 import {
   createApp,
   defineApp,
@@ -19,11 +21,9 @@ import {
   route,
   SOCKET_READY_STATE,
   z,
-} from '../../src/entries/server'
+} from '../../src/entries/root'
+import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import { getWsUpgradeState } from '../../src/http/server/websocket'
-import type { RouteDeclaration, Socket, SseDeclaration } from '../../src/http/types'
 
 function entry(
   source: string,
@@ -819,7 +819,7 @@ describe('WebSocket contract', () => {
           },
         })
         expect(failedRes.statusCode).toBe(400)
-        const lifecycle = (await import('../../src/core/lifecycle')).applicationLifecycles.get(app)!
+        const lifecycle = (await import('../../src/app/lifecycle')).applicationLifecycles.get(app)!
         expect(lifecycle.pendingRequests).toBe(0)
       } finally {
         await bridge.close()
@@ -1078,7 +1078,7 @@ describe('WebSocket contract', () => {
         // While connection is open, lifecycle activeRequests is maintained at 1 (never drops to 0)
         const lifecycle =
           (app as any).lifecycle ??
-          (await import('../../src/core/lifecycle')).applicationLifecycles.get(app)!
+          (await import('../../src/app/lifecycle')).applicationLifecycles.get(app)!
         expect(lifecycle.pendingRequests).toBe(1)
 
         let appClosed = false

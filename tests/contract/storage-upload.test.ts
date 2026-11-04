@@ -4,8 +4,8 @@ import { join } from 'node:path'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { saveUploadFile } from '../../src/services/storage/local'
-import { StorageError } from '../../src/services/storage/types'
+import { saveUploadFile } from '../../src/features/storage/local'
+import { StorageError } from '../../src/features/storage/types'
 
 describe('saveUploadFile Local Helper Contract', () => {
   let tempDir: string

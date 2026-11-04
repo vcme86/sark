@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route } from '../../src/entries/server'
 import { routeEntry as entry, executeRequest } from '../helpers/http-app'
 
 describe('request policy', () => {

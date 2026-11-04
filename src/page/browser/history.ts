@@ -22,14 +22,10 @@ export class BrowserHistory implements NavigationHost {
   private restoring?: { index: number; done: () => void; promise: Promise<void> }
   private pendingPosition?: { target?: HistoryTarget; url: URL; preventReset?: boolean }
   private saveFrame?: number
-  private previousRestoration: ScrollRestoration
 
   constructor() {
     this.current = entry(history.state) ?? { index: 0, scroll: [scrollX, scrollY] }
     this.physicalIndex = this.current.index
-    this.previousRestoration = history.scrollRestoration
-    history.scrollRestoration = 'manual'
-    this.write(this.current)
   }
 
   private write(value: SavedEntry): void {
@@ -69,6 +65,9 @@ export class BrowserHistory implements NavigationHost {
    * @returns Cleanup removing listeners and restoring the browser's previous scroll policy.
    */
   listen(pop: (url: string, target: HistoryTarget) => void, blocked: () => boolean): () => void {
+    const previousRestoration = history.scrollRestoration
+    this.write(this.current)
+    history.scrollRestoration = 'manual'
     const onPop = (event: PopStateEvent) => {
       const target = entry(event.state)
       if (!target) {
@@ -100,7 +99,10 @@ export class BrowserHistory implements NavigationHost {
       removeEventListener('focusin', this.save)
       removeEventListener('beforeunload', onUnload)
       if (this.saveFrame !== undefined) cancelAnimationFrame(this.saveFrame)
-      history.scrollRestoration = this.previousRestoration
+      this.saveFrame = undefined
+      this.restoring?.done()
+      this.restoring = undefined
+      history.scrollRestoration = previousRestoration
     }
   }
 

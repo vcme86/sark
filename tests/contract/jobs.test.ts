@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
 import { defineJobs } from '../../src/entries/jobs'
+import { createApp } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp } from '../../src/entries/server'
-import { createNodeJobsAssembly } from '../../src/services/jobs/assembly-node'
-import { dispatchCloudflareJobs } from '../../src/services/jobs/cloudflare'
+import { createNodeJobsAssembly } from '../../src/features/jobs/assembly-node'
+import {
+  createCloudflareJobsHandler,
+  dispatchCloudflareJobs,
+} from '../../src/features/jobs/cloudflare'
+import { resolveJobsDeclaration } from '../../src/features/jobs/declaration'
 
 describe('jobs contract', () => {
   it('schedules interval jobs, respects overlap protection, and supports JobHandle operations', async () => {
@@ -28,7 +32,7 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
+        scheduled: createCloudflareJobsHandler(jobsDecl),
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -87,7 +91,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -130,7 +133,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -186,7 +188,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -235,7 +236,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -273,7 +273,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -312,7 +311,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -353,7 +351,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -409,15 +406,13 @@ describe('jobs contract', () => {
     }
 
     try {
-      const effectiveCrons = ['0 * * * *', '0 0 * * *']
-      // Dispatch hourly cron with valid triggers table
+      // Dispatch the actual platform cron using the application job index.
       await dispatchCloudflareJobs(
-        jobDefs,
+        resolveJobsDeclaration(defineJobs(jobDefs), {}, 'cloudflare'),
         { cron: '0 * * * *', scheduledTime: Date.now(), noRetry() {} },
         {},
         ctx,
         app,
-        effectiveCrons,
       )
 
       expect(executedCrons).toEqual(['hourly'])
@@ -426,38 +421,13 @@ describe('jobs contract', () => {
       // Unknown cron throws error
       await expect(
         dispatchCloudflareJobs(
-          jobDefs,
+          resolveJobsDeclaration(defineJobs(jobDefs), {}, 'cloudflare'),
           { cron: 'unknown', scheduledTime: Date.now(), noRetry() {} },
           {},
           ctx,
           app,
-          effectiveCrons,
         ),
-      ).rejects.toThrow('not declared in triggers.crons')
-
-      // Missing job for a configured trigger
-      await expect(
-        dispatchCloudflareJobs(
-          jobDefs,
-          { cron: '0 * * * *', scheduledTime: Date.now(), noRetry() {} },
-          {},
-          ctx,
-          app,
-          ['0 * * * *', '0 0 * * *', '0 12 * * *'],
-        ),
-      ).rejects.toThrow('Configured trigger "0 12 * * *" has no matching scheduled job.')
-
-      // Job specifies onCron not in triggers.crons
-      await expect(
-        dispatchCloudflareJobs(
-          jobDefs,
-          { cron: '0 * * * *', scheduledTime: Date.now(), noRetry() {} },
-          {},
-          ctx,
-          app,
-          ['0 * * * *'],
-        ),
-      ).rejects.toThrow('not declared in triggers.crons')
+      ).rejects.toThrow('No scheduled job matched cron')
     } finally {
       await app.close()
     }
@@ -491,12 +461,11 @@ describe('jobs contract', () => {
 
     try {
       await dispatchCloudflareJobs(
-        jobDefs,
+        resolveJobsDeclaration(defineJobs(jobDefs), {}, 'cloudflare'),
         { cron: '0 0 * * *', scheduledTime: Date.now(), noRetry() {} },
         {},
         ctx,
         app,
-        ['0 0 * * *'],
       )
       expect(executed).toEqual(['A', 'B'])
     } finally {
@@ -527,12 +496,11 @@ describe('jobs contract', () => {
     try {
       await expect(
         dispatchCloudflareJobs(
-          jobDefs,
+          resolveJobsDeclaration(defineJobs(jobDefs), {}, 'cloudflare'),
           { cron: '0 * * * *', scheduledTime: Date.now(), noRetry() {} },
           {},
           ctx,
           app,
-          ['0 * * * *'],
         ),
       ).rejects.toThrow('cron failed')
 
@@ -573,12 +541,9 @@ describe('jobs contract', () => {
     ])
 
     const definition = createDefinition({
-      jobs: jobsDecl,
+      scheduled: createCloudflareJobsHandler(jobsDecl),
       resources: {
         db: eventResource as any,
-      },
-      triggers: {
-        crons: ['0 * * * *'],
       },
     })
 
@@ -616,7 +581,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -664,7 +628,6 @@ describe('jobs contract', () => {
 
     const app = await createApp(
       createDefinition({
-        jobs: jobsDecl,
         services: {
           jobs: createNodeJobsAssembly(jobsDecl),
         },
@@ -681,4 +644,24 @@ describe('jobs contract', () => {
 
     await app.close()
   })
+})
+
+it('releases already prepared paused Croner instances when a later schedule fails', async () => {
+  const { Cron } = await import('croner')
+  const { vi } = await import('vitest')
+  const stopped = vi.spyOn(Cron.prototype, 'stop')
+  const handler = vi.fn()
+  const jobs = defineJobs([
+    { name: 'prepared', schedule: '* * * * *', runOnInit: true, handler },
+    { name: 'invalid', schedule: 'invalid cron expression', handler },
+  ])
+  try {
+    await expect(
+      createApp(createDefinition({ services: { jobs: createNodeJobsAssembly(jobs) } })),
+    ).rejects.toThrow()
+    expect(stopped).toHaveBeenCalledOnce()
+    expect(handler).not.toHaveBeenCalled()
+  } finally {
+    stopped.mockRestore()
+  }
 })

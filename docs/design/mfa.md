@@ -157,13 +157,17 @@ interface RecoveryStore {
 
 null 期望值只允许首次唯一插入；非空值执行条件替换/删除，false 表示冲突，故障抛错。只保存摘要和主体关联，不建立用户表。
 
-默认恢复适配从 auth/recovery/sqlite、auth/recovery/postgres、auth/recovery/d1 导入 sqlRecovery。同一入口导出 recoveryCodeSets 表定义，物理名 recovery_code_sets。参数为 { database, tables?: { codeSets } }。
+默认恢复适配从 auth/recovery/sqlite、auth/recovery/postgres、auth/recovery/d1 导入 sqlRecovery。SQLite/D1 共用恢复码查询及纯映射，PG 保留自身表与查询；这不改变各后端一次性消费的条件写入语义。同一入口导出 recoveryCodeSets 表定义，物理名 recovery_code_sets。参数为 { database, tables?: { codeSets } }。
 
 短期 PG/D1 的 schema 分别从 auth/state/postgres、auth/state/d1 导入，导出 authChallenges、authAttemptWindows，物理名 auth_challenges、auth_attempt_windows；sqlAuthState 接受 { database, tables?: { challenges, attemptWindows } }。
 
 默认表名固定，传入兼容 Drizzle 表对象可改物理名；不传字符串拼表名。SQLite/D1 与 PG 分别提供对应列类型及必要唯一/期限索引。表定义可由应用 schema 入口再导出给 drizzle-kit，迁移执行归正常部署，不在启动时 DDL。
 
 自定义表还须保留条件写入所依赖的唯一约束：恢复表 sub、挑战表 id、账户窗口表 windowKey 必须分别唯一。windowKey 编码账户主体与用途，不是账户 ID。列形状校验不代替数据库约束；复合唯一键不能代替这些单列唯一键。不兼容的逻辑模型实现专用 Store，不向默认适配传入缺少约束的表。
+
+## 成本
+
+共享流程会增加创建、读取、尝试和消费的数据库操作，长期因素也有条件读写；普通 session 验证不执行这些 MFA 操作。不启用某因素就不导入其 SDK，不启用恢复码就不创建对应表或服务。完整流程的成本不能只计算一次验证码校验。
 
 ## 验证
 
@@ -172,7 +176,3 @@ MFA、TOTP、WebAuthn、恢复码的默认适配和专用契约同期交付。�
 无密码链路另验无主体创建、证明类型约束、账户确定、identity 映射失败/取消零签发，以及已消费挑战不可重放；SQL 清理另验读取先拒绝过期、写入节流回收和有效窗口不被清除。
 
 自定义适配可复用同一套开发期契约测试；框架对官方适配负责真实后端验证，不在生产导入测试工具。
-
-## 成本
-
-共享流程会增加创建、读取、尝试和消费的数据库操作，长期因素也有条件读写；普通 session 验证不执行这些 MFA 操作。不启用某因素就不导入其 SDK，不启用恢复码就不创建对应表或服务。完整流程的成本不能只计算一次验证码校验。

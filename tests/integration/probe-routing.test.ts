@@ -1,12 +1,12 @@
 import { expect, it } from 'vitest'
 
+import type { RouteEntry } from '../../src/app/http/assembly'
+import type { RouteDeclaration } from '../../src/app/http/types'
+import { defineNodeRuntime } from '../../src/entries/node'
+import { createApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { startNodeServer } from '../../src/entries/runtime/node'
-import { createApp, route } from '../../src/entries/server'
-import { defineNodeRuntime } from '../../src/entries/server/node'
 import { parseApiFilePath } from '../../src/http/path'
-import type { RouteEntry } from '../../src/http/server/types'
-import type { RouteDeclaration } from '../../src/http/types'
 
 function entry(source: string, declaration: RouteDeclaration, prefix = '/api'): RouteEntry {
   return { source, routePath: parseApiFilePath(source, prefix)!, declaration }

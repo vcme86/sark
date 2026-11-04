@@ -1,12 +1,12 @@
 import { HTTPException } from 'hono/http-exception'
 import { describe, expect, it } from 'vitest'
 
-import { createClient } from '../../src/entries/http'
+import { formatResponse } from '../../src/app/http/output'
+import { createClient } from '../../src/entries/client'
+import { createApp, defineApp, route, setCookie } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, setCookie } from '../../src/entries/server'
 import { HttpError } from '../../src/http/error'
 import { parseApiFilePath } from '../../src/http/path'
-import { formatResponse } from '../../src/http/server/output'
 import { routeEntry as entry, executeRequest } from '../helpers/http-app'
 
 it('preserves middleware headers and cookies when the handler returns an immutable redirect', async () => {

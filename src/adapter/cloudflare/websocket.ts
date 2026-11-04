@@ -6,13 +6,13 @@
 
 import type { WebSocket as WorkerWebSocket } from '@cloudflare/workers-types'
 
-import type { RequestScope } from '../../core/context'
-import type { LifecycleManager } from '../../core/lifecycle'
+import type { RequestScope } from '../../app/context'
+import type { SocketHandlers } from '../../app/http/types'
 import {
   createWebSocketConnectionRunner,
   type PlatformSocketTransport,
-} from '../../http/server/websocket'
-import type { SocketHandlers } from '../../http/types'
+} from '../../app/http/websocket'
+import type { LifecycleManager } from '../../app/lifecycle'
 
 /** Options configuring the Cloudflare Workers WebSocket connection runner. */
 interface CloudflareWebSocketOptions {

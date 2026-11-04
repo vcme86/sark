@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 
-import type { DefaultApi, HttpClient } from '../http/client/client'
+import type { DefaultApi, HttpClient } from '../client/client'
 import { useOptionalPageContext, usePageContext } from './context'
 import type {
   ActionArgs,

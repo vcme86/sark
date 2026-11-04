@@ -31,15 +31,17 @@ export function listPublicFiles(publicDir: string | false): string[] {
 /**
  * Writes the resource module only when its contents change, avoiding unnecessary HMR updates.
  *
- * @param project - Resolved generation directory, already created by application generation.
+ * @param project - Target and resolved generation directory, already created by application generation.
  * @param assets - Resource mapping to embed in the generated module.
  */
 export function writeBuildAssets(
-  project: Pick<ResolvedProjectConfig, 'generatedDir'>,
+  project: Pick<ResolvedProjectConfig, 'generatedDir' | 'target'>,
   assets: BuildAssets,
 ): void {
   const path = join(project.generatedDir, 'build-assets.ts')
-  const code = `export const buildAssets = ${JSON.stringify(assets)}\n`
+  const data =
+    project.target === 'cloudflare' ? { entry: assets.entry, styles: assets.styles } : assets
+  const code = `export const buildAssets = ${JSON.stringify(data)}\n`
   if (!existsSync(path) || readFileSync(path, 'utf8') !== code) writeFileSync(path, code)
 }
 
@@ -64,6 +66,30 @@ export function createDevelopmentAssets(
     files: {},
     styles: {},
   }
+}
+
+/** Enumerates the browser modules owned by each page chain, independent of Vite's resource backend. */
+function pageSourceModules(
+  pages: DiscoveredPageTree | undefined,
+): { pattern: string; files: string[] }[] {
+  const root = [
+    ...(pages?.rootDocument ? [pages.rootDocument.filePath] : []),
+    ...(pages?.errors.get('') ? [pages.errors.get('')!.filePath] : []),
+  ]
+  const chains = (pages?.pages ?? []).map((page) => ({
+    pattern: page.routePath.urlPath,
+    files: [
+      ...root,
+      ...page.layoutChain.flatMap((layout) => [
+        layout.filePath,
+        ...(layout.closestError ? [layout.closestError.filePath] : []),
+      ]),
+      page.filePath,
+      ...(page.closestError ? [page.closestError.filePath] : []),
+    ],
+  }))
+  if (pages?.pages.length) chains.push({ pattern: '/*', files: root })
+  return chains
 }
 
 /**
@@ -125,25 +151,9 @@ export function createProductionAssets(
   }
 
   const styles: Record<string, string[]> = {}
-  const rootFiles = [
-    ...(pages?.rootDocument ? [pages.rootDocument.filePath] : []),
-    ...(pages?.errors.get('') ? [pages.errors.get('')!.filePath] : []),
-  ]
-  if (pages?.pages.length) {
-    styles['/*'] = cssFor(rootFiles)
+  for (const chain of pageSourceModules(pages)) styles[chain.pattern] = cssFor(chain.files)
+  if (pages?.pages.length)
     styles[project.webPrefix === '/' ? '/*' : project.webPrefix + '/*'] = styles['/*']
-  }
-  for (const page of pages?.pages ?? []) {
-    styles[page.routePath.urlPath] = cssFor([
-      ...rootFiles,
-      ...page.layoutChain.flatMap((layout) => [
-        layout.filePath,
-        ...(layout.closestError ? [layout.closestError.filePath] : []),
-      ]),
-      page.filePath,
-      ...(page.closestError ? [page.closestError.filePath] : []),
-    ])
-  }
   const entry = manifest[entryKey]
   if (pages?.pages.length && !entry) throw new Error(`Client manifest is missing ${entryKey}.`)
   return { base, files, styles, entry: entry ? assetUrl(base, entry.file) : undefined }
@@ -167,23 +177,7 @@ export async function collectDevelopmentAssets(
   const assets = createDevelopmentAssets(server.config.base, pages, project.generatedDir)
   const styles: Record<string, string[]> = {}
   const files: Record<string, { path: string; hashed: boolean }> = {}
-  const rootFiles = [
-    ...(pages?.rootDocument ? [pages.rootDocument.filePath] : []),
-    ...(pages?.errors.get('') ? [pages.errors.get('')!.filePath] : []),
-  ]
-  const chains = (pages?.pages ?? []).map((page) => ({
-    pattern: page.routePath.urlPath,
-    files: [
-      ...rootFiles,
-      ...page.layoutChain.flatMap((layout) => [
-        layout.filePath,
-        ...(layout.closestError ? [layout.closestError.filePath] : []),
-      ]),
-      page.filePath,
-      ...(page.closestError ? [page.closestError.filePath] : []),
-    ],
-  }))
-  if (pages?.pages.length) chains.push({ pattern: '/*', files: rootFiles })
+  const chains = pageSourceModules(pages)
   function register(url: string) {
     const browserUrl = url.startsWith('\0') ? '/@id/__x00__' + url.slice(1) : url
     const path = browserUrl.split('?')[0].replace(/^\//, '')

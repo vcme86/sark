@@ -1,1 +1,1 @@
-export { createWebAuthnFactor } from '../../services/auth/webauthn/assembly'
+export { createWebAuthnFactor } from '../../features/auth/webauthn/assembly'

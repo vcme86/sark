@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { sqlRecovery } from '../../src/entries/auth/recovery-sqlite'
 import { sqlTotp } from '../../src/entries/auth/totp-sqlite'
 import { sqlWebAuthn } from '../../src/entries/auth/webauthn-sqlite'
-import { resolveMfaConfig } from '../../src/services/auth/mfa/config'
-import type { MfaConfig } from '../../src/services/auth/mfa/types'
-import { resolveTotpConfig } from '../../src/services/auth/totp/config'
-import { resolveWebAuthnConfig } from '../../src/services/auth/webauthn/config'
-import { defineDatabase } from '../../src/services/db/sqlite'
+import { resolveMfaConfig } from '../../src/features/auth/mfa/config'
+import type { MfaConfig } from '../../src/features/auth/mfa/types'
+import { resolveTotpConfig } from '../../src/features/auth/totp/config'
+import { resolveWebAuthnConfig } from '../../src/features/auth/webauthn/config'
+import { defineDatabase } from '../../src/features/db/sqlite'
 
 describe('MFA configuration', () => {
   it('applies defaults when empty configuration object is passed', () => {
@@ -151,4 +151,99 @@ describe('WebAuthn configuration', () => {
       }),
     ).toThrow(/origins/)
   })
+})
+
+it('normalizes HTTP origin representations without rewriting native WebAuthn origins', async () => {
+  const options = {
+    rpId: 'example.com',
+    rpName: 'Example',
+    store: {
+      create() {
+        throw new Error('Configuration must not create a store')
+      },
+    },
+    user: (sub: string) => ({ userName: sub, displayName: sub }),
+  }
+  const native = 'android:apk-key-hash:example'
+  expect(
+    resolveWebAuthnConfig({ ...options, origins: ['https://EXAMPLE.com:443/', native] }).origins,
+  ).toEqual(['https://example.com', native])
+  for (const origin of [
+    'https://example.com/account',
+    'https://user@example.com',
+    'https://example.com/?locale=en',
+    'https://example.com/#login',
+  ]) {
+    expect(() => resolveWebAuthnConfig({ ...options, origins: [origin] })).toThrow(
+      'WebAuthn HTTP origins',
+    )
+  }
+})
+
+it('reuses static factor configuration while preparing factories for each event', async () => {
+  const { createMfaAssembly } = await import('../../src/features/auth/mfa/assembly')
+  const { defineMfa } = await import('../../src/features/auth/mfa/declaration')
+  const { createTotpFactor } = await import('../../src/features/auth/totp/assembly')
+  const { defineTotp } = await import('../../src/features/auth/totp/config')
+  const { createWebAuthnFactor } = await import('../../src/features/auth/webauthn/assembly')
+  const { defineWebAuthn } = await import('../../src/features/auth/webauthn/declaration')
+  const { resolveHttpConfig } = await import('../../src/app/config')
+  let policyReads = 0,
+    totpReads = 0,
+    webauthnReads = 0,
+    factoryCalls = 0
+  const store = {
+    create() {
+      throw new Error('Preparation must not create stores')
+    },
+  }
+  const totp = createTotpFactor(
+    defineTotp({
+      get issuer() {
+        totpReads++
+        return 'Example'
+      },
+      keys: { current: { id: 'one', key: new Uint8Array(32) } },
+      store,
+    }),
+  )
+  const webauthn = createWebAuthnFactor(
+    defineWebAuthn({
+      rpId: 'example.com',
+      get rpName() {
+        webauthnReads++
+        return 'Example'
+      },
+      origins: ['https://example.com'],
+      user: (sub) => ({ userName: sub, displayName: sub }),
+      store,
+    }),
+  )
+  const http = resolveHttpConfig({}, false)
+  const runtime = createMfaAssembly({
+    mfa: defineMfa({
+      get signIn() {
+        policyReads++
+        return 'required' as const
+      },
+    }),
+    factors: [totp, webauthn],
+  }).createRuntime()
+  await runtime.prepare({ event: 1 }, http)
+  const reads = [policyReads, totpReads, webauthnReads]
+  expect(reads.every((count) => count > 0)).toBe(true)
+  await runtime.prepare({ event: 2 }, http)
+  expect([policyReads, totpReads, webauthnReads]).toEqual(reads)
+  const dynamic = createMfaAssembly({
+    mfa: defineMfa((env: { enabled: boolean }) => {
+      factoryCalls++
+      if (!env.enabled) throw new Error('Missing event configuration')
+      return {}
+    }),
+    factors: [totp],
+  }).createRuntime()
+  expect(() => dynamic.prepare({ enabled: false }, http)).toThrow('Missing event configuration')
+  await dynamic.prepare({ enabled: true }, http)
+  await dynamic.prepare({ enabled: true }, http)
+  expect(factoryCalls).toBe(3)
 })

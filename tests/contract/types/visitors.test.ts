@@ -29,13 +29,13 @@ describe('Visitors generated type contracts (P7)', () => {
   it('registers RequestVisitor on ctx.var.visitor when visitors is exported', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 export const app = defineApp({ hosts: 'localhost' })
 export const visitors = defineVisitors({ secret: 'my-secret-key-at-least-32-chars!' })
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 
 export default route().handler(async (ctx) => {
   const visitor = ctx.var.visitor
@@ -56,11 +56,11 @@ export default route().handler(async (ctx) => {
   it('does not register ctx.var.visitor when visitors capability is omitted', async () => {
     expectCompiled(
       await compileFixture({
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 
 export const app = defineApp({ hosts: 'localhost' })
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 
 export default route().handler((ctx) => {
   // @ts-expect-error visitor is not registered when omitted
@@ -77,7 +77,7 @@ export default route().handler((ctx) => {
     async (compatible) => {
       const result = await compileFixture({
         target: 'cloudflare',
-        app: `import { defineApp } from '@olivaw/sark/server'
+        app: `import { defineApp } from '@olivaw/sark'
 import { defineVisitors } from '@olivaw/sark/visitors'
 
 interface CloudflareEnv {
@@ -89,7 +89,7 @@ export const visitors = defineVisitors((env: CloudflareEnv) => ({
   secret: env.VISITOR_SECRET,
 }))
 `,
-        route: `import { route } from '@olivaw/sark/server'
+        route: `import { route } from '@olivaw/sark'
 
 export default route().handler(async (ctx) => {
   const id: string | null = ctx.var.visitor.id

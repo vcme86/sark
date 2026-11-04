@@ -3,20 +3,20 @@ import { parseSigned } from 'hono/utils/cookie'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
-import { createApp } from '../../src/core/create'
-import { createDefinition } from '../../src/core/definition'
+import { createApp } from '../../src/app/create'
+import { createDefinition } from '../../src/app/definition'
+import { type AuthDeclaration, defineAuth } from '../../src/entries/auth'
 import {
   defineOAuth,
   type OAuthDeclaration,
   type OAuthTokens,
   type UserProfile,
 } from '../../src/entries/auth/oauth'
-import { type AuthDeclaration, defineAuth } from '../../src/entries/auth/session'
-import { type AppDeclaration, defineApp } from '../../src/entries/server'
+import { type AppDeclaration, defineApp } from '../../src/entries/root'
+import { createOAuthAssembly } from '../../src/features/auth/oauth/assembly'
+import { resolveOAuthProviders } from '../../src/features/auth/oauth/config'
+import { createAuthAssembly } from '../../src/features/auth/session/assembly'
 import { parseApiFilePath } from '../../src/http/path'
-import { createOAuthAssembly } from '../../src/services/auth/oauth/assembly'
-import { resolveOAuthProviders } from '../../src/services/auth/oauth/config'
-import { createAuthAssembly } from '../../src/services/auth/session/assembly'
 
 /**
  * Contract tests for OAuth 2.0 and OIDC third-party authentication.

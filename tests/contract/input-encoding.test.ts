@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { createClient } from '../../src/entries/http'
+import { createClient } from '../../src/entries/client'
+import { createApp, defineApp, route, z } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp, defineApp, route, z } from '../../src/entries/server'
 import { parseApiFilePath } from '../../src/http/path'
 import { routeEntry as entry, executeRequest } from '../helpers/http-app'
 

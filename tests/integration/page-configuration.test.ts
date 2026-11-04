@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { createApp } from '../../src/entries/root'
 import { createWorkerHandler } from '../../src/entries/runtime/cloudflare'
-import { createApp } from '../../src/entries/server'
 import { generateProject } from '../../src/tooling/build/project'
 import { createProject } from '../helpers/project'
 
@@ -19,7 +19,7 @@ export const page = definePage((env: { name: string }) => {
   )
   project.write(
     'api/ping.get.ts',
-    `import { route } from '@olivaw/sark/server'
+    `import { route } from '@olivaw/sark'
 export default route().handler(() => ({ ok: true }))`,
   )
   project.write(

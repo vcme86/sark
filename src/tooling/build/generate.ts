@@ -52,10 +52,6 @@ interface GenerateOptions {
   assets?: BuildAssets
   /** Module exporting an external Api type, already relative to generated code when local. */
   apiTypes?: string
-  /** Whether final job mapping checks can run; disabled for the bootstrap Worker entry. */
-  validateJobs?: boolean
-  /** Effective triggers resolved once by the owning project entry. */
-  triggers?: { crons?: readonly string[] }
 }
 
 function generateClientTsx(
@@ -168,8 +164,6 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
     if (api) throw new Error(`Route conflict: API ${api} and page ${page.relativePath}`)
   }
 
-  let effectiveCrons: readonly string[] | undefined
-
   // Platform boundary validation
   if (target === 'cloudflare') {
     if (requiresMfaAssembly && !hasMfa) {
@@ -187,11 +181,6 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
         'Cloudflare Workers target does not support Node health probes ("health"). Probes are managed by the deployment platform.',
       )
     }
-    if (appExports.exports.includes('metrics')) {
-      throw new Error(
-        'Cloudflare Workers target does not support Node metrics ("metrics"). Platform analytics are provided by Cloudflare.',
-      )
-    }
     if (appExports.exports.includes('assets')) {
       throw new Error(
         'Cloudflare Workers target does not support Node asset mounts ("assets"). Use static assets or R2 object storage.',
@@ -204,58 +193,15 @@ export function generateBuildArtifacts(options: GenerateOptions): void {
     }
 
     const discoveredJobs = hasJobs ? discoverJobsDeclaration(appEntryPath) : undefined
-    effectiveCrons = options.triggers?.crons
-
-    if (hasJobs && options.validateJobs !== false) {
-      if (effectiveCrons === undefined || effectiveCrons.length === 0) {
-        throw new Error(
-          'Cloudflare Workers target requires triggers.crons in Wrangler configuration when background jobs ("jobs") are declared.',
-        )
+    if (discoveredJobs?.kind === 'static') {
+      for (const job of discoveredJobs.jobs) {
+        if (job.hasNodeOptions)
+          throw new Error(
+            `Job "${job.name}" declares Node-specific options not supported on Cloudflare Workers. Use onCron for Workers.`,
+          )
+        if (!job.onCron && !job.isDynamicOnCron)
+          throw new Error(`Job "${job.name}" must specify onCron on Cloudflare Workers.`)
       }
-
-      if (discoveredJobs?.kind === 'static') {
-        const declaredCrons = new Set<string>()
-        let hasDynamicOnCron = false
-        for (const job of discoveredJobs.jobs) {
-          if (job.hasNodeOptions) {
-            throw new Error(
-              `Job "${job.name}" declares Node-specific options not supported on Cloudflare Workers. Use onCron for Workers.`,
-            )
-          }
-          if (!job.onCron && !job.isDynamicOnCron) {
-            throw new Error(`Job "${job.name}" must specify onCron on Cloudflare Workers.`)
-          }
-          if (job.isDynamicOnCron) {
-            hasDynamicOnCron = true
-          } else if (job.onCron) {
-            if (!effectiveCrons.includes(job.onCron)) {
-              throw new Error(
-                `Scheduled job "${job.name}" specifies onCron "${job.onCron}" which is not declared in Wrangler triggers.crons.`,
-              )
-            }
-            declaredCrons.add(job.onCron)
-          }
-        }
-
-        if (!hasDynamicOnCron) {
-          for (const cron of effectiveCrons) {
-            if (!declaredCrons.has(cron)) {
-              throw new Error(
-                `Wrangler triggers.crons specifies cron "${cron}" which has no matching scheduled job declared.`,
-              )
-            }
-          }
-        }
-      }
-    } else if (
-      !hasJobs &&
-      options.validateJobs !== false &&
-      effectiveCrons &&
-      effectiveCrons.length > 0
-    ) {
-      throw new Error(
-        'Wrangler triggers.crons specifies scheduled crons, but no "jobs" declaration is exported from application entry.',
-      )
     }
   } else if (target === 'node') {
     if (appExports.databaseDriver === 'd1') {
@@ -480,88 +426,164 @@ const page404Handler = createPage404Handler(
   const hasLogging = appExports.exports.includes('logging')
   const hasRateLimit = appExports.exports.includes('rateLimit')
 
+  const runtimeImports: string[] = []
+  const appBindings = new Set<string>()
+  const preparationCode: string[] = []
+  const definitionFields: string[] = []
   const resourceEntries: string[] = []
-  if (hasDatabase) resourceEntries.push('db: database')
-  if (hasStorage) resourceEntries.push('storage: createStorageAssembly(storage)')
-  const resourcesCode =
-    resourceEntries.length > 0 ? `resources: { ${resourceEntries.join(', ')} },` : ''
-
+  const resourceTypeImports: string[] = []
+  const resourceTypeAliases: string[] = []
+  const resourceTypeFields: string[] = []
   const serviceEntries: string[] = []
-  if (hasAuth) serviceEntries.push('auth: createAuthAssembly(auth)')
-  if (hasOAuth)
+  const serviceTypeImports: string[] = []
+  const serviceTypeFields: string[] = []
+  const declItems: string[] = []
+  const factors: string[] = []
+  const proofs: string[] = []
+  if (hasApp) {
+    appBindings.add('app')
+    definitionFields.push('app,')
+  }
+  if (hasRuntime) {
+    appBindings.add('runtime')
+    declItems.push('runtime')
+  }
+  if (appExports.exports.includes('page')) {
+    appBindings.add('page')
+    definitionFields.push('page,')
+  }
+  if (hasDatabase) {
+    appBindings.add('database')
+    resourceEntries.push('db: database')
+    resourceTypeImports.push(`import type { database } from ${appImportPath}`)
+    resourceTypeAliases.push('export type Db = InferResource<typeof database>')
+    resourceTypeFields.push('  readonly db: Db')
+  }
+  if (hasStorage) {
+    appBindings.add('storage')
+    runtimeImports.push("import { createStorageAssembly } from '@olivaw/sark/runtime/storage'")
+    resourceEntries.push('storage: createStorageAssembly(storage)')
+    resourceTypeImports.push(`import type { storage } from ${appImportPath}`)
+    resourceTypeAliases.push(
+      'export type Storage = { [K in keyof typeof storage]: InferResource<(typeof storage)[K]> }',
+    )
+    resourceTypeFields.push('  readonly storage: Storage')
+  }
+  if (hasAssets) {
+    appBindings.add('assets')
+    definitionFields.push('assetMounts: assets,')
+  }
+  if (hasAuth) {
+    appBindings.add('auth')
+    runtimeImports.push("import { createAuthAssembly } from '@olivaw/sark/runtime/auth'")
+    serviceEntries.push('auth: createAuthAssembly(auth)')
+    serviceTypeImports.push("import type { RequestAuth } from '@olivaw/sark/auth'")
+    serviceTypeFields.push('  readonly auth: RequestAuth')
+  }
+  if (hasOAuth) {
+    appBindings.add('oauth')
+    runtimeImports.push("import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'")
     serviceEntries.push(`oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)})`)
-  if (hasVisitors) serviceEntries.push('visitors: createVisitorsAssembly(visitors)')
+  }
+  if (hasVisitors) {
+    appBindings.add('visitors')
+    runtimeImports.push("import { createVisitorsAssembly } from '@olivaw/sark/runtime/visitors'")
+    serviceEntries.push('visitors: createVisitorsAssembly(visitors)')
+    serviceTypeImports.push("import type { RequestVisitor } from '@olivaw/sark/visitors'")
+    serviceTypeFields.push('  readonly visitor: RequestVisitor')
+  }
+  if (hasMfa) {
+    appBindings.add('mfa')
+    declItems.push('mfa')
+  }
+  if (hasTotp) {
+    appBindings.add('totp')
+    declItems.push('totp')
+    runtimeImports.push("import { createTotpFactor } from '@olivaw/sark/runtime/totp'")
+    preparationCode.push('const totpFactor = createTotpFactor(totp)')
+    factors.push('totpFactor')
+    proofs.push("{ kind: 'totp'; code: string }")
+    serviceTypeImports.push("import type { RequestTotp } from '@olivaw/sark/auth/totp'")
+    serviceTypeFields.push('  readonly totp: RequestTotp')
+  }
+  if (hasWebAuthn) {
+    appBindings.add('webauthn')
+    declItems.push('webauthn')
+    runtimeImports.push("import { createWebAuthnFactor } from '@olivaw/sark/runtime/webauthn'")
+    factors.push('createWebAuthnFactor(webauthn)')
+    proofs.push("{ kind: 'webauthn'; response: AuthenticationResponseJSON }")
+    serviceTypeImports.push(
+      "import type { RequestWebAuthn, AuthenticationResponseJSON } from '@olivaw/sark/auth/webauthn'",
+    )
+    serviceTypeFields.push('  readonly webauthn: RequestWebAuthn')
+  }
+  // Fixed generated order is the dependency contract: session, factors, then maintenance.
   if (requiresMfaAssembly) {
-    const factors = [
-      hasTotp ? 'totpFactor' : '',
-      hasWebAuthn ? 'createWebAuthnFactor(webauthn)' : '',
-    ].filter(Boolean)
+    runtimeImports.push("import { createMfaAssembly } from '@olivaw/sark/runtime/mfa'")
     serviceEntries.push(
       `mfa: createMfaAssembly({ ${hasMfa ? 'mfa, ' : ''}factors: [${factors.join(', ')}] })`,
     )
+    proofs.push("{ kind: 'recovery'; code: string }")
+    serviceTypeImports.push("import type { RequestMfa } from '@olivaw/sark/auth/mfa'")
+    serviceTypeFields.push(`  readonly mfa: RequestMfa<${proofs.join(' | ')}>`)
   }
   if (hasTotp) serviceEntries.push('totp: totpFactor.maintenance')
-  if (target === 'node' && hasJobs) serviceEntries.push('jobs: createNodeJobsAssembly(jobs)')
-  const servicesCode =
-    serviceEntries.length > 0 ? `services: { ${serviceEntries.join(', ')} },` : ''
+  if (hasHealth) {
+    appBindings.add('health')
+    declItems.push('health')
+    runtimeImports.push("import { createHealthAssembly } from '@olivaw/sark/runtime/health'")
+    definitionFields.push('health: createHealthAssembly(health),')
+  }
+  if (hasLogging) {
+    appBindings.add('logging')
+    declItems.push('logging')
+    runtimeImports.push("import { createLoggingAssembly } from '@olivaw/sark/runtime/logging'")
+    definitionFields.push('logging: createLoggingAssembly(logging),')
+  }
+  if (hasRateLimit) {
+    appBindings.add('rateLimit')
+    declItems.push('rateLimit')
+    runtimeImports.push("import { createRateLimitAssembly } from '@olivaw/sark/runtime/rate-limit'")
+    definitionFields.push('admission: createRateLimitAssembly(rateLimit),')
+  }
+  if (hasJobs) {
+    appBindings.add('jobs')
+    declItems.push('jobs')
+    if (target === 'node') {
+      runtimeImports.push("import { createNodeJobsAssembly } from '@olivaw/sark/runtime/jobs-node'")
+      serviceEntries.push('jobs: createNodeJobsAssembly(jobs)')
+    } else {
+      runtimeImports.push(
+        "import { createCloudflareJobsHandler } from '@olivaw/sark/runtime/jobs-cloudflare'",
+      )
+      definitionFields.push('scheduled: createCloudflareJobsHandler(jobs),')
+    }
+  }
+  const resourcesCode = resourceEntries.length
+    ? `resources: { ${resourceEntries.join(', ')} },`
+    : ''
+  const servicesCode = serviceEntries.length ? `services: { ${serviceEntries.join(', ')} },` : ''
+  const declarationsCode = declItems.length
+    ? `declarations: [${declItems.join(', ')}] as const,`
+    : ''
 
-  const declItems: string[] = []
-  if (hasRuntime) declItems.push('runtime')
-  if (hasTotp) declItems.push('totp')
-  if (hasWebAuthn) declItems.push('webauthn')
-  if (hasMfa) declItems.push('mfa')
-  if (hasHealth) declItems.push('health')
-  if (hasLogging) declItems.push('logging')
-  if (hasRateLimit) declItems.push('rateLimit')
-  if (hasJobs) declItems.push('jobs')
-  const declarationsCode =
-    declItems.length > 0 ? `declarations: [${declItems.join(', ')}] as const,` : ''
-
-  const appTsContent = `import { createDefinition${hasStorage ? ', createStorageAssembly' : ''} } from '@olivaw/sark/runtime/core'
-${hasAuth ? "import { createAuthAssembly } from '@olivaw/sark/runtime/auth'" : ''}
-${hasOAuth ? "import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'" : ''}
-${hasVisitors ? "import { createVisitorsAssembly } from '@olivaw/sark/runtime/visitors'" : ''}
-${requiresMfaAssembly ? "import { createMfaAssembly } from '@olivaw/sark/runtime/mfa'" : ''}
-${hasTotp ? "import { createTotpFactor } from '@olivaw/sark/runtime/totp'" : ''}
-${hasWebAuthn ? "import { createWebAuthnFactor } from '@olivaw/sark/runtime/webauthn'" : ''}
-${target === 'node' && hasJobs ? "import { createNodeJobsAssembly } from '@olivaw/sark/runtime/jobs'" : ''}
-import type { EndpointFromRoute, SseEndpointFromRoute, WsEndpointFromRoute } from '@olivaw/sark/server'
+  const appTsContent = `import { createDefinition } from '@olivaw/sark/runtime/core'
+${runtimeImports.join('\n')}
+import type { EndpointFromRoute, SseEndpointFromRoute, WsEndpointFromRoute } from '@olivaw/sark'
 ${options.apiTypes ? `import type { Api as ExternalApi } from ${JSON.stringify(options.apiTypes)}` : ''}
-${hasApp ? `import { app } from ${appImportPath}` : ''}
-${hasRuntime ? `import { runtime } from ${appImportPath}` : ''}
-${appExports.exports.includes('page') ? `import { page } from ${appImportPath}` : ''}
-${hasDatabase ? `import { database } from ${appImportPath}` : ''}
-${hasStorage ? `import { storage } from ${appImportPath}` : ''}
-${hasAssets ? `import { assets } from ${appImportPath}` : ''}
-${hasAuth ? `import { auth } from ${appImportPath}` : ''}
-${hasOAuth ? `import { oauth } from ${appImportPath}` : ''}
-${hasVisitors ? `import { visitors } from ${appImportPath}` : ''}
-${hasMfa ? `import { mfa } from ${appImportPath}` : ''}
-${hasTotp ? `import { totp } from ${appImportPath}` : ''}
-${hasWebAuthn ? `import { webauthn } from ${appImportPath}` : ''}
-${hasHealth ? `import { health } from ${appImportPath}` : ''}
-${hasLogging ? `import { logging } from ${appImportPath}` : ''}
-${hasRateLimit ? `import { rateLimit } from ${appImportPath}` : ''}
-${hasJobs ? `import { jobs } from ${appImportPath}` : ''}
+${appBindings.size ? `import { ${[...appBindings].join(', ')} } from ${appImportPath}` : ''}
 ${middlewareImports.join('\n')}
 ${routeImports.join('\n')}
 ${pageImports.join('\n')}
-${hasPages || options.assets ? "import { buildAssets } from './build-assets'" : ''}
+${hasPages || (target === 'node' && options.assets) ? "import { buildAssets } from './build-assets'" : ''}
 
 ${pageHandlerCode}
-${hasTotp ? 'const totpFactor = createTotpFactor(totp)' : ''}
+${preparationCode.join('\n')}
 
 export const definition = createDefinition({
-  ${hasApp ? 'app,' : ''}
-  ${appExports.exports.includes('page') ? 'page,' : ''}
-  ${hasHealth ? 'health,' : ''}
-  ${hasLogging ? 'logging,' : ''}
-  ${hasRateLimit ? 'rateLimit,' : ''}
-  ${hasJobs ? 'jobs,' : ''}
-  ${target === 'cloudflare' && effectiveCrons ? `triggers: { crons: ${JSON.stringify(effectiveCrons)} },` : ''}
+  ${definitionFields.join('\n  ')}
   ${declarationsCode}
   ${resourcesCode}
-  ${target === 'node' && hasAssets ? 'assetMounts: assets,' : ''}
   ${servicesCode}
   apiPrefix: ${JSON.stringify(apiPrefix)},
   webPrefix: ${JSON.stringify(webPrefix)},
@@ -571,7 +593,7 @@ ${pageEntriesCode.join('\n')}
   ],
   ${hasPages ? 'page404Handler,' : ''}
   ${hasPages ? `createPageConfigResolver: () => createPageConfigResolver(${appExports.exports.includes('page') ? 'page' : 'undefined'}, ${JSON.stringify(apiPrefix)}),` : ''}
-  ${options.assets ? 'assets: buildAssets,' : ''}
+  ${target === 'node' && options.assets ? 'assets: buildAssets,' : ''}
 })
 
 ${hasRuntime ? `export { runtime } from ${appImportPath}` : 'export const runtime = undefined'}
@@ -587,56 +609,23 @@ ${routeApiEntries.join('\n')}
 `
   writeFileIfChanged(join(generatedDir, 'app.ts'), appTsContent)
   if (options.assets) {
-    writeBuildAssets({ generatedDir }, options.assets)
+    writeBuildAssets({ generatedDir, target }, options.assets)
   }
 
   // 2. Generate resources-types.ts
   const resourcesTypesContent = `// Generated resource types
-${hasDatabase ? `import type { database } from ${appImportPath}` : ''}
-${hasStorage ? `import type { storage } from ${appImportPath}` : ''}
+${resourceTypeImports.join('\n')}
 import type { InferResource } from '@olivaw/sark/runtime/core'
 
-${hasDatabase ? 'export type Db = InferResource<typeof database>' : ''}
-${hasStorage ? 'export type Storage = { [K in keyof typeof storage]: InferResource<(typeof storage)[K]> }' : ''}
+${resourceTypeAliases.join('\n')}
 
 export interface Resources {
-${hasDatabase ? '  readonly db: Db\n' : ''}${hasStorage ? '  readonly storage: Storage\n' : ''}}
+${resourceTypeFields.join('\n')}
+}
 `
   writeFileIfChanged(join(generatedDir, 'resources-types.ts'), resourcesTypesContent)
 
   // 3. Generate services-types.ts
-  const serviceTypeImports: string[] = []
-  const serviceTypeFields: string[] = []
-  if (hasAuth) {
-    serviceTypeImports.push("import type { RequestAuth } from '@olivaw/sark/auth/session'")
-    serviceTypeFields.push('  readonly auth: RequestAuth')
-  }
-  if (hasVisitors) {
-    serviceTypeImports.push("import type { RequestVisitor } from '@olivaw/sark/visitors'")
-    serviceTypeFields.push('  readonly visitor: RequestVisitor')
-  }
-  if (requiresMfaAssembly) {
-    serviceTypeImports.push("import type { RequestMfa } from '@olivaw/sark/auth/mfa'")
-    if (hasWebAuthn)
-      serviceTypeImports.push(
-        "import type { AuthenticationResponseJSON } from '@olivaw/sark/auth/webauthn'",
-      )
-    const proofs = [
-      hasTotp ? "{ kind: 'totp'; code: string }" : '',
-      hasWebAuthn ? "{ kind: 'webauthn'; response: AuthenticationResponseJSON }" : '',
-      "{ kind: 'recovery'; code: string }",
-    ].filter(Boolean)
-    serviceTypeFields.push(`  readonly mfa: RequestMfa<${proofs.join(' | ')}>`)
-  }
-  if (hasTotp) {
-    serviceTypeImports.push("import type { RequestTotp } from '@olivaw/sark/auth/totp'")
-    serviceTypeFields.push('  readonly totp: RequestTotp')
-  }
-  if (hasWebAuthn) {
-    serviceTypeImports.push("import type { RequestWebAuthn } from '@olivaw/sark/auth/webauthn'")
-    serviceTypeFields.push('  readonly webauthn: RequestWebAuthn')
-  }
-
   const servicesTypesContent = `// Generated services types
 ${serviceTypeImports.length > 0 ? `${serviceTypeImports.join('\n')}\n\n` : ''}export interface Services {
 ${serviceTypeFields.join('\n')}
@@ -646,18 +635,18 @@ ${serviceTypeFields.join('\n')}
 
   // 4. Generate types.d.ts with Register module augmentations
   const typesDtsContent = `// Generated type registrations
-import '@olivaw/sark/http'
+import '@olivaw/sark/client'
 import type { Api } from './app'
 import type { Resources } from './resources-types'
 import type { Services } from './services-types'
 
-declare module '@olivaw/sark/http' {
+declare module '@olivaw/sark/client' {
   interface Register {
     api: Api
   }
 }
 
-declare module '@olivaw/sark/server' {
+declare module '@olivaw/sark' {
   interface Register {
     resources: Resources
     services: Services
@@ -668,7 +657,7 @@ export type { Resources } from './resources-types'
 export type { Services } from './services-types'
 ${hasDatabase ? "export type { Db } from './resources-types'" : ''}
 ${hasStorage ? "export type { Storage } from './resources-types'" : ''}
-${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth/session'" : ''}
+${hasAuth ? "export type { RequestAuth } from '@olivaw/sark/auth'" : ''}
 ${hasVisitors ? "export type { RequestVisitor } from '@olivaw/sark/visitors'" : ''}
 `
   writeFileIfChanged(join(generatedDir, 'types.d.ts'), typesDtsContent)
@@ -686,8 +675,8 @@ ${hasVisitors ? "export type { RequestVisitor } from '@olivaw/sark/visitors'" : 
   // 6. Generate runtime-specific entrypoint
   if (target === 'node') {
     rmSync(join(generatedDir, 'worker.ts'), { force: true })
-    const startTsContent = `import { createApp } from '@olivaw/sark/server'
-import { loadNodeEnv, startNodeServer } from '@olivaw/sark/runtime/node'
+    const startTsContent = `import { createApp } from '@olivaw/sark'
+import { loadNodeEnv, prepareNodeRuntime, listenNodeServer } from '@olivaw/sark/runtime/node'
 ${options.assets ? "import { fileURLToPath } from 'node:url'" : ''}
 ${options.assets ? "import { dirname } from 'node:path'" : ''}
 
@@ -695,8 +684,9 @@ loadNodeEnv()
 
 // Dynamic import after environment initialization
 const { definition, runtime } = await import('./app')
+const host = prepareNodeRuntime(definition, runtime, process.env)
 const instance = await createApp(definition, { env: process.env })
-await startNodeServer(instance, runtime, process.env${options.assets ? ', { rootDir: dirname(fileURLToPath(import.meta.url)), assets: definition.assets! }' : ''})
+await listenNodeServer(instance, host${options.assets ? ', { rootDir: dirname(fileURLToPath(import.meta.url)), assets: definition.assets! }' : ''})
 `
     writeFileIfChanged(join(generatedDir, 'start.ts'), startTsContent)
   } else if (target === 'cloudflare') {
@@ -709,7 +699,7 @@ declare global {
   interface Env {}
 }
 
-declare module '@olivaw/sark/server' {
+declare module '@olivaw/sark' {
   interface Register {
     env: Env
   }

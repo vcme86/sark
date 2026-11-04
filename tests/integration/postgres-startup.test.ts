@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { defineDatabase as definePostgres } from '../../src/entries/db/postgres'
+import { createApp } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
-import { createApp } from '../../src/entries/server'
 
 describe('Database & Resource Assembly Contract', () => {
   describe('PostgreSQL Database', () => {

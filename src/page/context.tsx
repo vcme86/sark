@@ -6,7 +6,7 @@
 
 import { createContext, type ReactNode, useContext } from 'react'
 
-import type { HttpClient } from '../http/client/client'
+import type { HttpClient } from '../client/client'
 import type {
   ActionArgs,
   ActionOutcome,

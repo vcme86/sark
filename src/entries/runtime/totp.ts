@@ -1,1 +1,1 @@
-export { createTotpFactor } from '../../services/auth/totp/assembly'
+export { createTotpFactor } from '../../features/auth/totp/assembly'
