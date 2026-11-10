@@ -39,7 +39,7 @@ export function definePage<Env = unknown, Api = DefaultApi>(
 export interface ResolvedPageConfig<Api = DefaultApi> {
   readonly api: {
     readonly serverUrl?: string
-    readonly browserUrl: string
+    readonly browserUrl?: string
     readonly credentials: RequestCredentials
   }
   readonly identity?: PageConfig<Api>['identity']
@@ -91,8 +91,8 @@ export function resolvePageConfig<Env = unknown, Api = DefaultApi>(
     }
     validateApiBase(api.serverUrl, 'serverUrl', false)
   }
-  const browserUrl = api?.browserUrl === undefined ? apiPrefix : api.browserUrl
-  validateApiBase(browserUrl, 'browserUrl', true)
+  const browserUrl = api?.browserUrl
+  if (browserUrl !== undefined) validateApiBase(browserUrl, 'browserUrl', true)
   const credentials = api?.credentials === undefined ? DEFAULT_CLIENT_CREDENTIALS : api.credentials
   if (credentials !== 'same-origin' && credentials !== 'include' && credentials !== 'omit') {
     throw new Error('page.api.credentials must be same-origin, include, or omit.')
@@ -101,7 +101,11 @@ export function resolvePageConfig<Env = unknown, Api = DefaultApi>(
     throw new Error('page.identity must be a function.')
   }
   return {
-    api: { serverUrl: api?.serverUrl, browserUrl, credentials },
+    api: {
+      serverUrl: api?.serverUrl,
+      browserUrl: browserUrl === apiPrefix ? undefined : browserUrl,
+      credentials,
+    },
     identity: rawConfig.identity,
   }
 }

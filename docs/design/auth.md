@@ -85,7 +85,7 @@ type AuthConfig = SigningConfig & {
   issuer?: string
   audience?: string
   expiresIn?: number
-  rolling?: boolean
+  maxLifetime?: number
   tokenVersion?: (sub: string, context: AuthCheckContext) => Promise<number>
   validate?: (identity: Identity, context: AuthCheckContext) => Promise<boolean>
   cacheKey?: (identity: Identity, context: AuthCheckContext) => string
@@ -103,7 +103,7 @@ AuthConfig 使用原始 SigningConfig，允许必填密钥接收可能缺失的�
 
 固定 HS256，复用 Hono JWT/WebCrypto，不提供多算法选择器。密钥满足 HS256 的长度要求，至少 32 个 UTF-8 字节；推荐随机秘密，不能用可预测口令充当安全密钥。[RFC 7518 §3.2](https://www.rfc-editor.org/rfc/rfc7518.html#section-3.2)
 
-cookieName 默认 auth_token；cookie 只配置本会话的专用属性，HttpOnly 固定开启。expiresIn 默认 604800000 毫秒，仅接受有限正数；rolling 默认 true。issuer/audience 可选，配置后签发写入并按同值校验，未配置时不校验相应声明，不从 Host 猜预期值。cacheTtl 默认 0 秒，即关闭钩子缓存。
+cookieName 默认 auth_token，cookie 只配置本会话的专用属性，HttpOnly 固定开启。expiresIn 默认七天，接受有限正数。maxLifetime 从首次登录计时，默认 365 天，接受正的安全整数。两项单位均为毫秒。issuer/audience 可选，配置后签发写入并按同值校验。cacheTtl 默认 0 秒，关闭钩子缓存。
 
 签名配置不读取 cookie.secret 或隐式环境变量。使用工厂时由 Node/Workers 宿主提供 Env。
 
@@ -153,9 +153,9 @@ function verifyToken(
 
 ## Cookie 与自动续期
 
-会话 Cookie 直接存放 JWT，默认 HttpOnly、SameSite=Lax、生产 Secure，不再套通用签名；只需认证密钥。Path 默认 /，其他专用属性按公开应用部署配置，不把内部 API DNS 写入 Domain。所属配置解析器用 Hono serialize 一次检查固定 Cookie 名称、属性和前缀组合，不签发令牌或复制上游校验；实际写入仍由上游序列化。
+会话 Cookie 直接存放 JWT，默认 HttpOnly、SameSite=Lax、生产 Secure。Path 默认 /，其他属性按公开应用部署配置。配置入口使用 Hono serialize 校验 Cookie 名称、属性、前缀及实际 `Max-Age`。
 
-有效 Cookie 剩余期限不足 expiresIn 一半时，在提交响应头前准备换发。新过期时间为当前时刻加 expiresIn；保留 sub、ver、jti、amr、authTime、auth、业务 claims 与首次 iat。这是延长会话有效期，不是再次认证，也不提供绝对最长会话时长。
+首次签发的期限取 expiresIn 和 maxLifetime 中较短者。有效 Cookie 剩余期限不超过签发期限的一半时，框架在提交响应头前尝试换发。续期保留首次 iat 和原身份信息，新的 JWT 和 Cookie 都不得晚于首次 iat 加 maxLifetime。已达到该上限的令牌无需再换发，到期须重新登录。应用如需固定八小时会话，只需将 maxLifetime 设为八小时。
 
 每个外层请求只决定一次续期，SSR 内部 API 不重复签发。显式 signIn/signOut 优先，自动换发不得覆盖退出。过期/失效令牌不续期；Bearer 不自动滚动，由应用明确换发。
 
@@ -169,11 +169,11 @@ tokenVersion(sub) 返回应用当前版本，逐请求与 ver 比较；未配置
 
 - 签名、时间及已配置 issuer/audience 仍逐请求校验
 - tokenVersion 缓存以完整凭据为键，缓存命中仍比较版本，不额外计算凭据指纹
-- validate 只有显式配置 cacheKey 才缓存结果并合并相同键的并发检查；没有 cacheKey 时每次调用 validate
+- validate 只有显式配置 cacheKey 且 cacheTtl 大于零才缓存结果
 - cacheKey 接收与 validate 相同上下文，等价维度由应用决定
 - TTL 大于零意味着状态更新最多滞后相应秒数；实时副作用与实时撤销不应放进这份缓存
 - tokenVersion 与 validate 的结果缓存各最多 2000 项，插入超限时淘汰最早条目；访问到过期项时删除，不按请求全表扫描，也不启动定时清理。TTL 决定命中有效期，不保证到期立即物理回收
-- 在途检查完成后删除，不受结果缓存容量限制；TTL=0 不存结果，有 cacheKey 的 validate 仍可合并相同键的在途检查
+- 并发缓存未命中时，各请求独立执行钩子，使用自己的取消信号和请求资源
 
 signOut 清 Cookie，本身不能撤销已复制的 JWT。单次撤销由应用按 jti 的状态检查实现；全部设备退出可递增版本。是否需要即时撤销及其存储由应用决定，框架不默认建立 session/撤销表。
 

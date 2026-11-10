@@ -178,7 +178,7 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark()] }
       expect(pageRes.status).toBe(200)
       const html = await pageRes.text()
       expect(html).toContain('__PAGE_CONTEXT__')
-      expect(html).toContain('"visitor":{"path":"/custom/bootstrap-visitor"}')
+      expect(html).toContain('"visitorPath":"/custom/bootstrap-visitor"')
       expect(html).not.toContain(visitorId)
     } finally {
       await server.close()

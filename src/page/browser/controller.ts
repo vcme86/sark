@@ -1,10 +1,9 @@
 import type { HttpClient } from '../../client/client'
 import { canonicalPathname, normalizeUrlPath, type UrlPolicy } from '../../http/url'
-import type { BootstrapData } from '../bootstrap'
 import { toPageError } from '../errors'
 import { matchClientRoute } from '../match'
 import { mergeMetaDescriptors } from '../meta'
-import { RedirectSignal } from '../signals'
+import { RedirectSignal, resolvePageUrl } from '../signals'
 import type {
   ActionArgs,
   ActionOutcome,
@@ -67,30 +66,17 @@ export class PageController {
    * @param routes - Generated routes ordered by matching priority.
    * @param client - Browser API client supplied to loaders and actions.
    * @param host - History, document navigation, and error-reporting operations.
-   * @param styles - Build-owned styles keyed by route pattern.
-   * @param initial - Server scope results and identity, with the actual browser document URL.
-   * @param policy - Resolved URL matching and slash policy delivered with the document.
-   * @throws {Error} If the initial document has no matching browser route.
+   * @param initial - Matched route and server scope results for the initial document.
+   * @param policy - Resolved URL matching and slash policy.
    */
   constructor(
     private readonly routes: readonly ClientRoute[],
     private readonly client: HttpClient<unknown>,
     private readonly host: NavigationHost,
-    private readonly styles: BootstrapData['build']['styles'],
-    initial: BootstrapData['request'],
+    initial: Pick<PageView, 'route' | 'url' | 'params' | 'identity' | 'scopes'>,
     private readonly policy: UrlPolicy,
   ) {
-    const url = new URL(initial.url)
-    const match = matchClientRoute(routes, url.pathname, policy.caseSensitive)
-    if (!match) throw new Error('The initial document has no matching browser route.')
-    const view = {
-      route: match.route,
-      url,
-      params: initial.params,
-      identity: initial.identity,
-      scopes: initial.scopes,
-      revision: 0,
-    }
+    const view = { ...initial, revision: 0 }
     this.snapshot = { view: { ...view, meta: this.metadata(view) }, navigation: { state: 'idle' } }
   }
 
@@ -156,7 +142,7 @@ export class PageController {
     options: NavigateOptions = {},
     target?: HistoryTarget,
   ): Promise<{ committed: boolean }> => {
-    const destination = new URL(to, this.snapshot.view.url)
+    const destination = resolvePageUrl(to, this.snapshot.view.url)
     const operation = this.begin(
       isHashNavigation(this.snapshot.view.url, destination) ? 'idle' : 'loading',
     )
@@ -489,10 +475,7 @@ export class PageController {
         return undefined
       }
     })
-    return mergeMetaDescriptors([
-      { links: this.styles[view.route.pattern]?.map((href) => ({ rel: 'stylesheet', href })) },
-      ...descriptors,
-    ])
+    return mergeMetaDescriptors(descriptors)
   }
 }
 

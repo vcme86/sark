@@ -179,18 +179,16 @@ export async function initRequestSession(
     if (isHeadersCommitted()) return
     if (sessionState.action !== 'none' || sessionState.renewalApplied) return
     if (sessionState.isBearer || !sessionState.identity) return
-    if (config.rolling === false) return
-
     sessionState.renewalApplied = true
-    const exp = sessionState.cookieExp
-    if (typeof exp === 'number') {
+    const { cookieExp: exp, cookieIat: issuedAt } = sessionState
+    if (exp !== undefined && issuedAt !== undefined) {
       const now = Date.now()
       const remainingMs = exp * 1000 - now
       const thresholdMs = config.expiresIn / 2
       if (remainingMs > 0 && remainingMs <= thresholdMs) {
-        const renewed = await authService.renew(sessionState.identity, sessionState.cookieIat)
+        const renewed = await authService.renew(sessionState.identity, issuedAt, exp)
         // A sign-in or sign-out may complete while the asynchronous signer is running.
-        if (sessionState.action !== 'none') return
+        if (!renewed || sessionState.action !== 'none') return
         const setCookieVal = formatSetCookie(
           config.cookieName,
           renewed.token,

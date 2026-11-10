@@ -16,7 +16,8 @@ export interface HeadProps {
 
 /** Emits document head tags derived from merged layout and page metadata. */
 export function Head({ children }: HeadProps) {
-  const meta = useOptionalPageContext()?.meta
+  const context = useOptionalPageContext()
+  const meta = context?.meta
 
   return (
     <>
@@ -40,6 +41,10 @@ export function Head({ children }: HeadProps) {
             <meta key={`twitter:${name}`} name={`twitter:${name}`} content={content} />
           ))
         : null}
+
+      {context?.stylesheets.map((href) => (
+        <link key={href} rel="stylesheet" href={href} data-page-style="" />
+      ))}
 
       {meta?.links?.map((link, i) => {
         const {

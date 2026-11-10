@@ -174,7 +174,7 @@ export interface NodeWebSocketBridge {
  * @returns An upgrade handler and drain operation; the host enforces its shutdown budget.
  */
 export function createNodeWebSocketBridge(instance: AppInstance<any>): NodeWebSocketBridge {
-  const wss = new WebSocketServer({ noServer: true })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 })
   const lifecycle = applicationLifecycles.get(instance)
   const activeConnections = new Set<WebSocketConnectionRunner>()
   const pendingHandshakes = new Set<{

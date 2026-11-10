@@ -155,6 +155,42 @@ describe('First-party Auth & Session', () => {
   })
 
   describe('AuthService and hooks', () => {
+    it('caps renewed sessions at the original sign-in deadline', async () => {
+      vi.useFakeTimers()
+      try {
+        const start = new Date('2026-01-01T00:00:00Z')
+        vi.setSystemTime(start)
+        const service = createAuthService(
+          resolveAuthConfig({ secret: SECRET, expiresIn: 10_000, maxLifetime: 15_000 }),
+        )
+        const { token, expiresAt } = await service.issue({ sub: 'alice' })
+        const issuedAt = start.getTime() / 1000
+        expect(expiresAt).toBe(issuedAt + 10)
+
+        vi.setSystemTime(start.getTime() + 6000)
+        const renewed = await service.renew((await service.verify(token))!, issuedAt, expiresAt)
+        expect(renewed?.expiresAt).toBe(issuedAt + 15)
+        vi.setSystemTime(start.getTime() + 13_000)
+        expect(await service.renew(renewed!.identity, issuedAt, renewed!.expiresAt)).toBeUndefined()
+        expect(await service.verify(renewed!.token)).not.toBeNull()
+        vi.setSystemTime(start.getTime() + 15_000)
+        expect(await service.verify(renewed!.token)).toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('clamps the first token to a shorter lifetime and checks the effective Cookie limit at entry', async () => {
+      const longWindow = 401 * 86_400_000
+      expect(() =>
+        resolveAuthConfig({ secret: SECRET, expiresIn: longWindow, maxLifetime: longWindow }),
+      ).toThrow(/Max-Age/)
+      const config = resolveAuthConfig({ secret: SECRET, expiresIn: longWindow, maxLifetime: 8000 })
+      const { token } = await createAuthService(config).issue({ sub: 'alice' })
+      const { payload } = decode(token)
+      expect(payload.exp! - payload.iat!).toBe(8)
+    })
+
     it('enforces tokenVersion and revokes outdated tokens', async () => {
       let currentVersion = 1
       const service = createAuthService(
@@ -217,7 +253,7 @@ describe('First-party Auth & Session', () => {
       expect(validate).toHaveBeenCalledTimes(3)
     })
 
-    it('removes failed in-flight checks so later requests can recover', async () => {
+    it('does not cache failed validation', async () => {
       const validate = vi
         .fn()
         .mockImplementationOnce(() => {
@@ -247,44 +283,52 @@ describe('First-party Auth & Session', () => {
       expect(tokenVersion).toHaveBeenCalledTimes(2)
     })
 
-    it('coalesces explicit keys even when result caching is disabled', async () => {
-      let activeCalls = 0
-      let maxConcurrent = 0
-
-      const validateMock = vi.fn(async () => {
-        activeCalls++
-        maxConcurrent = Math.max(maxConcurrent, activeCalls)
-        await new Promise((r) => setTimeout(r, 20))
-        activeCalls--
-        return true
-      })
-
-      const service = createAuthService(
-        resolveAuthConfig({
-          secret: SECRET,
-          validate: validateMock,
-          cacheTtl: 0,
-          cacheKey: (identity) => identity.jti,
-        }),
-      )
-
-      const session = await service.issue({ sub: 'concurrent-user' })
-
-      // Fire 5 concurrent verify requests
-      const results = await Promise.all([
-        service.verify(session.token),
-        service.verify(session.token),
-        service.verify(session.token),
-        service.verify(session.token),
-        service.verify(session.token),
-      ])
-
-      for (const res of results) {
-        expect(res?.sub).toBe('concurrent-user')
-      }
-      expect(validateMock).toHaveBeenCalledTimes(1)
-      expect(maxConcurrent).toBe(1)
-    })
+    it.each(['validate', 'tokenVersion'] as const)(
+      'isolates concurrent %s calls using the same credentials',
+      async (hook) => {
+        const entered = Promise.withResolvers<void>()
+        const first = new AbortController()
+        const second = new AbortController()
+        const check = async (signal?: AbortSignal) => {
+          if (signal !== first.signal) return
+          entered.resolve()
+          await new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        }
+        const service = createAuthService(
+          resolveAuthConfig({
+            secret: SECRET,
+            cacheTtl: 60,
+            cacheKey: (identity) => identity.sub,
+            ...(hook === 'validate'
+              ? {
+                  validate: async (_identity, { signal }) => {
+                    await check(signal)
+                    return true
+                  },
+                }
+              : {
+                  tokenVersion: async (_sub, { signal }) => {
+                    await check(signal)
+                    return 0
+                  },
+                }),
+          }),
+        )
+        const { token } = await service.issue({ sub: 'alice' })
+        const pending = expect(service.verify(token, { signal: first.signal })).rejects.toThrow(
+          'first cancelled',
+        )
+        await entered.promise
+        try {
+          expect((await service.verify(token, { signal: second.signal }))?.sub).toBe('alice')
+        } finally {
+          first.abort(new Error('first cancelled'))
+        }
+        await pending
+      },
+    )
   })
 
   it('keeps explicit signOut ahead of an asynchronous renewal already in progress', async () => {
@@ -472,8 +516,6 @@ it('bounds both hook caches and rechecks evicted credentials without changing ca
   }
   expect(cache.versionCache.size).toBe(2000)
   expect(cache.validateCache.size).toBe(2000)
-  expect(cache.versionInFlight.size).toBe(0)
-  expect(cache.validateInFlight.size).toBe(0)
   expect(tokenVersion).toHaveBeenCalledTimes(2001)
   expect(validate).toHaveBeenCalledTimes(2001)
   expect((await service.verify(last))?.sub).toBe('reader-2000')

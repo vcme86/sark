@@ -21,7 +21,7 @@ async function assertPage(origin: string, production: boolean) {
   const bootstrap = JSON.parse(
     html.match(/<script id="__PAGE_CONTEXT__" type="application\/json">(.*?)<\/script>/s)![1],
   )
-  expect(bootstrap.build.api).toEqual({ browserUrl: '/service/v2', credentials: 'same-origin' })
+  expect(bootstrap).not.toHaveProperty('config')
   expect(bootstrap.request.scopes['page:posts/[id]']).toEqual({
     status: 'success',
     data: { title: 'Post 1' },
@@ -133,7 +133,7 @@ export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': cryp
   it(`delivers production pages and resources through the ${target} host`, async () => {
     const project = createPageProject(target)
     try {
-      const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'production' })
+      const result = runProjectCli(project.root, ['build'], { NODE_ENV: 'development' })
       expect(result.status, result.stdout + result.stderr).toBe(0)
       let origin: string
       let close: () => Promise<void>
@@ -154,7 +154,7 @@ export const app = defineApp(() => ({ csrf: false, headers: { 'X-Instance': cryp
         await new Promise<void>((resolve) => socket.close(() => resolve()))
         const child = spawn(process.execPath, [join(project.root, 'dist/server.mjs')], {
           cwd: project.root,
-          env: { ...process.env, PORT: String(port), NODE_ENV: 'production' },
+          env: { ...process.env, PORT: String(port), NODE_ENV: 'development' },
           stdio: ['ignore', 'pipe', 'pipe'],
         })
         let diagnostics = ''

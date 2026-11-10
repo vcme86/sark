@@ -125,6 +125,7 @@ export interface FileStore {
 
 /** Classification codes for storage failures. */
 export type StorageErrorCode =
+  | 'invalid_filename'
   | 'file_exists'
   | 'precondition_failed'
   | 'not_modified'

@@ -83,6 +83,14 @@ it('returns the leftmost IP if all hops are trusted proxies', () => {
   expect(clientIp).toBe('10.0.0.1')
 })
 
+it('stops at malformed forwarding hops and normalizes mapped IPv4 clients', () => {
+  const rules = compileProxyRules(['loopback', 'private'])
+  const headers = new Headers({ 'X-Forwarded-For': '203.0.113.50, 1.2.3.4:5678, 10.0.0.2' })
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('10.0.0.2')
+  headers.set('X-Forwarded-For', '::ffff:203.0.113.50, 10.0.0.2')
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('203.0.113.50')
+})
+
 it('validates Host header against whitelist and wildcard patterns', () => {
   // Pass: exact match
   expect(() => validateHost('example.com', ['example.com'])).not.toThrow()

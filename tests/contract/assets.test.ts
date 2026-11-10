@@ -26,6 +26,7 @@ describe('Node Asset Mounts Contract', () => {
 
     // Normal file
     await writeFile(join(uploadsDir, 'hello.txt'), 'Hello Assets!')
+    await writeFile(join(uploadsDir, '.env'), 'PRIVATE_VALUE=test')
     // File with same name as an API route to test route priority
     await writeFile(join(uploadsDir, 'override-target'), 'Hello From Asset')
     // Special character file: name has literal '#' and '?'
@@ -77,6 +78,10 @@ describe('Node Asset Mounts Contract', () => {
     expect(res.headers.get('cache-control')).toBe('no-cache')
     expect(await res.text()).toBe('Hello Assets!')
 
+    const hidden = await instance.fetch(new Request('http://localhost/files/.env'))
+    expect(hidden.status).toBe(404)
+    expect(await hidden.text()).not.toContain('PRIVATE_VALUE')
+
     // 2. Global middleware can reject requests to asset mounts
     const rejectedRes = await instance.fetch(
       new Request('http://localhost/files/hello.txt', {
@@ -115,7 +120,7 @@ describe('Node Asset Mounts Contract', () => {
         page404Handler: createPage404Handler(
           undefined,
           () => createElement('main', null, 'Site page not found'),
-          () => ({ bootstrapModules: [], stylesheets: [], routeStyles: {} }),
+          () => ({ bootstrapModules: [], stylesheets: [] }),
         ),
         assetMounts: defineAssets([
           { path: '/', dir: uploadsDir },

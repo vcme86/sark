@@ -40,7 +40,8 @@ describe('generated page routing', () => {
         const payload = JSON.parse(
           html.match(/<script id="__PAGE_CONTEXT__" type="application\/json">(.*?)<\/script>/s)![1],
         )
-        expect(payload.request.params.path).toEqual(['hello world', 'second'])
+        expect(html).toContain('[&quot;hello world&quot;,&quot;second&quot;]')
+        expect(payload.request).not.toHaveProperty('params')
       } finally {
         await app.close()
       }

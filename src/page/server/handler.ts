@@ -2,7 +2,10 @@ import type { Context } from 'hono'
 
 import type { PageRequestHandler } from '../../app/http/assembly'
 import { getLogger } from '../../app/logging'
+import { DEFAULT_VISITOR_PATH } from '../../features/visitors/defaults'
 import type { RequestVisitorState } from '../../features/visitors/request'
+import { DEFAULT_CLIENT_CREDENTIALS } from '../../http/defaults'
+import { DEFAULT_URL_POLICY } from '../../http/url'
 import { toPageError } from '../errors'
 import { matchPattern } from '../match'
 import { notFound } from '../signals'
@@ -30,15 +33,16 @@ export function createPageHandler(
 ): PageRequestHandler {
   const cachePolicy = resolvePageCache(route.scopes)
   return (ctx, scope, production) => {
+    const requestUrl = new URL(ctx.req.url)
     const params = matchPattern(
       route.pattern,
-      ctx.req.path,
+      requestUrl.pathname,
       route.paramNames,
       scope.config.caseSensitive,
     )
     if (params === null) throw new Error(`Page handler did not match its route: ${route.pattern}`)
     return renderCachedPage(ctx, scope, cachePolicy, params, (context, execution, policy) =>
-      executeRender(context, execution, production, route, assets, params, policy),
+      executeRender(context, execution, production, route, assets, requestUrl, params, policy),
     )
   }
 }
@@ -50,22 +54,52 @@ async function executeRender(
   production: boolean,
   route: ServerPageRoute,
   assets: PageAssetProvider,
+  requestUrl: URL,
   params: Record<string, string | string[]>,
   cachePolicy: PageHttpCache | undefined,
 ): Promise<Response> {
   try {
     const config = getResolvedPageConfig(scope)
     const client = createPageClient(ctx, config, scope)
-    const identity: IdentitySnapshot = config.identity
-      ? await config.identity({ client, signal: scope.signal })
-      : defaultIdentity(ctx, config.api.serverUrl === undefined)
+    const user: IdentitySnapshot['user'] | undefined = config.identity
+      ? (await config.identity({ client, signal: scope.signal })).user
+      : config.api.serverUrl === undefined
+        ? ctx.get('auth')?.identity
+        : null
+    const identity: IdentitySnapshot = {
+      user: user
+        ? {
+            sub: user.sub,
+            roles: user.roles && [...user.roles],
+            displayName: config.identity ? user.displayName : undefined,
+          }
+        : null,
+    }
     const resources = await assets()
     const url = new URL(scope.externalOrigin)
-    const requestUrl = new URL(ctx.req.url)
     url.pathname = requestUrl.pathname
     url.search = requestUrl.search
     const visitorPath = (scope.serviceBindings?.visitors?.state as RequestVisitorState | undefined)
       ?.endpointPath
+    const { browserUrl, credentials } = config.api
+    const browserCredentials = credentials === DEFAULT_CLIENT_CREDENTIALS ? undefined : credentials
+    const caseSensitive =
+      scope.config.caseSensitive === DEFAULT_URL_POLICY.caseSensitive
+        ? undefined
+        : scope.config.caseSensitive
+    const trailingSlash =
+      scope.config.trailingSlash === DEFAULT_URL_POLICY.trailingSlash
+        ? undefined
+        : scope.config.trailingSlash
+    const api =
+      browserUrl !== undefined || browserCredentials !== undefined
+        ? { browserUrl, credentials: browserCredentials }
+        : undefined
+    const policy =
+      caseSensitive !== undefined || trailingSlash !== undefined
+        ? { caseSensitive, trailingSlash }
+        : undefined
+    const browserVisitorPath = visitorPath === DEFAULT_VISITOR_PATH ? undefined : visitorPath
     return renderPageToResponse({
       url,
       params,
@@ -78,15 +112,10 @@ async function executeRender(
       head: ctx.req.method === 'HEAD',
       bootstrapModules: resources.bootstrapModules,
       stylesheets: resources.stylesheets,
-      build: {
-        api: { browserUrl: config.api.browserUrl, credentials: config.api.credentials },
-        styles: resources.routeStyles,
-        ...(visitorPath ? { visitor: { path: visitorPath } } : {}),
-      },
-      policy: {
-        caseSensitive: scope.config.caseSensitive,
-        trailingSlash: scope.config.trailingSlash,
-      },
+      config:
+        api || policy || browserVisitorPath
+          ? { api, policy, visitorPath: browserVisitorPath }
+          : undefined,
       headers: () => pageHeaders(ctx, cachePolicy, production, identity.user !== null),
       onCommitHeaders: scope.commitResponseHeaders,
     })
@@ -96,17 +125,6 @@ async function executeRender(
     if (failure.status >= 500) getLogger().error('Page preparation failed', { error })
     return renderPageFailure(failure)
   }
-}
-
-/** Copies only display-safe claims from the request authentication service. */
-function defaultIdentity(
-  context: Parameters<PageRequestHandler>[0],
-  local: boolean,
-): IdentitySnapshot {
-  const identity: IdentitySnapshot['user'] | undefined = local
-    ? context.get('auth')?.identity
-    : undefined
-  return { user: identity ? { sub: identity.sub, roles: identity.roles } : null }
 }
 
 /**

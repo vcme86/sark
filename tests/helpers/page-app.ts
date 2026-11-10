@@ -38,7 +38,7 @@ export async function withPage(
             httpScopes: [],
             scopes: [...(options.layouts ?? []), { id: 'page:', ...page }],
           },
-          () => ({ bootstrapModules: [], stylesheets: [], routeStyles: {} }),
+          () => ({ bootstrapModules: [], stylesheets: [] }),
         ),
       },
     ],

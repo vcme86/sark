@@ -16,9 +16,9 @@ function setup(routes: ClientRoute[], data: unknown = 'old') {
     routes,
     createClient(),
     host,
-    {},
     {
-      url: 'https://example.test/posts/1',
+      route: routes[0],
+      url: new URL('https://example.test/posts/1'),
       params: { id: '1' },
       identity: { user: null },
       scopes: { post: { status: 'success', data } },
@@ -36,6 +36,13 @@ function route(loader: ClientRoute['scopes'][number]['loader']): ClientRoute {
     scopes: [{ id: 'post', component: () => null, loader }],
   }
 }
+
+it('rejects executable URLs at page navigation and redirect entry points', async () => {
+  const { controller, host } = setup([route(undefined)])
+  await expect(controller.navigate('java\tscript:alert(1)')).rejects.toThrow(/HTTP\(S\)/)
+  expect(() => redirect('javascript:alert(1)')).toThrow(/HTTP\(S\)/)
+  expect(host.hardNavigate).not.toHaveBeenCalled()
+})
 
 describe('page operation ownership', () => {
   it('commits only the latest loader result, metadata and history', async () => {

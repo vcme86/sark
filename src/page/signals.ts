@@ -4,6 +4,15 @@
  * @module
  */
 
+/** Resolves relative and HTTP(S) destinations for page navigation. */
+export function resolvePageUrl(to: string, base: URL | string): URL {
+  const url = new URL(to, base)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new TypeError('Page navigation requires an HTTP(S) URL or relative address.')
+  }
+  return url
+}
+
 /** Page redirect signal interpreted by the active HTTP or browser boundary. */
 export class RedirectSignal extends Error {
   readonly status: number
@@ -11,6 +20,7 @@ export class RedirectSignal extends Error {
 
   constructor(url: string, status = 302) {
     super(`Redirect to ${url}`)
+    resolvePageUrl(url, 'https://page.invalid/')
     this.name = 'RedirectSignal'
     this.url = url
     this.status = status

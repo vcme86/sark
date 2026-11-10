@@ -357,19 +357,22 @@ class LocalFileStore implements FileStore {
 /** Validates that a filename contains only a single leaf segment without separators or traversal. */
 export function validateUploadFilename(name: string): string {
   if (!name || typeof name !== 'string') {
-    throw new StorageError('storage_error', 'Upload filename must be a non-empty string.')
+    throw new StorageError('invalid_filename', 'Upload filename must be a non-empty string.')
   }
   if (name.includes('\0')) {
-    throw new StorageError('storage_error', 'Upload filename must not contain null bytes.')
+    throw new StorageError('invalid_filename', 'Upload filename must not contain null bytes.')
   }
   if (name.includes('/') || name.includes('\\')) {
     throw new StorageError(
-      'storage_error',
+      'invalid_filename',
       'Upload filename must not contain directory separators.',
     )
   }
   if (name === '.' || name === '..') {
-    throw new StorageError('storage_error', 'Upload filename must not be a relative dot segment.')
+    throw new StorageError(
+      'invalid_filename',
+      'Upload filename must not be a relative dot segment.',
+    )
   }
   return name
 }
@@ -451,6 +454,17 @@ async function atomicWriteToPath(
     if (error instanceof StorageError) throw error
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new StorageError('file_exists', `File already exists: ${basename(targetPath)}`, {
+        cause: error,
+      })
+    }
+    if (
+      (error as NodeJS.ErrnoException).code === 'ENAMETOOLONG' &&
+      typeof error === 'object' &&
+      error !== null &&
+      'dest' in error &&
+      error.dest === targetPath
+    ) {
+      throw new StorageError('invalid_filename', 'Filename exceeds the filesystem limit.', {
         cause: error,
       })
     }

@@ -11,9 +11,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { Manifest, ResolvedConfig } from 'vite'
 
-import { createProductionAssets, listPublicFiles, writeBuildAssets } from './build/assets'
-import { discoverPages } from './build/discover/pages'
-import { type ResolvedProjectConfig, resolvePluginOptions, resolveProjectConfig } from './config'
+import type { ResolvedProjectConfig } from './config'
 import type { PluginApi } from './vite'
 
 /** Expected command-line usage failures, reported without an internal stack. */
@@ -39,6 +37,7 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
       'production',
     )
     if (!config.plugins.some((plugin) => plugin.name === '@olivaw/sark')) {
+      const { resolvePluginOptions, resolveProjectConfig } = await import('./config')
       const { generateConfiguredProject } = await import('./build/project')
       await generateConfiguredProject(
         config,
@@ -53,14 +52,15 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
       console.error(`Error: Production entry "${entry}" not found. Run "sark build" first.`)
       process.exit(1)
     }
-    process.env.NODE_ENV = 'production'
     await import(fullPath)
   } else if (command === 'dev') {
+    process.env.NODE_ENV = 'development'
     const { createServer } = await import('vite')
     const server = await createServer()
     await server.listen()
     server.printUrls()
   } else if (command === 'build') {
+    process.env.NODE_ENV = 'production'
     const { BuildEnvironment, createBuilder } = await import('vite')
     const builder = await createBuilder({
       environments: { ssr: {} },
@@ -71,6 +71,8 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
     if (project.target === 'cloudflare') {
       await builder.buildApp()
     } else {
+      const { createProductionAssets, listPublicFiles, writeBuildAssets } =
+        await import('./build/assets')
       // Clean output directory once before environment builds if configured to empty
       const rootDir = builder.config.root
       const absOutDir = resolve(rootDir, builder.config.build.outDir)
@@ -93,7 +95,10 @@ async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
         ? (plugin.api as PluginApi).pages
         : project.webDir === false
           ? undefined
-          : discoverPages(project.webDir, project.webPrefix)
+          : (await import('./build/discover/pages')).discoverPages(
+              project.webDir,
+              project.webPrefix,
+            )
       let manifest: Manifest = {}
       if (hasPages) {
         const clientEnvironment = new BuildEnvironment('client', builder.config, {
@@ -176,6 +181,7 @@ async function projectFromConfig(config: ResolvedConfig): Promise<ResolvedProjec
   if (plugin) {
     return (plugin.api as PluginApi).project
   }
+  const { resolvePluginOptions, resolveProjectConfig } = await import('./config')
   const project = resolveProjectConfig(config.root, resolvePluginOptions())
   const { generateConfiguredProject } = await import('./build/project')
   await generateConfiguredProject(config, project)

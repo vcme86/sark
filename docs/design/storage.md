@@ -78,11 +78,11 @@ put 默认 overwrite=false，使用后端真实的条件写入；重名抛出 `c
 
 读取范围按字节，负数或无效范围拒绝；超出对象的不可满足范围报告 range_not_satisfiable。条件不匹配与对象不存在分开表达，分别保留 precondition_failed、not_modified，应用路由可据此返回 412/304。元数据与版本来自上游，不为不同后端伪造相同的强 ETag。local 使用大小和修改时间生成弱 ETag，可用于 If-None-Match 缓存验证；If-Match 使用强比较，因此不能命中该弱标签，`*` 仍可用于对象存在条件。不为统一标签强度而增加整文件哈希或持久版本号。
 
-业务授权后可以把返回流交给 Hono Response。Sark 的存储服务不自动生成公开下载路由，不绕过应用权限，也不默认给私有对象加共享缓存。
+应用根据文件归属、业务状态和当前用户判断公开、预览和原件下载权限，授权后将返回流交给 Hono Response，或按需签发临时下载地址。上传存储与公开静态目录分开。附件下载使用 `Content-Disposition: attachment`，内联预览应仅交付应用允许的类型。允许用户发布任意 HTML、SVG 等主动内容时，通过独立来源交付。
 
 ## 各后端实现
 
-本地目录只保存普通文件，不创建元数据旁文件或数据库表。Content-Type 按扩展名推断；显式指定不一致的类型或无法保存的类型参数时报告 unsupported_operation。应用可以将同一目录交给 defineAssets，读取与挂载使用一致的扩展名规则。
+本地目录只保存普通文件。Content-Type 按扩展名推断，显式指定不一致的类型或无法保存的类型参数时报告 unsupported_operation。
 
 本地实现使用 Node 文件系统：检查 key 对应路径在目标根内，先写临时文件，再原子提交且不覆盖已有文件，失败/取消清理临时内容。存储根可为部署符号链接；根内子路径始终拒绝符号链接，不提供 followSymlinks 选项。运行目录交付的可选链接策略由 [assets.md](assets.md) 单独规定。内容读取用流。
 
@@ -176,7 +176,9 @@ interface SavedUploadFile {
 function saveUploadFile(file: File, options: SaveUploadOptions): Promise<SavedUploadFile>
 ```
 
-dir 接受绝对路径；相对路径按运行根目录解析。结果 path 相对运行根返回，目标在其外时可包含 `..`，仍可用于定位保存后的文件。filename 省略采用上传名，但仍校验单个合法文件名，不允许路径分隔、空字节、点段或逃出目标目录。重名原子失败抛出 `code: 'file_exists'` 的错误，与 FileStore.put 一致；超过 maxSizeBytes 或取消均清理临时文件，不留半成品。
+dir 接受绝对路径，相对路径按运行根目录解析。结果 path 相对运行根返回，目标在其外时可包含 `..`。filename 省略时采用上传名，非法文件名报告 `invalid_filename`。重名原子失败报告 `file_exists`，与 FileStore.put 一致。超过 maxSizeBytes 或取消时清理临时文件。
+
+普通 multipart 表单在解析后提供内存 File，应按业务限制请求大小。大文件可直接传流给存储服务，或使用对象存储的预签名直传。
 
 框架存储错误通过小写 code 分类，原始后端错误通过 cause 保留。文件冲突如何映射为 HTTP 状态由应用决定，存储服务不自行返回 HTTP 响应。
 

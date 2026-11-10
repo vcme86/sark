@@ -68,7 +68,7 @@ describe('saveUploadFile Local Helper Contract', () => {
 
     await expect(
       saveUploadFile(file, { dir: tempDir, filename: '../escaped.txt' }),
-    ).rejects.toThrow('directory separators')
+    ).rejects.toMatchObject({ code: 'invalid_filename' })
 
     await expect(
       saveUploadFile(file, { dir: tempDir, filename: 'subdir/test.txt' }),

@@ -172,9 +172,9 @@ dist/
 
 start.ts 编译为 server.mjs，先加载 Node 环境，再动态导入应用定义，先准备 Node runtime/health，再调用 createApp 完成应用声明解析与资源创建；开发与生产采用相同顺序。Node 宿主复用本次 runtime 解析结果，将有效 port/hostname 传给 Hono 的监听器并安装信号，不重复执行 runtime 工厂。监听字段按 [application.md](application.md) 的优先级处理；Vite 开发监听仍由 Vite 的 server 配置管理。服务端打包保留这条求值边界，不把配置模块提前内联求值；否则对象配置读取环境的时机会错误。server/ 中的私有 chunk 不进入浏览器静态文件清单。
 
-运行产物不依赖 Vite。外置运行依赖与原生驱动必须随部署安装，不能把未打包误当成不需要。
+应用将 Vite 声明为开发依赖。Sark 将其声明为可选 peer，供开发、生成和构建命令使用。生产安装与启动产物不需要 Vite。外置运行依赖与原生驱动随部署安装。
 
-`sark generate`、`sark dev`、`sark build` 在应用根读取同一份 Vite 配置。dev/build 复用发现与生成，不维护第二个扫描器。generate 不监听端口；dev 挂载 Vite；build 完成浏览器与服务器构建；`sark start [entry]` 只执行产物，默认 dist/server.mjs，不扫描源码、不重新生成。无参数或 help 显示帮助，未知命令非零退出。
+`sark generate`、`sark dev`、`sark build` 在应用根读取同一份 Vite 配置。dev/build 复用发现与生成，分别以 `NODE_ENV=development` 和 `NODE_ENV=production` 运行。generate 只生成文件，dev 挂载 Vite，build 完成浏览器与服务器构建。`sark start [entry]` 只执行产物，默认 dist/server.mjs。无参数或 help 显示帮助，未知命令非零退出。
 
 自定义 outDir 时 start 传对应入口；直接 node 执行同一文件等价。配置、生成、构建或启动失败返回非零码。正常终止按宿主预算退出。
 

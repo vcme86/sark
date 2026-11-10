@@ -4,6 +4,9 @@ export interface UrlPolicy {
   readonly trailingSlash: 'never' | 'always' | 'ignore'
 }
 
+/** Defaults shared by the HTTP host and browser router. */
+export const DEFAULT_URL_POLICY: UrlPolicy = { caseSensitive: false, trailingSlash: 'never' }
+
 /**
  * Validates a static endpoint path and normalizes duplicate and trailing slashes.
  *

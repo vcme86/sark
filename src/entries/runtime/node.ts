@@ -4,7 +4,7 @@
  * @module
  */
 
-export { loadNodeEnv } from '../../adapter/node/env'
+export { loadNodeEnv, readNodeEnv } from '../../adapter/node/env'
 export {
   listenNodeServer,
   startNodeServer,

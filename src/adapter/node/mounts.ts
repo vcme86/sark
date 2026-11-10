@@ -144,7 +144,11 @@ export function createAssetMountHandler(
       }
 
       // Directories are not listed; let subsequent mounts or the shared 404 handle them.
-      if (!decodedSubPath || decodedSubPath.endsWith('/')) {
+      if (
+        !decodedSubPath ||
+        decodedSubPath.endsWith('/') ||
+        decodedSubPath.split(/[/\\]/).some((segment) => segment.startsWith('.'))
+      ) {
         continue
       }
 

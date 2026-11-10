@@ -34,6 +34,8 @@ export interface PageContextValue {
   readonly navigation: NavigationState
   /** Merged document metadata for the current route. */
   readonly meta: MetaDescriptor
+  /** Stylesheets present in the initial document, retained by the browser after hydration. */
+  readonly stylesheets: readonly string[]
   /** Ordered route components to render for each depth of Outlet. */
   readonly outletChain: readonly ReactNode[]
   /** Pre-serialized bootstrap payload JSON string (for <Scripts />). */

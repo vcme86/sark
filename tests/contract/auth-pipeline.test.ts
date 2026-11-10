@@ -368,7 +368,6 @@ describe('Auth Pipeline & Request Context Integration', () => {
     const authDecl = defineAuth({
       secret: TEST_SECRET,
       expiresIn: 4000, // 4 seconds
-      rolling: true,
     })
 
     const meRoute: RouteEntry = {
@@ -724,7 +723,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
 
   it('prevents auto-renewal from overwriting internal signOut on expiring token', async () => {
     const appDecl = defineApp({ hosts: 'localhost' })
-    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 4000, rolling: true })
+    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 4000 })
 
     const internalLogoutRoute: RouteEntry = {
       routePath: {
@@ -822,7 +821,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
   it('calculates renewal threshold based on configured expiresIn without drift', async () => {
     // 7 days token = 604_800s. Threshold = 302_400s (3.5 days).
     const appDecl = defineApp({ hosts: 'localhost' })
-    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 604_800_000, rolling: true })
+    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 604_800_000 })
 
     const meRoute: RouteEntry = {
       routePath: {
@@ -901,7 +900,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
     const { resolvePageConfig } = await import('../../src/page/config')
 
     const appDecl = defineApp({ hosts: 'localhost' })
-    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 604_800_000, rolling: true })
+    const authDecl = defineAuth({ secret: TEST_SECRET, expiresIn: 604_800_000 })
 
     const dashboardPageHandler = createPageHandler(
       {
@@ -916,7 +915,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
           },
         ],
       },
-      () => ({ bootstrapModules: [], stylesheets: [], routeStyles: {} }),
+      () => ({ bootstrapModules: [], stylesheets: [] }),
     )
 
     const pageRoute: RouteEntry = {

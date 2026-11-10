@@ -22,7 +22,7 @@ function resolveDefaultEndpoint(): string {
     const el = document.getElementById('__PAGE_CONTEXT__')
     if (el) {
       const parsed = JSON.parse(el.textContent ?? '') as BootstrapData
-      if (parsed.build.visitor) return parsed.build.visitor.path
+      if (parsed.config?.visitorPath) return parsed.config.visitorPath
     }
   }
   return DEFAULT_VISITOR_PATH

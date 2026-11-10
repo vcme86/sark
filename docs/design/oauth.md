@@ -126,7 +126,7 @@ interface OAuthTokens {
 
 OIDC 的 email 优先取 ID Token，缺省时取已验证 subject 的 UserInfo。emailVerified 只取对应同一邮箱地址的声明；两个来源的邮箱相同时才允许补充缺失的验证状态，不把一个地址的验证结果套给另一个地址。
 
-expiresAt 为 Unix 秒；缺 refreshToken 就保持缺失，不伪造。tokens 只传给服务端回调，不自动保存、刷新或进入浏览器载荷。应用需要调用第三方 API 时自行选择持久化与刷新策略。
+expiresAt 为 Unix 秒，refreshToken 按提供方响应提供。凭据通过 tokens 传给服务端回调。profile.raw 保留资料响应，微信资料也不携带令牌响应。应用需要调用第三方 API 时自行选择持久化与刷新策略。
 
 ## Node、Workers 与 MFA 的衔接
 

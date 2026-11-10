@@ -183,11 +183,22 @@ apiPrefix: '/v3' })], build: { outDir: 'output' } }
     if (!address || typeof address === 'string') throw new Error('Missing ephemeral port')
     const port = address.port
     await new Promise<void>((closed) => socket.close(() => closed()))
-    const child = spawn(process.execPath, [cli, 'start', 'output/server.mjs'], {
-      cwd: project.root,
-      env: { ...process.env, PORT: String(port) },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const denyVite = `data:text/javascript,${encodeURIComponent(`
+      import { registerHooks } from 'node:module'
+      registerHooks({ resolve(specifier, context, next) {
+        if (specifier === 'vite' || specifier.startsWith('vite/')) throw new Error('Production startup loaded Vite')
+        return next(specifier, context)
+      } })
+    `)}`
+    const child = spawn(
+      process.execPath,
+      ['--import', denyVite, cli, 'start', 'output/server.mjs'],
+      {
+        cwd: project.root,
+        env: { ...process.env, PORT: String(port) },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
     const exited = once(child, 'exit')
     let diagnostics = ''
     child.stdout.on('data', (chunk) => {

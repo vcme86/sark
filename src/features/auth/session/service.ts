@@ -51,24 +51,17 @@ function cacheResult<T>(
   cache.set(key, entry)
 }
 
-/**
- * Owns independently bounded hook-result caches and concurrent verification work.
- * TTL controls reuse; in-flight entries are removed when their work settles.
- */
+/** Owns bounded caches for completed authentication hook results. */
 export interface AuthCacheStore {
   readonly validateCache: Map<string, CacheEntry<boolean>>
-  readonly validateInFlight: Map<string, Promise<boolean>>
   readonly versionCache: Map<string, CacheEntry<number>>
-  readonly versionInFlight: Map<string, Promise<number>>
 }
 
 /** Creates a fresh cache store instance. */
 export function createAuthCacheStore(): AuthCacheStore {
   return {
     validateCache: new Map(),
-    validateInFlight: new Map(),
     versionCache: new Map(),
-    versionInFlight: new Map(),
   }
 }
 
@@ -77,7 +70,7 @@ export interface InternalAuthService extends AuthService {
   /** Issues a new session and signed JWT for RequestAuth.signIn. */
   issue(input: SignInInput): Promise<IssuedToken>
   /** Renews an existing session, extending expiration while retaining original facts (jti, iat). */
-  renew(identity: Identity, originalIat?: number): Promise<IssuedToken>
+  renew(identity: Identity, issuedAt: number, expiresAt: number): Promise<IssuedToken | undefined>
   /** Verifies token returning identity along with iat/exp metadata. */
   verifyInternal(
     token: string,
@@ -103,7 +96,9 @@ export function createAuthService(
   const logger = getLogger(['app', 'auth']).with({ requestId: lazy(getRequestId) })
   const cacheTtlMs = config.cacheTtl * 1000
 
-  const { validateCache, validateInFlight, versionCache, versionInFlight } = cacheStore
+  const { validateCache, versionCache } = cacheStore
+  const lifetimeSeconds = Math.ceil(config.maxLifetime / 1000)
+  const expirySeconds = Math.ceil(config.expiresIn / 1000)
 
   async function getExpectedVersion(
     identity: Identity,
@@ -111,61 +106,29 @@ export function createAuthService(
     context: AuthCheckContext,
   ): Promise<number> {
     if (!config.tokenVersion) return identity.ver
+    const cached = cacheTtlMs > 0 ? readCached(versionCache, token, Date.now()) : undefined
+    if (cached) return cached.value
 
+    const expected = await config.tokenVersion(identity.sub, context)
     if (cacheTtlMs > 0) {
-      const cached = readCached(versionCache, token, Date.now())
-      if (cached) {
-        return cached.value
-      }
-      const existing = versionInFlight.get(token)
-      if (existing) return existing
+      cacheResult(versionCache, token, { value: expected, expiresAt: Date.now() + cacheTtlMs })
     }
-
-    const versionPromise = Promise.resolve().then(async () => {
-      try {
-        const expected = await config.tokenVersion!(identity.sub, context)
-        if (cacheTtlMs > 0) {
-          cacheResult(versionCache, token, { value: expected, expiresAt: Date.now() + cacheTtlMs })
-        }
-        return expected
-      } finally {
-        if (cacheTtlMs > 0) {
-          versionInFlight.delete(token)
-        }
-      }
-    })
-
-    if (cacheTtlMs > 0) {
-      versionInFlight.set(token, versionPromise)
-    }
-
-    return versionPromise
+    return expected
   }
 
   async function runValidate(identity: Identity, context: AuthCheckContext): Promise<boolean> {
     if (!config.validate) return true
-    const key = config.cacheKey?.(identity, context)
+    const key = cacheTtlMs > 0 ? config.cacheKey?.(identity, context) : undefined
     if (key !== undefined) {
       const cached = readCached(validateCache, key, Date.now())
       if (cached) return cached.value
-      const pending = validateInFlight.get(key)
-      if (pending) return pending
     }
 
-    // Defer the hook so even a synchronous throw settles after in-flight registration.
-    const pending = Promise.resolve()
-      .then(() => config.validate!(identity, context))
-      .then((valid) => {
-        if (key !== undefined && cacheTtlMs > 0) {
-          cacheResult(validateCache, key, { value: valid, expiresAt: Date.now() + cacheTtlMs })
-        }
-        return valid
-      })
-      .finally(() => {
-        if (key !== undefined) validateInFlight.delete(key)
-      })
-    if (key !== undefined) validateInFlight.set(key, pending)
-    return pending
+    const valid = await config.validate(identity, context)
+    if (key !== undefined) {
+      cacheResult(validateCache, key, { value: valid, expiresAt: Date.now() + cacheTtlMs })
+    }
+    return valid
   }
 
   const authService: InternalAuthService = {
@@ -173,15 +136,16 @@ export function createAuthService(
 
     issue: (input) => issueToken(input, config),
 
-    async renew(identity: Identity, originalIat?: number): Promise<IssuedToken> {
+    async renew(identity, issuedAt, expiresAt) {
       const now = Math.floor(Date.now() / 1000)
-      const exp = now + Math.ceil(config.expiresIn / 1000)
+      const exp = Math.min(now + expirySeconds, issuedAt + lifetimeSeconds)
+      if (exp <= expiresAt || exp <= now) return undefined
 
       const payload = buildTokenPayload({
         sub: identity.sub,
         ver: identity.ver,
         jti: identity.jti,
-        iat: originalIat ?? now,
+        iat: issuedAt,
         exp,
         issuer: config.issuer,
         audience: config.audience,
@@ -204,7 +168,13 @@ export function createAuthService(
         issuer: config.issuer,
         audience: config.audience,
       })
-      if (!verified) return null
+      if (
+        !verified ||
+        verified.iat === undefined ||
+        verified.exp === undefined ||
+        Date.now() >= (verified.iat + lifetimeSeconds) * 1000
+      )
+        return null
 
       const context: AuthCheckContext = {
         logger,

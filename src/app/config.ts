@@ -1,4 +1,5 @@
 import { DEFAULT_SECURITY_HEADERS } from '../http/defaults'
+import { DEFAULT_URL_POLICY } from '../http/url'
 import type { CorsOptions } from '../middleware/cors'
 import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from './declaration'
 import { type CompiledProxyRules, compileProxyRules } from './http/proxy'
@@ -151,8 +152,7 @@ const DEFAULT_HTTP_CONFIG: Omit<
   cookie: { sameSite: 'lax' },
   cors: false,
   csrf: true,
-  trailingSlash: 'never',
-  caseSensitive: false,
+  ...DEFAULT_URL_POLICY,
   middleware: [],
 }
 

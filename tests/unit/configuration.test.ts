@@ -185,7 +185,7 @@ it('correctly resolves page config for static objects and environment factories'
   })
   const resolvedStatic = resolvePageConfig(staticDecl, {}, '/custom-api')
   expect(resolvedStatic?.api?.serverUrl).toBe('http://internal-backend:8080')
-  expect(resolvedStatic?.api?.browserUrl).toBe('/custom-api')
+  expect(resolvedStatic.api.browserUrl).toBeUndefined()
 
   // Factory configuration receiving environment
   interface MyEnv {

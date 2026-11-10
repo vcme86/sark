@@ -262,7 +262,7 @@ describe('node delivery', () => {
   })
 })
 
-it('records real Node WebSocket handshake and connection lifetime metrics', async () => {
+it('enforces the Node WebSocket message limit and records connection lifetime metrics', async () => {
   const { WebSocket } = await import('ws')
   const { defineMetrics } = await import('../../src/entries/node')
   const { createMetricsAssembly } = await import('../../src/entries/runtime/metrics')
@@ -288,9 +288,12 @@ it('records real Node WebSocket handshake and connection lifetime metrics', asyn
   try {
     await once(socket, 'open')
     expect(await scrape()).toContain('ws_connections_active 1')
+    const echoed = once(socket, 'message')
+    socket.send('hello')
+    expect((await echoed)[0].toString()).toBe('hello')
     const closed = once(socket, 'close')
-    socket.close()
-    await closed
+    socket.send(new Uint8Array(1024 * 1024 + 1))
+    expect((await closed)[0]).toBe(1009)
     await expect.poll(scrape).toContain('ws_connections_active 0')
     expect(await scrape()).toContain(
       'http_requests_total{method="GET",route="/api/echo",status="101"} 1',

@@ -18,7 +18,7 @@ export interface PreparedHealthChecks {
   createRunner(
     resources: () => Record<string, unknown>,
     lifecycle: { beginWork: () => void; endWork: () => void; isDraining: () => boolean },
-  ): { runReadiness(): Promise<{ ok: boolean; failed: string[] }> }
+  ): { runReadiness(): Promise<boolean> }
 }
 
 /** Domain preparation selected by generated Node applications. */
@@ -110,12 +110,7 @@ export function mountNodeProbes(
     if (instance.state !== 'ready') {
       return ctx.json({ status: instance.state }, 503)
     }
-    if (runner) {
-      const result = await runner.runReadiness()
-      if (!result.ok) {
-        return ctx.json({ status: 'unavailable', failed: result.failed }, 503)
-      }
-    }
+    if (runner && !(await runner.runReadiness())) return ctx.json({ status: 'unavailable' }, 503)
     return ctx.json({ status: 'ok' }, 200)
   })
 }

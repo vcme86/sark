@@ -58,6 +58,7 @@ function generateClientTsx(
   pages: DiscoveredPageTree,
   generatedDir: string,
   webPrefix: string,
+  apiPrefix: string,
 ): string {
   const imports: string[] = [
     `import '@vitejs/plugin-react/preamble'`,
@@ -125,7 +126,7 @@ const routes = [
 ${clientRouteEntries.join(',\n')}
 ] satisfies readonly ClientRoute[]
 
-hydratePageApplication(routes)
+hydratePageApplication(routes, ${JSON.stringify(apiPrefix)})
 `
 }
 
@@ -711,7 +712,7 @@ ${hasStats ? "export type { ScopedStatsService, StatsService } from '@olivaw/sar
   if (hasPages && pages) {
     writeFileIfChanged(
       join(generatedDir, 'client.tsx'),
-      generateClientTsx(pages, generatedDir, webPrefix),
+      generateClientTsx(pages, generatedDir, webPrefix, apiPrefix),
     )
   } else {
     rmSync(join(generatedDir, 'client.tsx'), { force: true })

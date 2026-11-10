@@ -4,11 +4,14 @@
  * @module
  */
 
+import { isIP } from 'node:net'
+
 import {
+  convertIPv4BinaryToString,
   convertIPv4MappedIPv6ToIPv4,
   convertIPv4ToBinary,
+  convertIPv6BinaryToString,
   convertIPv6ToBinary,
-  distinctRemoteAddr,
   isIPv4MappedIPv6,
 } from 'hono/utils/ipaddr'
 
@@ -36,10 +39,10 @@ export interface CompiledProxyRules {
 function parseCidrRule(rule: string): CompiledCidr | null {
   const [addrStr, prefixStr, extra] = rule.split('/')
   if (!addrStr || !prefixStr || extra !== undefined || !/^\d+$/.test(prefixStr)) return null
-  const type = distinctRemoteAddr(addrStr)
+  const type = isIP(addrStr)
   if (!type) return null
 
-  let isIPv4 = type === 'IPv4'
+  let isIPv4 = type === 4
   let prefix = Number(prefixStr)
   if (Number.isNaN(prefix) || prefix < 0) return null
 
@@ -59,9 +62,9 @@ function parseCidrRule(rule: string): CompiledCidr | null {
 }
 
 function parseExactIpRule(rule: string): CompiledExactIp | null {
-  const type = distinctRemoteAddr(rule)
+  const type = isIP(rule)
   if (!type) return null
-  const isIPv4 = type === 'IPv4'
+  const isIPv4 = type === 4
   const binary = isIPv4 ? convertIPv4ToBinary(rule) : convertIPv6ToBinary(rule)
   return { isIPv4, binary }
 }
@@ -113,10 +116,10 @@ export function compileProxyRules(
 export function matchesCompiledRules(ip: string, compiled: CompiledProxyRules): boolean {
   if (!ip) return false
   const cleanIp = ip.trim()
-  const type = distinctRemoteAddr(cleanIp)
+  const type = isIP(cleanIp)
   if (!type) return false
 
-  const isIPv4 = type === 'IPv4'
+  const isIPv4 = type === 4
   const addr = isIPv4 ? convertIPv4ToBinary(cleanIp) : convertIPv6ToBinary(cleanIp)
   const mappedV4 = !isIPv4 && isIPv4MappedIPv6(addr) ? convertIPv4MappedIPv6ToIPv4(addr) : null
 
@@ -159,28 +162,28 @@ export function resolveClientIp(
   peerIp: string,
   trustedRules: CompiledProxyRules,
 ): string {
-  if (!matchesCompiledRules(peerIp, trustedRules)) {
-    return peerIp
-  }
-
   const xff = headers.get('x-forwarded-for')
-  if (!xff || xff.trim() === '') {
-    return peerIp
+  if (!xff?.trim() || !matchesCompiledRules(peerIp, trustedRules)) {
+    return normalizeClientIp(peerIp)
   }
 
-  const hops = xff
-    .split(',')
-    .map((h) => h.trim())
-    .filter(Boolean)
-
+  let nearest = peerIp
+  const hops = xff.split(',')
   for (let i = hops.length - 1; i >= 0; i--) {
-    const hop = hops[i]
-    if (!matchesCompiledRules(hop, trustedRules)) {
-      return hop
-    }
+    const hop = hops[i].trim()
+    if (!isIP(hop)) break
+    nearest = hop
+    if (!matchesCompiledRules(hop, trustedRules)) break
   }
+  return normalizeClientIp(nearest)
+}
 
-  return hops[0] || peerIp
+function normalizeClientIp(ip: string): string {
+  if (isIP(ip) !== 6) return ip
+  const address = convertIPv6ToBinary(ip)
+  return isIPv4MappedIPv6(address)
+    ? convertIPv4BinaryToString(convertIPv4MappedIPv6ToIPv4(address))
+    : convertIPv6BinaryToString(address)
 }
 
 /**

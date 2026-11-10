@@ -41,10 +41,8 @@ export interface ServerRenderOptions {
   readonly stylesheets: readonly string[]
   /** Whether the host is running in production mode. */
   readonly production: boolean
-  /** Browser runtime build metadata delivered via bootstrap payload. */
-  readonly build: BootstrapData['build']
-  /** Runtime policy delivered via bootstrap payload. */
-  readonly policy: BootstrapData['policy']
+  /** Runtime overrides needed by the browser. */
+  readonly config?: BootstrapData['config']
   /** Reads headers after loader and shell preparation, before response commitment. */
   readonly headers: () => Headers
   /** Awaits domain header-commit hooks and seals the Cookie collector before the header snapshot. */
@@ -137,14 +135,10 @@ export async function renderPageToResponse(options: ServerRenderOptions): Promis
         return undefined
       }
     })
-    const meta = mergeMetaDescriptors([
-      { links: options.stylesheets.map((href) => ({ rel: 'stylesheet', href })) },
-      ...descriptors,
-    ])
+    const meta = mergeMetaDescriptors(descriptors)
     const bootstrapJson = serializeJsonForScript({
-      build: options.build,
-      policy: options.policy,
-      request: { url: url.href, params, identity, scopes: snapshots },
+      config: options.config,
+      request: { identity: identity.user ? identity : undefined, scopes: snapshots },
     } satisfies BootstrapData)
     const outletChain = scopes.map((scope) => {
       const snapshot = snapshots[scope.id]
@@ -171,6 +165,7 @@ export async function renderPageToResponse(options: ServerRenderOptions): Promis
       scopes: snapshots,
       navigation: { state: 'idle' },
       meta,
+      stylesheets: options.stylesheets,
       outletChain,
       bootstrapJson,
       navigate: async () => ({ committed: false }),

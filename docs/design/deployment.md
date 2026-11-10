@@ -12,13 +12,13 @@
 
 产物由 [build.md](build.md) 唯一定义；标准为 dist/server.mjs，直接 node 执行与 sark start 等价。运行不需要 Vite 或原始业务源码，外置依赖/驱动仍须安装。
 
-标准入口在导入应用配置前加载环境。Node 文件从低到高为 .env、.env.local、.env.[mode]、.env.[mode].local，已有进程变量最高；生产从应用运行根加载，默认 production，不引用构建机器目录。开发/构建沿 Vite 的 envDir/mode。
+标准入口在导入应用配置前加载环境。Node 服务端按 Node dotenv 语法读取 `.env`、`.env.local`、`.env.[mode]`、`.env.[mode].local`，后者优先，进程变量优先于文件，值中的 `${VAR}` 按字面值读取。生产从运行根目录读取 production 模式文件，并设置 `NODE_ENV=production`。`sark start` 与直接执行构建产物使用同一入口。
 
 各能力只使用传入的 Env。DATABASE_URL、JWT/访客/因素密钥由应用工厂明确赋值；不自动把 COOKIE_SECRET/HOSTS 等变量变成另一套核心配置来源。
 
 Node 部署在可信反向代理后时，代理须移除或覆写客户端提供的 X-Forwarded-For、X-Forwarded-Host、X-Forwarded-Proto 等转发头。trustedProxies 允许采信代理提供的来源信息，不代替这项代理配置；请求 Host 约束与对外转发主机也不混用。
 
-Node 开发入口将 Vite 加载结果作为该实例的 Env，不把文件值写入 process.env。Vite 重启后重新取得环境，已有进程变量仍最高优先，不让上次文件值污染本次解析。
+Node 开发入口按 Vite 的 envDir/mode 选取服务端环境文件，以同一 Node dotenv 规则解析，向应用工厂提供 `NODE_ENV=development`，不把文件值写入 process.env。Vite 重启时重新读取。浏览器构建环境仍由 Vite 管理。
 
 浏览器沿 Vite 的 envPrefix 公开变量，值在构建时确定；服务端秘密不进入浏览器。替换运行秘密不要求重建浏览器，修改运行时变量也不会改变已打包的公开常量。
 
@@ -70,6 +70,8 @@ Node 25 起不再内置 Corepack，模板显式安装选定 pnpm。镜像不包�
 ## 反向代理与来源
 
 Node 默认 trustedProxies 为 loopback/private，适合同机代理和受控容器网络。公网直连以 socket 对端为准，不能信任客户端自带转发头。入口把公开协议/主机/端口与客户端地址正确交给应用。
+
+TLS 在公网 CDN 或负载均衡器终止、源站接收 HTTP 时，将实际代理地址或网段配置到 trustedProxies，并限制源站入口。否则应用会按源站连接还原 origin 和客户端 IP，影响表单来源检查与按 IP 限流。
 
 ```nginx
 location / {
@@ -131,7 +133,7 @@ SIGTERM/SIGINT 进入 draining，readiness 立即 503，停止新业务和触发
 }
 ```
 
-这是同时使用页面/DB/文件/任务的示例，未选能力删除相应 binding。日期由应用锁定并在目标验证；AsyncLocalStorage 按对应日期的支持和必要标记处理，不机械添加整个 Node 兼容层。
+这是同时使用页面、DB、文件和任务的示例，未选能力删除相应 binding。Cloudflare 从兼容日期 `2026-08-04` 起默认启用 Node.js 兼容能力，包括应用使用的 AsyncLocalStorage。应用锁定兼容日期并验证目标环境。较早的日期按所用 API 配置兼容标记。[Node.js 兼容默认值](https://developers.cloudflare.com/changelog/post/2026-08-04-nodejs-compat-default/)
 
 静态构建文件使用平台默认的静态资源优先路由，匹配文件时直接交付，未匹配时进入 Worker 处理 SSR 页面与 API；不把 API 404 重写成 SPA index.html。官方 Vite 插件负责 client 输出目录和部署配置，无须手写 assets.directory，也不必声明框架不使用的 ASSETS binding。
 

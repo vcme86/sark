@@ -4,7 +4,6 @@ import type { BuildAssets } from '../../http/assets'
 export interface ClientAssetManifest {
   readonly bootstrapModules: readonly string[]
   readonly stylesheets: readonly string[]
-  readonly routeStyles: BuildAssets['styles']
 }
 
 /**
@@ -12,7 +11,7 @@ export interface ClientAssetManifest {
  *
  * @param assets - Generated browser entry and route resource mapping.
  * @param pattern - Matched route pattern, or the generated root 404 key.
- * @returns The entry modules, this route's stylesheets, and all browser route styles.
+ * @returns The entry modules and this route's stylesheets.
  */
 export function resolveClientAssets(
   assets: Pick<BuildAssets, 'entry' | 'styles'>,
@@ -21,6 +20,5 @@ export function resolveClientAssets(
   return {
     bootstrapModules: assets.entry ? [assets.entry] : [],
     stylesheets: assets.styles[pattern] ?? [],
-    routeStyles: assets.styles,
   }
 }

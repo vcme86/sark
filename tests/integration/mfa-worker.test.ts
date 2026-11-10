@@ -155,7 +155,6 @@ export default { cacheDir: '.build/vite-cache', plugins: [sark({ target: 'cloudf
       name: 'mfa-contract',
       main: '.build/worker.ts',
       compatibility_date: '2026-10-01',
-      compatibility_flags: ['nodejs_compat'],
       d1_databases: [{ binding: 'DB', database_name: 'mfa-contract', database_id: 'mfa-test' }],
     }),
   )

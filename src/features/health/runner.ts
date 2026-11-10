@@ -13,7 +13,7 @@ interface CacheEntry {
 
 /** Runner executing configured readiness checks with concurrency deduplication. */
 export interface HealthCheckRunner {
-  runReadiness(): Promise<{ ok: boolean; failed: string[] }>
+  runReadiness(): Promise<boolean>
 }
 
 export interface HealthRunnerOptions {
@@ -105,29 +105,12 @@ export function createHealthCheckRunner(
   }
 
   return {
-    async runReadiness(): Promise<{ ok: boolean; failed: string[] }> {
-      if (options.isDraining?.()) {
-        return { ok: false, failed: ['application_draining'] }
-      }
-
-      const names = Object.keys(readiness)
-      if (names.length === 0) {
-        return { ok: true, failed: [] }
-      }
-
+    async runReadiness(): Promise<boolean> {
+      if (options.isDraining?.()) return false
       const results = await Promise.all(
-        names.map(async (name) => {
-          const ok = await executeSingleCheck(name, readiness[name]!)
-          return { name, ok }
-        }),
+        Object.entries(readiness).map(([name, check]) => executeSingleCheck(name, check)),
       )
-
-      if (options.isDraining?.()) {
-        return { ok: false, failed: ['application_draining'] }
-      }
-
-      const failed = results.filter((r) => !r.ok).map((r) => r.name)
-      return { ok: failed.length === 0, failed }
+      return !options.isDraining?.() && results.every(Boolean)
     },
   }
 }

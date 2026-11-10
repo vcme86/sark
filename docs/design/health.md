@@ -37,7 +37,7 @@ HealthCheckContext 提供 logger、signal 和所声明资源，例如 db；没�
 
 限制由声明数量确定：N 项 readiness 检查，每项最多一份实际在途检查和一份结果缓存，并发与空间随 N 增长，不随探针请求数增长。不新增任意的全局检查数配置。
 
-成功正文为 { status: 'ok' }，失败为 { status: 'unavailable', failed: ['db'] }，只暴露声明的检查名，不给内部错误。失败原因写日志。
+成功正文为 `{ status: 'ok' }`，检查失败返回 `{ status: 'unavailable' }`。检查名称和失败原因写入服务端日志。
 
 进入 draining 后 readiness 立即 503，liveness 在进程仍能响应时保持 200。实际编排器必须配置相同路径，端点存在不等于已配置探测。
 

@@ -2,6 +2,7 @@ import { createElement, useEffect, useLayoutEffect, useMemo, useSyncExternalStor
 import { hydrateRoot } from 'react-dom/client'
 
 import { createClient, type HttpClient } from '../../client/client'
+import { DEFAULT_URL_POLICY } from '../../http/url'
 import type { BootstrapData } from '../bootstrap'
 import { DefaultError, ScopedErrorBoundary } from '../components/error'
 import { registerPrefetchCoordinator } from '../components/link'
@@ -18,6 +19,7 @@ interface RouterRootProps {
   readonly history: BrowserHistory
   readonly client: HttpClient<unknown>
   readonly bootstrapJson: string
+  readonly stylesheets: readonly string[]
   readonly dispose: () => void
 }
 
@@ -26,6 +28,7 @@ function ClientRouterRoot({
   history,
   client,
   bootstrapJson,
+  stylesheets,
   dispose,
 }: RouterRootProps) {
   const { view, navigation } = useSyncExternalStore(
@@ -83,6 +86,7 @@ function ClientRouterRoot({
     scopes: view.scopes,
     navigation,
     meta: view.meta,
+    stylesheets,
     outletChain,
     bootstrapJson,
     navigate: controller.navigate,
@@ -105,12 +109,12 @@ function ClientRouterRoot({
  * Failures before hydrateRoot are logged and leave the SSR document intact.
  *
  * @param routes - Generated route metadata and Vite dynamic imports.
- * @param fallbackClient - Optional transport supplied by a host embedding the runtime.
+ * @param apiPrefix - Default API base from the generated browser entry.
  * @returns A promise resolving after hydration starts or a startup failure has been reported.
  */
 export async function hydratePageApplication(
   routes: readonly ClientRoute[],
-  fallbackClient?: HttpClient<unknown>,
+  apiPrefix: string,
 ): Promise<void> {
   const json = document.getElementById('__PAGE_CONTEXT__')?.textContent
   if (!json) {
@@ -123,24 +127,30 @@ export async function hydratePageApplication(
   try {
     const payload = JSON.parse(json) as BootstrapData
     const url = new URL(location.href)
-    const match = matchClientRoute(routes, url.pathname, payload.policy.caseSensitive)
+    const policy = { ...DEFAULT_URL_POLICY, ...payload.config?.policy }
+    const match = matchClientRoute(routes, url.pathname, policy.caseSensitive)
     if (!match) throw new Error('The server-selected route is absent from the browser build.')
+    const stylesheets = Array.from(
+      document.head.querySelectorAll<HTMLLinkElement>('link[data-page-style][href]'),
+      (link) => link.getAttribute('href')!,
+    )
     await prepareClientRoute(match.route)
-    const config = payload.build.api
-    const client =
-      fallbackClient ??
-      createClient({
-        baseUrl: new URL(config.browserUrl, location.origin).href,
-        credentials: config.credentials,
-      })
+    const client = createClient({
+      baseUrl: new URL(payload.config?.api?.browserUrl ?? apiPrefix, url.origin).href,
+      credentials: payload.config?.api?.credentials,
+    })
     const history = new BrowserHistory()
     const controller = new PageController(
       routes,
       client,
       history,
-      payload.build.styles,
-      { ...payload.request, url: url.href },
-      payload.policy,
+      {
+        ...match,
+        url,
+        scopes: payload.request.scopes,
+        identity: payload.request.identity ?? { user: null },
+      },
+      policy,
     )
     const unlisten = history.listen((destination, target) => {
       void controller.navigate(destination, {}, target)
@@ -161,6 +171,7 @@ export async function hydratePageApplication(
         history,
         client,
         bootstrapJson: json,
+        stylesheets,
         dispose,
       }),
       {

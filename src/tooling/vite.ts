@@ -10,7 +10,7 @@ import { getRequestListener } from '@hono/node-server'
 import { Context } from 'hono'
 import { getPath as getRequestPath } from 'hono/utils/url'
 import {
-  loadEnv,
+  isCSSRequest,
   type Manifest,
   normalizePath,
   type Plugin,
@@ -21,6 +21,7 @@ import {
 import { createNodeDeliveryApp } from '../adapter/node/app'
 import { waitUntil } from '../adapter/node/deadline'
 import { bindNodeDelivery, waitForNodeRequest } from '../adapter/node/delivery'
+import { readNodeEnv } from '../adapter/node/env'
 import { prepareNodeRuntime, type ResolvedNodeRuntimeConfig } from '../adapter/node/runtime'
 import { createNodeStaticHandler } from '../adapter/node/static'
 import { resolveAppConfig } from '../app/config'
@@ -237,7 +238,8 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       }
     },
 
-    async hotUpdate({ file, modules }) {
+    async hotUpdate({ type, file, modules }) {
+      if (type === 'update' && isCSSRequest(file)) return
       if (this.environment.name === 'ssr') {
         await handleServerUpdate?.(file, modules.length > 0)
       }
@@ -253,7 +255,12 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       const projectConfig = getProject()
       const nodeEnv =
         resolved.target === 'node'
-          ? loadEnv(server.config.mode, server.config.envDir, '')
+          ? {
+              ...(server.config.envDir === false
+                ? process.env
+                : readNodeEnv(server.config.envDir, server.config.mode)),
+              NODE_ENV: 'development',
+            }
           : undefined
 
       let publicPaths = new Set(listPublicFiles(server.config.publicDir))

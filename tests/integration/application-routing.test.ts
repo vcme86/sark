@@ -80,12 +80,11 @@ it('uses the trusted public origin for page data and browser bootstrap behind a 
     const payload = JSON.parse(
       html.match(/<script id="__PAGE_CONTEXT__" type="application\/json">(.*?)<\/script>/s)![1],
     )
-    expect({ url: payload.request.url, data: payload.request.scopes['page:'].data }).toEqual({
-      url: 'https://site.example/',
-      data: { origin: 'https://site.example' },
+    expect(payload).toEqual({
+      request: {
+        scopes: { 'page:': { status: 'success', data: { origin: 'https://site.example' } } },
+      },
     })
-    expect(payload.policy).toEqual({ caseSensitive: false, trailingSlash: 'never' })
-    expect(payload.build.api).toEqual({ browserUrl: '/api', credentials: 'same-origin' })
   } finally {
     await instance.close()
     project.remove()
@@ -108,20 +107,19 @@ it('uses the same canonical website address for SSR and client navigation', asyn
       hardNavigate: vi.fn(),
       report: vi.fn(),
     }
+    const route = {
+      pattern: '/posts/:id',
+      shapeKey: '/posts/:',
+      paramNames: ['id'],
+      scopes: [{ id: 'post', component: () => null }],
+    }
     const controller = new PageController(
-      [
-        {
-          pattern: '/posts/:id',
-          shapeKey: '/posts/:',
-          paramNames: ['id'],
-          scopes: [{ id: 'post', component: () => null }],
-        },
-      ],
+      [route],
       createClient(),
       host,
-      {},
       {
-        url: 'https://site.example/posts/1',
+        route,
+        url: new URL('https://site.example/posts/1'),
         params: { id: '1' },
         identity: { user: null },
         scopes: { post: { status: 'success' } },
@@ -193,7 +191,7 @@ it('serves ordinary non-ASCII static route segments through API and website rout
       const payload = JSON.parse(
         html.match(/<script id="__PAGE_CONTEXT__" type="application\/json">(.*?)<\/script>/s)![1],
       )
-      expect(payload.request.params.id).toBe(id)
+      expect(payload.request.scopes['page:文章/[id]'].data).toBe(id)
     }
   } finally {
     await instance.close()

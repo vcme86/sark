@@ -37,21 +37,21 @@ describe('health contract', () => {
       runner.runReadiness(),
     ])
 
-    expect(res1.ok).toBe(true)
-    expect(res2.ok).toBe(true)
-    expect(res3.ok).toBe(true)
+    expect(res1).toBe(true)
+    expect(res2).toBe(true)
+    expect(res3).toBe(true)
     // Concurrency deduplication should ensure the check only ran once!
     expect(checkRunCount).toBe(1)
 
     // Immediate subsequent run should hit cache
     const res4 = await runner.runReadiness()
-    expect(res4.ok).toBe(true)
+    expect(res4).toBe(true)
     expect(checkRunCount).toBe(1)
 
     // Wait for cache to expire
     await new Promise((r) => setTimeout(r, 60))
     const res5 = await runner.runReadiness()
-    expect(res5.ok).toBe(true)
+    expect(res5).toBe(true)
     expect(checkRunCount).toBe(2)
   })
 
@@ -87,15 +87,13 @@ describe('health contract', () => {
 
     // First run times out
     const res1 = await runner.runReadiness()
-    expect(res1.ok).toBe(false)
-    expect(res1.failed).toEqual(['slow-db'])
+    expect(res1).toBe(false)
     expect(runCount).toBe(1)
     expect(settled).toBe(false)
 
     // Immediate second run should not trigger a new check while previous is still in-flight
     const res2 = await runner.runReadiness()
-    expect(res2.ok).toBe(false)
-    expect(res2.failed).toEqual(['slow-db'])
+    expect(res2).toBe(false)
     expect(runCount).toBe(1)
 
     // Wait until background check actually settles
@@ -163,7 +161,7 @@ describe('health contract', () => {
     }
   })
 
-  it('returns 503 and lists failed checks on readiness probe failure', async () => {
+  it('returns 503 without exposing failed check names', async () => {
     const app = await createApp(
       createDefinition({
         health: createHealthAssembly(
@@ -193,14 +191,10 @@ describe('health contract', () => {
       expect(live.status).toBe(200)
       await live.text()
 
-      // /readyz returns 503 and lists failed checks
+      // /readyz reports status without dependency details
       const ready = await probes.request('/readyz')
       expect(ready.status).toBe(503)
-      const body = (await ready.json()) as { status: string; failed: string[] }
-      expect(body).toEqual({
-        status: 'unavailable',
-        failed: ['postgres'],
-      })
+      expect(await ready.json()).toEqual({ status: 'unavailable' })
     } finally {
       await app.close()
     }

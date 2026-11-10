@@ -277,7 +277,7 @@ describe('Visitors Unit Tests', () => {
       vi.stubGlobal('fetch', fetchMock)
       vi.stubGlobal('document', {
         getElementById: () => ({
-          textContent: JSON.stringify({ build: { visitor: { path: '/configured/init' } } }),
+          textContent: JSON.stringify({ config: { visitorPath: '/configured/init' } }),
         }),
       })
       try {

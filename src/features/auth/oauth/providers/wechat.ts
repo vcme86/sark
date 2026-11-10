@@ -95,7 +95,7 @@ export async function exchangeWeChatCode(
       subject: tokenJson.openid,
       name: userInfo.nickname,
       picture: userInfo.headimgurl,
-      raw: { token: tokenJson, userInfo },
+      raw: userInfo,
     },
 
     tokens: {

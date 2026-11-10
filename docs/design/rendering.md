@@ -36,7 +36,7 @@ export const page = definePage((env: Env) => ({
 
 这是 Node 环境工厂示例；Workers 使用 Wrangler Env，环境来源与校验见 [application.md](application.md)。api 为可选的远端模式，选用时 serverUrl 必须是完整受信 API 基址，browserUrl 为浏览器可访问基址，缺省采用工程 apiPrefix。两种 API 基址均不含 query、fragment 或 URL 内凭据，在配置入口校验；serverUrl 只接受绝对 HTTP(S)，browserUrl 另可使用相对路径。api 另接受 `credentials?: RequestCredentials`，传给浏览器绑定客户端；默认值与单次调用覆盖沿 [http.md](http.md)。
 
-服务端在所属入口解析 page 声明后，将本次有效的公开 API 基址和 credentials 写入启动载荷，浏览器据此构造绑定客户端。声明解析时机遵循 [configuration.md](configuration.md)，identity 等请求回调仍按请求执行。
+浏览器从生成入口取得默认 API 前缀。服务端解析 page 声明后，仅将与默认值不同的公开 API 基址和 credentials 写入启动载荷。声明解析时机遵循 [configuration.md](configuration.md)，identity 等请求回调按请求执行。
 
 identity 是可选的 SSR 映射回调，签名为 `({ client, signal }) => IdentitySnapshot | Promise<IdentitySnapshot>`；同应用内部传输和远端 api 模式都可以使用，不要求先声明 api。
 
@@ -74,12 +74,13 @@ Set-Cookie 按独立字段逐条接到外层响应，保留专用属性与删除
 
 ```ts
 interface BootstrapPayload {
-  build: BuildStructure
-  policy: RuntimePolicy
+  config?: {
+    api?: { browserUrl?: string; credentials?: RequestCredentials }
+    policy?: { caseSensitive?: boolean; trailingSlash?: 'never' | 'always' | 'ignore' }
+    visitorPath?: string
+  }
   request: {
-    url: string
-    params: Record<string, string | string[]>
-    identity: IdentitySnapshot
+    identity?: IdentitySnapshot
     scopes: Record<string, ScopeSnapshot>
   }
 }
@@ -90,9 +91,9 @@ type ScopeSnapshot =
   | { status: 'idle' }
 ```
 
-build 来自生成的浏览器运行时配置，policy 包含页面所需的 caseSensitive 与 trailingSlash。二者均为必需装配结果，SSR 不以空对象替代。没有凭据、DB、绝对路径或服务端模块。成功 undefined 用 success 且不带 data 表达，不改成 null。
+config 仅携带浏览器需要的运行时覆盖项。request 只包含当前页需要的作用域结果与公开身份字段，匿名身份省略。框架从身份映射结果选取 sub、roles 和 displayName。应用应在 Loader 中选择当前页面需要且当前用户有权读取的数据，返回值会进入 HTML。成功 undefined 用 success 且不带 data 表达。
 
-Loader、meta 和载荷中的页面 URL 使用请求入口已解析的可信公开 origin，并保留本次 path/query。浏览器以实际文档地址初始化导航，包含服务器无法取得的 hash；两端共享静态段与尾斜线规范化规则。
+SSR 的 Loader 和 meta 使用请求入口已解析的可信公开 origin，并保留本次 path/query。浏览器从实际文档地址取得 URL 和路由参数，包含服务器无法取得的 hash。两端共享参数解析、静态段与尾斜线规则。页面跳转仅接受相对地址或 HTTP(S) URL，业务可进一步限制目的地。
 
 载荷只接受 JSON 可序列化值。Date/Map 等对象不能在 SSR 与浏览器首轮变成不同形态；需要它们时由应用先转换为一致数据。嵌入 HTML 的 JSON 转义 <、U+2028、U+2029，不能用原始 JSON 字符串突破 script 边界。
 
@@ -100,9 +101,9 @@ Loader、meta 和载荷中的页面 URL 使用请求入口已解析的可信公�
 
 整份 document 水合，单应用单根：hydrateRoot(document, App)。_root 可自定义，默认根组合 Head/Outlet/Scripts，不需要容器 ID。
 
-SSR 按实际 root、布局、页面及其组件依赖收集 CSS，由 Head 输出 stylesheet，去重保序。不能只查浏览器总入口的 CSS，也不能假定服务端导入 CSS 已交付浏览器。资源地址从 Vite manifest/开发接入取得。
+SSR 按实际 root、布局、页面及其组件依赖收集 CSS，由 Head 输出去重、保序的 stylesheet 标签。水合时复用首屏标签，后续导航随 Vite 动态导入加载目标模块的 CSS。全站资源映射保留在构建和服务端交付链路。
 
-Scripts 输出 `id="__PAGE_CONTEXT__"` 的 JSON 载荷元素，bootstrapModules 注入一次入口；客户端读取载荷、准备模块和必要样式后水合。载荷或模块准备失败时保留静态 SSR 输出；进入 React 后按 React 恢复行为处理。
+Scripts 输出 `id="__PAGE_CONTEXT__"` 的 JSON 载荷元素，React 注入一次浏览器入口。客户端读取载荷并准备首屏模块后水合。载荷或模块准备失败时保留静态 SSR 输出，进入 React 后按 React 恢复行为处理。
 
 Node 与 Workers 分别解析适用 React 服务端导出入口和目标条件，普通 CSS/CSS Modules 沿 Vite，不建设样式框架或 RSC 运行时。
 

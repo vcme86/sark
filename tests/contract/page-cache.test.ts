@@ -58,7 +58,7 @@ async function fixture(
               { id: 'page', component: () => null, cache: { ttl: 60 }, ...page },
             ],
           },
-          () => ({ bootstrapModules: [], stylesheets: [], routeStyles: {} }),
+          () => ({ bootstrapModules: [], stylesheets: [] }),
         ),
       },
     ],

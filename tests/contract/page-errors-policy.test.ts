@@ -59,7 +59,9 @@ describe('page preparation and HTTP policy', () => {
     },
     {
       mode: 'custom',
-      declaration: definePage({ identity: () => ({ user: { sub: 'custom' } }) }),
+      declaration: definePage({
+        identity: () => ({ user: { sub: 'custom', accessToken: 'private-claim' } }),
+      }),
       expected: { sub: 'custom' },
     },
   ])('selects the documented display identity in $mode mode', async ({ declaration, expected }) => {
@@ -75,7 +77,7 @@ describe('page preparation and HTTP policy', () => {
         expect(response.status).toBe(200)
         const html = await response.text()
         const payload = bootstrap(html)
-        expect(payload.request.identity).toEqual({ user: expected })
+        expect(payload.request.identity).toEqual(expected ? { user: expected } : undefined)
         expect(payload.request.scopes['page:'].data).toEqual({ user: expected })
         expect(html).not.toContain('private-claim')
       },

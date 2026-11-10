@@ -75,8 +75,6 @@ function renderOptions(overrides: Partial<ServerRenderOptions> = {}): ServerRend
     bootstrapModules: [],
     stylesheets: [],
     production: false,
-    build: { api: { browserUrl: '/api', credentials: 'same-origin' }, styles: {} },
-    policy: { caseSensitive: false, trailingSlash: 'never' },
     rootComponent: () =>
       createElement(
         Suspense,

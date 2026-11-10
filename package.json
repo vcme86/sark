@@ -11,6 +11,9 @@
   "author": "vcme86",
   "type": "module",
   "bin": "./dist/tooling/cli.mjs",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/entries/root.d.mts",
@@ -272,7 +275,6 @@
     "@logtape/redaction": "^2.4.2",
     "hono": "^4.13.13",
     "negotiator": "^1.1.0",
-    "vite": "^8.3.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -311,6 +313,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5",
     "wrangler": "^4.152.0",
     "ws": "^8.22.1"
@@ -340,6 +343,7 @@
     "postgres": "^3.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "vite": "^8.3.5",
     "ws": "^8.22.1"
   },
   "peerDependenciesMeta": {
@@ -413,6 +417,9 @@
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     },
     "ws": {

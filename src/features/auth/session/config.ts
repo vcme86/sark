@@ -48,13 +48,13 @@ export type AuthConfig = SigningConfig & {
   readonly audience?: string
   /** Session validity duration in milliseconds; defaults to 7 days (604,800,000 ms). */
   readonly expiresIn?: number
-  /** Whether to automatically renew the cookie when less than half the lifetime remains; defaults to `true`. */
-  readonly rolling?: boolean
+  /** Maximum session lifetime from sign-in in milliseconds; defaults to 365 days. */
+  readonly maxLifetime?: number
   /** Returns the subject's current credential version for comparison with the token's `ver`. */
   readonly tokenVersion?: (sub: string, context: AuthCheckContext) => Promise<number>
   /** Custom validation hook for account status, permissions, or revocation. */
   readonly validate?: (identity: Identity, context: AuthCheckContext) => Promise<boolean>
-  /** Key for `validate` result caching and concurrent in-flight check coalescing. */
+  /** Key for `validate` result caching when cacheTtl is positive. */
   readonly cacheKey?: (identity: Identity, context: AuthCheckContext) => string
   /** Cache TTL in seconds for hook results; defaults to 0 (caching disabled). */
   readonly cacheTtl?: number
@@ -71,7 +71,7 @@ export interface ResolvedAuthConfig {
     readonly httpOnly: boolean
   }
   readonly expiresIn: number
-  readonly rolling: boolean
+  readonly maxLifetime: number
   readonly issuer?: string
   readonly audience?: string
   readonly cacheTtl: number
@@ -137,6 +137,10 @@ export function resolveAuthConfig(
   const credentials = parseSigningCredentials(value)
 
   const expiresIn = resolveTokenLifetime(value.expiresIn)
+  const maxLifetime = value.maxLifetime === undefined ? 365 * 86_400_000 : value.maxLifetime
+  if (!Number.isSafeInteger(maxLifetime) || maxLifetime <= 0) {
+    throw new Error('maxLifetime must be a positive safe integer in milliseconds.')
+  }
 
   const cacheTtl = value.cacheTtl ?? 0
   if (!Number.isFinite(cacheTtl) || cacheTtl < 0) {
@@ -152,8 +156,8 @@ export function resolveAuthConfig(
       secure: value.cookie?.secure ?? isProduction ?? false,
       httpOnly: true,
     },
-    expiresIn,
-    rolling: value.rolling !== false,
+    expiresIn: Math.min(expiresIn, maxLifetime),
+    maxLifetime,
     issuer: value.issuer,
     audience: value.audience,
     cacheTtl,
@@ -163,6 +167,9 @@ export function resolveAuthConfig(
     validate: value.validate,
     cacheKey: value.cacheKey,
   }
-  serialize(config.cookieName, '', config.cookie)
+  serialize(config.cookieName, '', {
+    ...config.cookie,
+    maxAge: Math.ceil(config.expiresIn / 1000),
+  })
   return config
 }

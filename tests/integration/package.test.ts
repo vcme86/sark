@@ -52,6 +52,7 @@ import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 const entry = ${JSON.stringify('@olivaw/sark')} + ${JSON.stringify(entry)}
 const optional = [
+  'vite',
   '@aws-sdk/',
   '@simplewebauthn/',
   '@otplib/',
