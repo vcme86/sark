@@ -191,7 +191,7 @@ export function buildHttpApp(
     }
     if (!getAdmission) {
       if (
-        entry.kind !== 'page' &&
+        !('pageHandler' in entry) &&
         entry.declaration.options.rateLimit !== undefined &&
         entry.declaration.options.rateLimit !== false
       ) {
@@ -206,7 +206,7 @@ export function buildHttpApp(
       }
     }
     if (
-      entry.kind !== 'page' &&
+      !('pageHandler' in entry) &&
       entry.routePath.isWs &&
       (entry.declaration.validators.json ||
         entry.declaration.validators.form ||
@@ -216,7 +216,7 @@ export function buildHttpApp(
         `${entry.source ?? entry.routePath.urlPath}: WebSocket routes cannot declare a request body schema.`,
       )
     }
-    if (entry.kind !== 'page') {
+    if (!('pageHandler' in entry)) {
       const declIsSse = entry.declaration.isSse === true
       if (entry.routePath.isSse && !declIsSse) {
         throw new Error(
@@ -235,7 +235,7 @@ export function buildHttpApp(
       }
     }
     if (
-      entry.kind !== 'page' &&
+      !('pageHandler' in entry) &&
       (entry.routePath.method === 'GET' || entry.routePath.method === 'HEAD') &&
       (entry.declaration.validators.json ||
         entry.declaration.validators.form ||
@@ -299,7 +299,7 @@ export function buildHttpApp(
     if (!policy) {
       const effective = computeEffectivePolicy(
         cfg,
-        entry.kind === 'page' ? undefined : entry.declaration.options,
+        'pageHandler' in entry ? undefined : entry.declaration.options,
         entry.scopes,
       )
       policy =
@@ -381,7 +381,7 @@ export function buildHttpApp(
       const entry = methodRouter.match(method === 'HEAD' ? 'GET' : method, pathname)[0][0]?.[0]
         .entry
       if (!entry) return
-      return entry.kind === 'page' ? 'page' : 'api'
+      return 'pageHandler' in entry
     },
   )
   const getPath = (request: Request): string => pathResolver(request, preflightMethod(request))
@@ -395,7 +395,7 @@ export function buildHttpApp(
     }
 
     const handler: MiddlewareHandler = async (ctx) => {
-      if (entry.kind === 'page') {
+      if ('pageHandler' in entry) {
         const output = await entry.pageHandler(
           ctx,
           getCurrentScope() as RequestScope,
@@ -581,7 +581,7 @@ export function buildHttpApp(
     const scopeMiddlewares = (scopes ?? [])
       .map((s) => s.middleware)
       .filter((m): m is MiddlewareHandler => typeof m === 'function')
-    const routeMiddlewares = entry.kind === 'page' ? [] : entry.declaration.options.middleware
+    const routeMiddlewares = 'pageHandler' in entry ? [] : entry.declaration.options.middleware
     const allMiddlewares = [...scopeMiddlewares, ...routeMiddlewares].map(preserveMiddlewareCookies)
 
     app.on([routePath.method], [routePath.urlPath], ...allMiddlewares, handler)

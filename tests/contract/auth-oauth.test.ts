@@ -109,7 +109,6 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
               ? []
               : [
                   {
-                    kind: 'page',
                     routePath: parseApiFilePath('auth.github.signin.get.ts', '/')!,
                     pageHandler: async () =>
                       new Response('<h1>Sign in</h1>', {
@@ -215,7 +214,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api' as const,
+
       declaration: {
         options: { middleware: [] },
         validators: {},
@@ -294,7 +293,7 @@ describe('OAuth 2.0 & OIDC Contract Tests', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api' as const,
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},

@@ -25,7 +25,9 @@ export const database = defineDatabase({
 
 省略 app 使用核心默认值；入口文件不存在时也可创建最小应用。可选能力按声明及专项规定的启用条件装配，未启用能力不加载；例如 Node 单进程启用认证因素后，可使用 [mfa.md](mfa.md) 规定的默认短期状态，不因此启用恢复码。配置较多时，可以通过普通模块导入和显式再导出拆分，文件扫描只从这个入口跟随明确引用。
 
-固定配置导出名为 app、runtime、page、database、storage、assets、auth、oauth、totp、webauthn、mfa、visitors、stats、jobs、rateLimit、logging、health、metrics、pageCache。每个名字由所属能力验证，不变成 AppConfig 的字段。storage 是具名存储集合，oauth 和 jobs 各表示一个列表。页面由发现结果启用；page 仅在需要页面传输或身份配置时声明。
+固定配置导出名为 app、runtime、page、pageCache、feeds、database、storage、assets、auth、oauth、totp、webauthn、mfa、visitors、stats、jobs、rateLimit、logging、health、metrics。每个名字由所属能力验证，不变成 AppConfig 的字段。storage、feeds 是具名集合，oauth 和 jobs 各表示一个列表。页面由发现结果启用；page 仅在需要页面传输或身份配置时声明。
+
+feeds 注册应用声明的订阅端点，见 [feeds.md](feeds.md)。订阅按声明装配，不要求开启页面发现，也不成为 AppConfig 字段。
 
 入口不接受默认导出、export star、CommonJS 动态导出或未知运行配置名。纯类型导出不启用能力。发现规则见 [build.md](build.md)。
 
@@ -218,6 +220,7 @@ type EnvironmentArgs<D> =
 - Node 运行目录：独立请求分支，执行应用级策略及全局中间件，文件路由优先；不借用 API 树或页面树的目录作用域，授权由明确的应用中间件或下载 API 承担
 - Node 探针和指标：经过公共前置处理后进入各自处理器，不经过业务认证和限流；使用各自独立准入
 - visitors 初始化、OAuth 入口与回调：按其专项占用真实方法/路径，使用正常请求基础；仅在协议明确需要的边界调整来源规则
+- 订阅：按声明的格式与路径执行应用请求策略、全局中间件和内容 load 回调，授权由应用决定
 
 基础上下文不执行领域身份检查；预检、排空拒绝和 URL 重定向在请求服务绑定前短路。公共前置处理覆盖 308、预检、401/403、413/429 等提前返回，仍交付适用安全头和请求 ID。Workers 的升级响应不能事后改头，升级前完成响应准备；不把普通 HTTP 的后置写头应用到不可变响应上。
 

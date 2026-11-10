@@ -60,6 +60,8 @@ parseSync 调用形态为 `parseSync(filename, sourceText, options?)`，返回 P
 
 `defineAuth(getOptions())` 属于正常配置表达式，生成器只识别 auth 导出；有效性由类型检查及运行前声明校验负责。首次 generate 不要求生产秘密，不要求生成物先存在才能检查。
 
+构建器识别 app.ts 的具名导出 feeds，并装配其中声明的各项订阅。配置工厂与 load 回调均不在构建期执行。页面/API 扫描关闭不影响已声明的订阅端点；生成器沿现有领域端点装配，不新增通用资源路由目录或全量插件表。
+
 ## 文件分类与目录作用域
 
 扫描相对于各自配置的 API 树、页面树执行：
@@ -85,7 +87,7 @@ HTTP、WS/SSE 和页面复用 [http.md](http.md) 的路径规则。相同路径�
 
 生成的页面装配保留 Loader/Action 导出的具体函数类型，支持 [pages.md](pages.md) 的路由参数泛型。运行时按文件路由匹配产生字符串或通配段数组；typed client 继续按目标 endpoint 检查参数。
 
-框架端点按实际启用后的方法与路径参加冲突检查，包括 Node 探针、指标、OAuth 和 visitors 初始化；不禁止整个 /__sark 前缀。应用领域端点在创建业务资源前校验；Node 探针在宿主监听前检查已装配的 API、页面和领域端点，失败沿启动清理释放实例，不另外登记一套路由。运行目录前缀与文件路由按既定优先级处理。
+框架端点按实际启用后的方法与路径参加冲突检查，包括 Node 探针、指标、OAuth、visitors 初始化及订阅文档；不禁止整个 /__sark 前缀。应用领域端点在创建业务资源前校验；Node 探针在宿主监听前检查已装配的 API、页面和领域端点，失败沿启动清理释放实例，不另外登记一套路由。运行目录前缀与文件路由按既定优先级处理。
 
 Node 开发分发同时识别已装配的静态框架端点，不要求这些端点位于 apiPrefix/webPrefix 下，也不依赖请求接受 HTML；关闭页面发现时同样可用。Vite 模块和公开构建资源仍由各自的资源处理分支交付。
 
@@ -107,7 +109,7 @@ tooling/build/project.ts 组织发现与生成，generate.ts 根据发现结果�
 
 - 仅 Node：node 的宿主声明、db/sqlite、db/postgres、storage/local、storage/s3，以及 Node 文件 sink；在 Workers 中启用这些接入时报目标错误
 - 仅 Workers：db/d1、storage/r2 的平台 binding 接入；Node 不接受 D1/R2 binding 声明。通过 Node 的 storage/s3 访问 R2 S3 API 属于 S3 兼容后端，不是 R2 binding
-- 两目标共有：HTTP、页面、session、OAuth、visitors、stats 共同契约、TOTP/WebAuthn 与共同认证流程。官方领域 SQL 适配按能力和所借数据库区分，sqlite/postgres 为 Node，d1 为 Workers；auth/state/postgres 的短期状态适配为 Node，auth/state/d1 的短期状态适配为 Workers
+- 两目标共有：HTTP、页面、session、OAuth、visitors、stats 共同契约、TOTP/WebAuthn、共同认证流程及订阅文档。官方领域 SQL 适配按能力和所借数据库区分，sqlite/postgres 为 Node，d1 为 Workers；auth/state/postgres 的短期状态适配为 Node，auth/state/d1 的短期状态适配为 Workers
 - 平台分别接入：storage/presign 的 Node S3 签名/Workers R2 签名、jobs 的 Node 调度/Workers Scheduled、rateLimit 的 Node 窗口/Workers binding、日志的相应平台输出。完整限制由各专项定义
 
 storage/s3 只交付 Node 接入，不据此宣称 S3 协议或 SDK 天然不能用于 Workers。纯类型导入、纯 schema 导入不算初始化相应驱动。
@@ -150,6 +152,8 @@ AppDefinition 描述生成定义，Api 描述 endpoint 的精确类型，包根�
 Vite manifest 提供 chunk、CSS 与依赖。SSR 按实际路由和模块依赖收集样式，客户端导航准备目标模块与 CSS。普通 CSS/CSS Modules 沿 Vite 处理。
 
 浏览器导入 Node 内置模块、服务端包根、宿主声明、数据库、服务端能力配置或协议验证 SDK 时，构建报出导入链；visitors 的纯声明与浏览器助手可以从同一入口导入，WebAuthn 浏览器 SDK 使用独立入口。纯 API 生产入口与独立 client 入口不加载 React 或页面运行设施。
+
+feeds 拒绝浏览器运行时导入。声明入口保持轻量，由生成器按声明选入 runtime/feeds；复用现有能力装配，不扩张核心 AppConfig 或增加运行时能力扫描。
 
 page 公开入口聚合 definePage、React 组件、Hooks、同构信号与类型，供服务端页面声明、Loader 和浏览器使用；导入声明时也加载 React，但不加载应用 app.ts、秘密配置、驱动或服务初始化。page/cache 是独立的服务端入口，runtime/page-browser 仅供生成的浏览器装配使用。沿实际导入链验证边界，不另建模块扫描系统。
 

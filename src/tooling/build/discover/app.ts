@@ -20,6 +20,7 @@ const ALLOWED_EXPORTS = new Set([
   'app',
   'runtime',
   'page',
+  'feeds',
   'database',
   'storage',
   'assets',

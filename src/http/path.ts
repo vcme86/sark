@@ -298,13 +298,14 @@ export function checkUrlNormalization(
  *
  * @param routes - Routes in dispatch priority order.
  * @param getConfig - Already resolved HTTP settings for the current application or event.
- * @param routeKind - Optional existing dispatch index, used only to recover page URLs with repeated slashes.
+ * @param isPageRoute - Optional lookup returning true for a page route, false for an HTTP handler,
+ * or undefined when unmatched.
  * @returns A resolver that decodes once, trims the terminal slash, and canonicalizes static segments.
  */
 export function createRequestPathResolver(
   routes: readonly { readonly routePath: ParsedRoutePath }[],
   getConfig: () => { readonly caseSensitive: boolean },
-  routeKind?: (pathname: string, method: string) => 'page' | 'api' | undefined,
+  isPageRoute?: (pathname: string, method: string) => boolean | undefined,
 ): (request: Request, method?: string) => string {
   let canonicalizer: RouteCanonicalizer | undefined
   const normalize = (request: Request, method: string) => {
@@ -318,13 +319,13 @@ export function createRequestPathResolver(
   }
   return (request, method = request.method) => {
     const pathname = normalize(request, method)
-    if (routeKind && (method === 'GET' || method === 'HEAD')) {
+    if (isPageRoute && (method === 'GET' || method === 'HEAD')) {
       const url = new URL(request.url)
-      if (url.pathname.includes('//') && routeKind(pathname, method) !== 'api') {
+      if (url.pathname.includes('//') && isPageRoute(pathname, method) !== false) {
         // Collapse literal separators before decoding; encoded slashes retain their meaning.
         url.pathname = url.pathname.replace(/\/{2,}/g, '/')
         const candidate = normalize(new Request(url, { method }), method)
-        if (routeKind(candidate, method) === 'page') return candidate
+        if (isPageRoute(candidate, method) === true) return candidate
       }
     }
     return pathname

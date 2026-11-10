@@ -60,7 +60,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: true, middleware: [] },
         validators: {},
@@ -149,7 +149,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -175,7 +175,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -201,7 +201,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -287,7 +287,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -313,7 +313,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -384,7 +384,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -462,7 +462,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -484,7 +484,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -547,7 +547,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -652,7 +652,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -678,7 +678,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { middleware: [] },
         validators: {},
@@ -739,7 +739,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { csrf: false, middleware: [] },
         validators: {},
@@ -765,7 +765,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { middleware: [] },
         validators: {},
@@ -837,7 +837,7 @@ describe('Auth Pipeline & Request Context Integration', () => {
         isSse: false,
         isWs: false,
       },
-      kind: 'api',
+
       declaration: {
         options: { middleware: [] },
         validators: {},
@@ -920,7 +920,6 @@ describe('Auth Pipeline & Request Context Integration', () => {
     )
 
     const pageRoute: RouteEntry = {
-      kind: 'page',
       routePath: {
         urlPath: '/dashboard',
         clientPath: '/dashboard',

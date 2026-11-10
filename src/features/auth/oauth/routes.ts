@@ -37,7 +37,7 @@ function createRoute(method: string, path: string, id: string, callback: boolean
   }
   return {
     routePath,
-    kind: 'api',
+
     declaration: {
       isRoute: true,
       options: { csrf: false, middleware: [] },

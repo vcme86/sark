@@ -12,6 +12,8 @@ CF 使用原生 Static Assets 直接交付，静态命中不调用应用 Worker�
 
 publicDir 以 Vite 解析值为准，默认 public，可以修改或关闭。框架不另建 static/statics 约定。具体资源布局由 [build.md](build.md) 定义。
 
+robots.txt 等固定文件可直接放入 publicDir，沿原生交付与缓存规则。固定订阅文件也可使用该机制；动态订阅见 [feeds.md](feeds.md)。静态文件与动态端点重叠时沿现有公开文件优先级；应用应避免为同一发布 URL 同时提供两种来源。
+
 构建文件的默认响应策略：
 
 - Vite 生成、内容哈希包含在 URL 中的产物使用 `Cache-Control: public, max-age=31536000, immutable`

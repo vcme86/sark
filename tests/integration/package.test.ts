@@ -36,6 +36,7 @@ describe('Contract: Built Package Exports', () => {
     '/page',
     '/client',
     '/visitors',
+    '/feeds',
     '/stats',
     '/runtime/stats',
     '/runtime/cloudflare',
@@ -61,6 +62,7 @@ const optional = [
   'croner',
   '@prometheus-io/',
   'lru-cache',
+  'feedsmith',
 ]
 registerHooks({ resolve(specifier, context, next) {
   if (optional.some(name => specifier === name || specifier.startsWith(name.endsWith('/') ? name : name + '/'))) {
@@ -249,6 +251,7 @@ it.each([
   'stats/postgres',
   'stats/d1',
   'vite',
+  'feeds',
 ])('rejects the server capability %s in a real browser build', async (entry) => {
   const project = createProject()
   project.write(

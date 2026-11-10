@@ -161,9 +161,22 @@ credentials、user、closeDialog 及该登录 API 来自应用。本例表达调
 
 meta({ data, params, url }) 返回 title、description、canonical、robots、openGraph、twitter、links、scripts。布局向页面逐字段覆盖，页面优先。
 
+openGraph 使用 title、type、image 等字段名，Head 输出对应的 og: 属性；article:published_time 等扩展属性保留完整命名空间。twitter 使用 card、title、image 等字段名，Head 输出 twitter: 属性；X 沿用 Twitter Card 标记，不改为 x:。例如：
+
+```ts
+return {
+  openGraph: { title: '文章标题', type: 'article', 'article:published_time': publishedAt },
+  twitter: { card: 'summary_large_image', title: '文章标题' },
+}
+```
+
+publishedAt 为应用提供的 ISO 8601 时间字符串。
+
 links/scripts 按用于识别重复项的属性合并：canonical 等单值关系按 rel 覆盖；alternate 保留语言/type/media 差异；stylesheet/preload/modulepreload 保留不同 URL 和用途属性；外链脚本按 src 去重，没有可用去重键的内联脚本按顺序保留。不能只按 rel 删除多个样式表。
 
 显式 key 标识同一项，子级替换父级并保留原位置；没有 key 的外链脚本按 src 采用同样覆盖规则。manifest 与 canonical 均为单值关系，不因 href 不同而保留多个。
+
+应用可以通过 links 声明 RSS/Atom 的 `rel="alternate"`、对应媒体类型和发布 URL。订阅端点不自动修改每个页面的 meta；页面和 Feed 的内容范围由应用分别决定，见 [feeds.md](feeds.md)。
 
 Head 自动输出 meta 与框架样式，children 可放应用 head 内容。Outlet 渲染子作用域。Scripts 输出经过安全序列化的启动载荷，入口脚本由渲染器注入一次；应用不传内部快照。
 

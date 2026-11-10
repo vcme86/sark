@@ -27,13 +27,17 @@ export function Head({ children }: HeadProps) {
 
       {meta?.openGraph
         ? Object.entries(meta.openGraph).map(([property, content]) => (
-            <meta key={`og:${property}`} property={property} content={content} />
+            <meta
+              key={`og:${property}`}
+              property={property.includes(':') ? property : `og:${property}`}
+              content={content}
+            />
           ))
         : null}
 
       {meta?.twitter
         ? Object.entries(meta.twitter).map(([name, content]) => (
-            <meta key={`twitter:${name}`} name={name} content={content} />
+            <meta key={`twitter:${name}`} name={`twitter:${name}`} content={content} />
           ))
         : null}
 

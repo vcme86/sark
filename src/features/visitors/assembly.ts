@@ -59,7 +59,6 @@ function createVisitorsRuntime(input: VisitorsDeclaration): ServiceRuntime<never
         }
 
         const route: RouteEntry = {
-          kind: 'api',
           routePath,
           source: 'visitors:init',
           declaration: {

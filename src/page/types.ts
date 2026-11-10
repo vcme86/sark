@@ -167,9 +167,9 @@ export interface MetaDescriptor {
   readonly canonical?: string
   /** Robots directive. */
   readonly robots?: string
-  /** OpenGraph property map. */
+  /** Open Graph properties with automatic `og:` prefixes for unqualified names. */
   readonly openGraph?: Readonly<Record<string, string>>
-  /** Twitter card metadata. */
+  /** Unprefixed Twitter Card field names for X link previews. */
   readonly twitter?: Readonly<Record<string, string>>
   /** Ordered list of link elements. */
   readonly links?: readonly LinkDescriptor[]

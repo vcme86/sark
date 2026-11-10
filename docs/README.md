@@ -19,6 +19,7 @@
 - [pages.md · 页面、交互与导航](design/pages.md)：页面路由、Loader、Action、元数据与导航行为
 - [rendering.md · 渲染、水合与 API 传输](design/rendering.md)：SSR、水合、首屏资源及一体与分离部署的 API 调用
 - [assets.md · 静态文件与运行目录](design/assets.md)：构建资源交付、Node 目录挂载、路径与文件响应
+- [feeds.md · 订阅文档发布](design/feeds.md)：RSS、Atom、JSON Feed 与 OPML 的原生数据及发布
 - [page-cache.md · 公共页面缓存](design/page-cache.md)：缓存条件、缓存键、并发填充、失效与实例范围
 - [rate-limit.md · 入口限流](design/rate-limit.md)：策略声明、覆盖规则、响应头与平台差异
 

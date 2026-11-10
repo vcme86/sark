@@ -46,7 +46,6 @@ async function fixture(
         : { cache: createPageCacheAssembly(definePageCache(options.cache)) },
     routes: [
       {
-        kind: 'page',
         routePath: parseApiFilePath('index.get.ts', '/')!,
         pageHandler: createPageHandler(
           {

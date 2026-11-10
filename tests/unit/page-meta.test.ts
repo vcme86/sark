@@ -85,3 +85,31 @@ it('allows child metadata to replace the same explicit link key and singleton re
     { rel: 'manifest', href: '/child.webmanifest' },
   ])
 })
+
+it('renders social metadata with protocol prefixes and preserves extension namespaces', async () => {
+  const { withPage } = await import('../helpers/page-app')
+  await withPage(
+    {
+      component: () => null,
+      meta: () => ({
+        openGraph: {
+          title: 'Article & notes',
+          type: 'article',
+          'article:published_time': '2026-11-01T00:00:00Z',
+        },
+        twitter: { card: 'summary_large_image', title: 'Article & notes' },
+      }),
+    },
+    async (fetch) => {
+      const response = await fetch(new Request('https://example.test/'))
+      const html = await response.text()
+      expect(response.status).toBe(200)
+      expect(html).toContain('property="og:title" content="Article &amp; notes"')
+      expect(html).toContain('property="og:type" content="article"')
+      expect(html).toContain('property="article:published_time"')
+      expect(html).toContain('name="twitter:card" content="summary_large_image"')
+      expect(html).toContain('name="twitter:title" content="Article &amp; notes"')
+      expect(html).not.toMatch(/(?:name|property)="(?:title|card|type)"/)
+    },
+  )
+})

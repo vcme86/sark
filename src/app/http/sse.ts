@@ -68,7 +68,7 @@ export async function executeSseEndpoint(
     return ctx.body(null, 200)
   }
 
-  if (entry.kind === 'page') {
+  if ('pageHandler' in entry) {
     throw new Error('Cannot execute SSE on page route')
   }
 

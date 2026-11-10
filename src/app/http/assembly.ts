@@ -55,9 +55,9 @@ interface RouteEntryBase {
   readonly scopes?: readonly RouteScope[]
 }
 
-/** HTTP API declaration or a page terminal, sharing the same Hono execution chain. */
+/** HTTP handler declaration or page renderer registered in the Hono pipeline. */
 export type RouteEntry = RouteEntryBase &
   (
-    | { readonly kind?: 'api'; readonly declaration: RouteDeclaration | SseDeclaration }
-    | { readonly kind: 'page'; readonly pageHandler: PageRequestHandler }
+    | { readonly declaration: RouteDeclaration | SseDeclaration }
+    | { readonly pageHandler: PageRequestHandler }
   )

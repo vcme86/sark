@@ -398,7 +398,6 @@ ${scopesCode.join(',\n')}
         isWs: false,
       }
       pageEntriesCode.push(`    {
-      kind: 'page',
       source: ${JSON.stringify(page.relativePath)},
       routePath: ${JSON.stringify(routePath)},
       scopes: pageRoutes[${index}].httpScopes,
@@ -426,6 +425,7 @@ const page404Handler = createPage404Handler(
   const hasStorage = appExports.exports.includes('storage')
   const hasAssets = appExports.exports.includes('assets')
   const hasOAuth = appExports.exports.includes('oauth')
+  const hasFeeds = appExports.exports.includes('feeds')
   const hasVisitors = appExports.exports.includes('visitors')
   const hasHealth = appExports.exports.includes('health')
   const hasLogging = appExports.exports.includes('logging')
@@ -492,6 +492,11 @@ const page404Handler = createPage404Handler(
     appBindings.add('oauth')
     runtimeImports.push("import { createOAuthAssembly } from '@olivaw/sark/runtime/oauth'")
     serviceEntries.push(`oauth: createOAuthAssembly(oauth, ${JSON.stringify(apiPrefix)})`)
+  }
+  if (hasFeeds) {
+    appBindings.add('feeds')
+    runtimeImports.push("import { createFeedsAssembly } from '@olivaw/sark/runtime/feeds'")
+    serviceEntries.push('feeds: createFeedsAssembly(feeds)')
   }
   if (hasVisitors) {
     appBindings.add('visitors')

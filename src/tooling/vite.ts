@@ -202,6 +202,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
           id.startsWith('@olivaw/sark/storage/') ||
           id === '@olivaw/sark/auth' ||
           (id.startsWith('@olivaw/sark/auth/') && id !== '@olivaw/sark/auth/webauthn/browser') ||
+          id === '@olivaw/sark/feeds' ||
           id === '@olivaw/sark/middleware' ||
           id === '@olivaw/sark/jobs' ||
           id === '@olivaw/sark/logging' ||
@@ -424,7 +425,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
       function updatePageBindings(definition: AppDefinition): void {
         pageHandlers = new Map(
           definition.routes
-            .filter((entry) => entry.kind === 'page')
+            .filter((entry) => 'pageHandler' in entry)
             .map((entry) => [entry.routePath.urlPath, entry.pageHandler]),
         )
         page404 = definition.page404Handler
@@ -436,7 +437,7 @@ export function sark(options: PluginOptions = {}): Plugin & { api: PluginApi } {
         return {
           ...definition,
           routes: definition.routes.map((entry) =>
-            entry.kind === 'page'
+            'pageHandler' in entry
               ? {
                   ...entry,
                   pageHandler: (...args: Parameters<PageRequestHandler>) => {

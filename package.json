@@ -132,6 +132,10 @@
       "types": "./dist/entries/auth/state-d1.d.mts",
       "import": "./dist/entries/auth/state-d1.mjs"
     },
+    "./feeds": {
+      "types": "./dist/entries/feeds.d.mts",
+      "import": "./dist/entries/feeds.mjs"
+    },
     "./logging": {
       "types": "./dist/entries/logging.d.mts",
       "import": "./dist/entries/logging.mjs"
@@ -211,6 +215,10 @@
     "./runtime/webauthn": {
       "types": "./dist/entries/runtime/webauthn.d.mts",
       "import": "./dist/entries/runtime/webauthn.mjs"
+    },
+    "./runtime/feeds": {
+      "types": "./dist/entries/runtime/feeds.d.mts",
+      "import": "./dist/entries/runtime/feeds.mjs"
     },
     "./runtime/storage": {
       "types": "./dist/entries/runtime/storage.d.mts",
@@ -293,6 +301,7 @@
     "better-sqlite3": "^13.0.3",
     "croner": "^11.0.0",
     "drizzle-orm": "^0.45.4",
+    "feedsmith": "^3.0.1",
     "lru-cache": "^11.5.3",
     "obuild": "^0.4.45",
     "openid-client": "^6.8.8",
@@ -325,6 +334,7 @@
     "better-sqlite3": "^13.0.0",
     "croner": "^11.0.0",
     "drizzle-orm": "^0.45.0",
+    "feedsmith": "^3.0.1",
     "lru-cache": "^11.5.3",
     "openid-client": "^6.8.8",
     "postgres": "^3.4.0",
@@ -385,6 +395,9 @@
       "optional": true
     },
     "drizzle-orm": {
+      "optional": true
+    },
+    "feedsmith": {
       "optional": true
     },
     "lru-cache": {

@@ -29,7 +29,6 @@ export async function withPage(
     routes: [
       ...(options.routes ?? []),
       {
-        kind: 'page',
         routePath: parseApiFilePath('index.get.ts', '/')!,
         pageHandler: createPageHandler(
           {

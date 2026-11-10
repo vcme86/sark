@@ -40,6 +40,8 @@ export default defineBuildConfig({
         'src/entries/auth/state-postgres.ts',
         'src/entries/auth/state-d1.ts',
 
+        'src/entries/feeds.ts',
+
         'src/entries/logging.ts',
 
         'src/entries/jobs.ts',
@@ -70,6 +72,8 @@ export default defineBuildConfig({
         'src/entries/runtime/mfa.ts',
         'src/entries/runtime/totp.ts',
         'src/entries/runtime/webauthn.ts',
+
+        'src/entries/runtime/feeds.ts',
 
         'src/entries/runtime/storage.ts',
 

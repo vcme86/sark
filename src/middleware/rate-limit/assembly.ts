@@ -71,7 +71,7 @@ export function createRateLimitAssembly(declaration: RateLimitDeclaration): () =
           let effective: ResolvedRateLimitConfig | false = base
           for (const scope of entry.scopes ?? [])
             effective = merge(effective, scope.options?.rateLimit)
-          if (entry.kind !== 'page')
+          if (!('pageHandler' in entry))
             effective = merge(effective, entry.declaration.options.rateLimit)
           if (effective === false) {
             admissions.set(entry, undefined)
