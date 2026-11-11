@@ -60,7 +60,7 @@ describe('Node Asset Mounts Contract', () => {
         ],
       }),
       assetMounts: defineAssets([
-        { path: '/files', dir: uploadsDir, headers: { 'x-custom-asset': 'yes' } },
+        { path: '/files///', dir: uploadsDir, headers: { 'x-custom-asset': 'yes' } },
       ]),
     })
 

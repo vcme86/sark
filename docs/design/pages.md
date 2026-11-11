@@ -188,6 +188,8 @@ Link 点击与预载使用锚点已按文档 base URL 解析的地址；编程�
 
 浏览器装配在挂载前绑定 reload/setIdentity 和历史监听，使子组件 Effect 可以直接使用助手。初始化失败与卸载撤销绑定、取消当前操作并恢复 scrollRestoration；缺少启动载荷记录错误并保留服务端 HTML。
 
+刷新已有页面时，在首屏水合提交后恢复当前历史条目保存的滚动位置，焦点由浏览器和页面处理。首次访问没有历史记录时，保留浏览器的初始滚动与锚点行为。
+
 ## 页面缓存声明
 
 页面/布局可导出 `cache: PageCacheConfig | false`，对象字段为 ttl、staleWhileRevalidate（均为秒）、tags、vary。false 关闭该处继承，子级可显式重新声明。布局继承、页面覆盖与实例缓存的启用规则由 [page-cache.md](page-cache.md) 唯一维护。

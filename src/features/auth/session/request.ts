@@ -44,9 +44,8 @@ interface ExtractedCredentials {
 }
 
 /**
- * Extracts authentication credentials from an incoming Request.
- * Prioritizes Authorization: Bearer <token>. If Authorization header exists but is not Bearer,
- * returns null without falling back to cookie. Otherwise checks Cookie: <cookieName>=<token>.
+ * Selects an explicit Bearer credential or reads the session cookie for other schemes.
+ * A Bearer header with no token also takes precedence over the cookie.
  *
  * @param request - Incoming HTTP request.
  * @param cookieName - Expected session cookie name.
@@ -56,13 +55,12 @@ export function extractCredentials(
   request: Request,
   cookieName: string,
 ): ExtractedCredentials | null {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader) {
-    const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim())
-    if (match) {
-      return { token: match[1], isBearer: true }
-    }
-    return null
+  const bearer = request.headers
+    .get('authorization')
+    ?.trim()
+    .match(/^Bearer(?:[ \t]+(.+))?$/i)
+  if (bearer) {
+    return bearer[1] ? { token: bearer[1], isBearer: true } : null
   }
 
   const cookieHeader = request.headers.get('cookie')

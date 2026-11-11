@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 
 import type { RouteDeclaration } from '../../src/app/http/types'
-import { applicationLifecycles } from '../../src/app/lifecycle'
+import { applicationLifecycles, LifecycleManager } from '../../src/app/lifecycle'
 import { createApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
@@ -9,6 +9,28 @@ import { parseApiFilePath } from '../../src/http/path'
 const entry = (file: string, declaration: RouteDeclaration) => ({
   routePath: parseApiFilePath(file, '/api')!,
   declaration,
+})
+
+it('waits for newly accepted work after an earlier drain reached idle', async () => {
+  const lifecycle = new LifecycleManager()
+  lifecycle.beginRequest()
+  const first = lifecycle.waitForIdle()
+  lifecycle.endRequest()
+  await first
+
+  lifecycle.beginRequest()
+  let idle = false
+  const second = lifecycle.waitForIdle().then(() => {
+    idle = true
+  })
+  try {
+    await Promise.resolve()
+    expect(idle).toBe(false)
+  } finally {
+    lifecycle.endRequest()
+    await second
+  }
+  expect(idle).toBe(true)
 })
 
 it('shares concurrent instance close completion and rejects new external business', async () => {

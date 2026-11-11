@@ -13,7 +13,7 @@ import {
 import { type AppConfig, type AppInstance, createApp, defineApp } from '../../src/entries/root'
 import { parseApiFilePath } from '../../src/http/path'
 import { createPageConfigResolver } from '../../src/page/config'
-import { createPageCacheAssembly } from '../../src/page/server/assembly'
+import { createPageCacheAssembly } from '../../src/page/server/cache-assembly'
 import { createPageHandler } from '../../src/page/server/handler'
 import type { ServerPageScope } from '../../src/page/types'
 
@@ -569,6 +569,91 @@ describe('public page cache', () => {
     await idle()
     await read()
     expect(renders).toBe(2)
+  })
+
+  it('bounds concurrent captures without truncating responses or retaining the reservation', async () => {
+    const release = barrier()
+    const value = 'x'.repeat(10_000)
+    function Content() {
+      use(release.promise)
+      return 'complete'
+    }
+    const { app, read, idle } = await fixture(
+      {
+        component: () =>
+          createElement(
+            'main',
+            null,
+            value,
+            createElement(Suspense, { fallback: 'loading' }, createElement(Content)),
+          ),
+      },
+      { cache: { maxBytes: 28_000 } },
+    )
+
+    const start = async (key: string) => {
+      const response = await app.fetch(new Request(`http://localhost/?page=${key}`))
+      const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+      let text = ''
+      while (!text.includes('loading')) {
+        const chunk = await reader.read()
+        if (chunk.done) throw new Error('Response ended before the Suspense fallback')
+        text += chunk.value
+      }
+      return async () => {
+        for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+          text += chunk.value
+        }
+        expect(text).toContain(value)
+        expect(text).toContain('complete')
+      }
+    }
+    const first = await start('first')
+    const second = await start('second')
+    release.resolve()
+    await Promise.all([first(), second()])
+    await idle()
+
+    expect((await read(undefined, '?page=first')).response.headers.has('etag')).toBe(true)
+    expect((await read(undefined, '?page=second')).response.headers.has('etag')).toBe(false)
+    await idle()
+    expect((await read(undefined, '?page=second')).response.headers.has('etag')).toBe(true)
+  })
+
+  it('keeps the original stream alive when the LRU evicts its pending fill', async () => {
+    const release = barrier()
+    function SlowContent() {
+      use(release.promise)
+      return 'page-stream-completed'
+    }
+    const { app, read, idle } = await fixture(
+      {
+        loader: ({ url }) => url.search === '?slow',
+        component: ({ data }) =>
+          data
+            ? createElement(Suspense, { fallback: 'loading-slow-page' }, createElement(SlowContent))
+            : createElement('p', null, 'fast-page'),
+      },
+      { cache: { maxEntries: 2 } },
+    )
+    const response = await app.fetch(new Request('http://localhost/?slow'))
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+    try {
+      const first = await reader.read()
+      expect(first.value).toContain('loading-slow-page')
+      await read(undefined, '?fast=1')
+      await read(undefined, '?fast=2')
+      release.resolve()
+      let rest = ''
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        rest += chunk.value
+      }
+      expect(rest).toContain('page-stream-completed')
+      await idle()
+    } finally {
+      release.resolve()
+      reader.releaseLock()
+    }
   })
 
   it('serves SWR immediately, merges refreshes, and drains the real work on close', async () => {

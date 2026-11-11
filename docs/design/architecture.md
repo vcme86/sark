@@ -169,19 +169,20 @@ sark/
 │   ├── page/
 │   │   ├── config.ts                   页面 API 传输与身份快照配置
 │   │   ├── bootstrap.ts                SSR 与浏览器共用的启动载荷契约
+│   │   ├── cache.ts                    页面缓存声明与配置解析
 │   │   ├── components/                 Head、Outlet、Scripts、Link、错误边界、根文档
 │   │   ├── match.ts                    路由匹配与参数解码
 │   │   ├── meta.ts                     元数据合并
 │   │   ├── serialize.ts                启动载荷序列化
 │   │   ├── server/                     流式渲染、载荷、样式与 API 传输
-│   │   │   ├── response-policy.ts      API 响应对外层页面缓存的限制
-│   │   │   └── cache/                  声明、资格、键、LRU、填充与失效
+│   │   │   ├── cache-assembly.ts       页面缓存装配
+│   │   │   ├── cache.ts                缓存存储、填充与失效
+│   │   │   ├── cached-render.ts        页面缓存资格、键与渲染协调
+│   │   │   └── response-policy.ts      API 响应对外层页面缓存的限制
 │   │   ├── browser/                    水合、路由视图、导航、历史、守卫和资源准备
 │   │   ├── context.tsx
 │   │   ├── hooks.tsx
 │   │   ├── signals.ts
-│   │   ├── storage.ts                  浏览器 Storage 的 SSR 接入
-│   │   ├── build.ts
 │   │   └── types.ts
 │   ├── adapter/
 │   │   ├── node/                       runtime、监听、来源、升级、env、探针与目录挂载

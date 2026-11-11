@@ -109,7 +109,7 @@ cookieName 默认 auth_token，cookie 只配置本会话的专用属性，HttpOn
 
 ## 凭据选择与验证
 
-浏览器 Cookie 与 Authorization Bearer 都解析成同一 Identity。出现 Bearer 时优先选择它；它无效也不回落 Cookie。只有 Cookie 时按 Cookie 验证。
+浏览器 Cookie 与 `Authorization: Bearer` 都解析成同一 `Identity`。请求声明 Bearer 时优先验证令牌，缺失或无效时不回落 Cookie。没有 `Authorization` 或使用 Basic 等其他认证方案时，按 Sark 会话 Cookie 验证。
 
 每次请求依次验证签名、时间约束、已配置 iss/aud、当前版本和 validate。缺失、无效或过期凭据、版本不符，以及 validate 明确返回 false 时得到匿名，业务决定是否要求登录。tokenVersion/validate 的执行异常继续抛出；请求由公共 HTTP 错误边界处理并记录一次，服务级 verify/authenticate 则向调用者抛出。失败结果不写入钩子缓存，后续调用可重新执行；框架不自动重试、降级为匿名或跳转页面。
 

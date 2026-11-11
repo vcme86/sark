@@ -7,6 +7,10 @@ interface SavedEntry extends HistoryTarget {
   readonly userState?: unknown
 }
 
+type PendingPosition =
+  | { target: HistoryTarget }
+  | { target?: HistoryTarget; url: URL; preventReset?: boolean }
+
 function entry(state: unknown): SavedEntry | undefined {
   if (!state || typeof state !== 'object' || !(STATE_KEY in state)) return undefined
   return (state as Record<string, SavedEntry>)[STATE_KEY]
@@ -20,12 +24,14 @@ export class BrowserHistory implements NavigationHost {
   private current: SavedEntry
   private physicalIndex: number
   private restoring?: { index: number; done: () => void; promise: Promise<void> }
-  private pendingPosition?: { target?: HistoryTarget; url: URL; preventReset?: boolean }
+  private pendingPosition?: PendingPosition
   private saveFrame?: number
 
   constructor() {
-    this.current = entry(history.state) ?? { index: 0, scroll: [scrollX, scrollY] }
+    const saved = entry(history.state)
+    this.current = saved ?? { index: 0, scroll: [scrollX, scrollY] }
     this.physicalIndex = this.current.index
+    if (saved) this.pendingPosition = { target: saved }
   }
 
   private write(value: SavedEntry): void {
@@ -37,7 +43,7 @@ export class BrowserHistory implements NavigationHost {
   }
 
   private save = (): void => {
-    if (this.physicalIndex !== this.current.index || this.restoring) return
+    if (this.physicalIndex !== this.current.index || this.restoring || this.pendingPosition) return
     this.current = {
       ...this.current,
       scroll: [scrollX, scrollY],
@@ -92,11 +98,13 @@ export class BrowserHistory implements NavigationHost {
     addEventListener('popstate', onPop)
     addEventListener('scroll', this.onScroll, { passive: true })
     addEventListener('focusin', this.save)
+    addEventListener('pagehide', this.save)
     addEventListener('beforeunload', onUnload)
     return () => {
       removeEventListener('popstate', onPop)
       removeEventListener('scroll', this.onScroll)
       removeEventListener('focusin', this.save)
+      removeEventListener('pagehide', this.save)
       removeEventListener('beforeunload', onUnload)
       if (this.saveFrame !== undefined) cancelAnimationFrame(this.saveFrame)
       this.saveFrame = undefined
@@ -171,6 +179,11 @@ export class BrowserHistory implements NavigationHost {
     const pending = this.pendingPosition
     if (!pending) return
     this.pendingPosition = undefined
+    if (!('url' in pending)) {
+      const [left, top] = pending.target.scroll
+      scrollTo({ left, top, behavior: 'instant' })
+      return
+    }
     const focus = pending.target?.focus && document.getElementById(pending.target.focus)
     if (focus) focus.focus({ preventScroll: true })
     else {

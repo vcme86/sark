@@ -45,6 +45,8 @@ url 必填，pool.max 默认 10、idleTimeout 默认 30000 毫秒、connectTimeo
 
 max 必须为正整数；idleTimeout、connectTimeout 为非负有限毫秒数，0 按上游语义关闭对应计时器。单位转换保留小数，不将应用指定的时长向上取整。
 
+PostgreSQL 使用 postgres.js 4 的原生参数推断。原生 SQL 的参数类型由 PostgreSQL 根据语句推断；语句无法确定类型时，应显式转换，例如 `date_trunc('day', ${date}::timestamptz)`。参见 [postgres.js 升级说明](https://github.com/porsager/postgres#upgrading-from-v3)。
+
 D1 从 db/d1 导入。以下是另一个 Workers 工程的示例，Env 使用其 Wrangler 生成类型，不是上面 Node 示例的 ProcessEnv：
 
 ```ts

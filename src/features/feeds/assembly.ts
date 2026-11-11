@@ -23,14 +23,12 @@ export function createFeedsAssembly(declaration: FeedsDeclaration): ServiceAssem
 }
 
 function createFeedsRuntime(declaration: FeedsDeclaration): ServiceRuntime<never> {
-  let staticConfig: readonly ResolvedFeedConfig[] | undefined
+  let staticRoutes: readonly RouteEntry[] | undefined
+  const createRoutes = (env: unknown) => resolveFeedsConfig(declaration, env).map(createFeedRoute)
   return {
     prepare(env) {
-      const configs = declaration.isFactory
-        ? resolveFeedsConfig(declaration, env)
-        : (staticConfig ??= resolveFeedsConfig(declaration, env))
       return {
-        routes: configs.map(createFeedRoute),
+        routes: declaration.isFactory ? createRoutes(env) : (staticRoutes ??= createRoutes(env)),
         create: () => ({}),
       }
     },

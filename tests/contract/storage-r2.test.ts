@@ -21,7 +21,7 @@ describe('Cloudflare R2 Presign & Validation Contract', () => {
     const decl = defineR2Storage({
       binding: dummyBucket,
       presign: definePresign({
-        endpoint: 'https://test-account.r2.cloudflarestorage.com',
+        endpoint: 'https://test-account.r2.cloudflarestorage.com/storage///',
         bucket: 'media-bucket',
         credentials: {
           accessKeyId: 'r2-access-key',
@@ -43,7 +43,7 @@ describe('Cloudflare R2 Presign & Validation Contract', () => {
 
     expect(presignedPut.method).toBe('PUT')
     expect(presignedPut.url).toContain(
-      'https://test-account.r2.cloudflarestorage.com/media-bucket/uploads/avatar.png',
+      'https://test-account.r2.cloudflarestorage.com/storage/media-bucket/uploads/avatar.png',
     )
     expect(presignedPut.url).toContain('X-Amz-Signature=')
     expect(presignedPut.url).toContain('X-Amz-Algorithm=AWS4-HMAC-SHA256')
@@ -59,7 +59,7 @@ describe('Cloudflare R2 Presign & Validation Contract', () => {
 
     expect(presignedGet.method).toBe('GET')
     expect(presignedGet.url).toContain(
-      'https://test-account.r2.cloudflarestorage.com/media-bucket/uploads/avatar.png',
+      'https://test-account.r2.cloudflarestorage.com/storage/media-bucket/uploads/avatar.png',
     )
     expect(presignedGet.url).toContain('X-Amz-Expires=30')
   })

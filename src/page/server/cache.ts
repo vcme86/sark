@@ -36,13 +36,16 @@ export interface CacheWork {
 }
 
 interface Fill extends CacheToken {
-  signal?: AbortSignal
+  renderSignal?: AbortSignal
+  captureSignal?: AbortSignal
+  reservedBytes: number
   /** Actual render work, which can outlive an aborted native fetch Promise. */
   task?: Promise<CachedPage | undefined>
   readonly work: CacheWork
   readonly render: (
-    signal: AbortSignal,
+    signals: { render: AbortSignal; capture: AbortSignal },
     respond: (response: Response) => void,
+    reserve: (bytes: number) => boolean,
   ) => Promise<PageCandidate | undefined>
   readonly response: ReturnType<typeof Promise.withResolvers<Response>>
   started: boolean
@@ -51,11 +54,12 @@ interface Fill extends CacheToken {
 /** Shared fill deadlines also bound abandoned background work on Workers. */
 const FILL_TIMEOUT = 30_000
 
-/** Owns stored bytes and invalidation; LRU owns coalescing, capacity and TTL. */
+/** Bounds capture buffers and uses an LRU for stored pages and shared fills. */
 export class PageCacheStorage implements PageCacheService {
   private readonly lru: LRUCache<string, CachedPage, Fill>
   // Shared work is indexed by cache key; request-owned captures use their own identity.
   private readonly pending = new Map<string | Fill, Fill>()
+  private reservedBytes = 0
   readonly options: ReturnType<typeof resolvePageCacheOptions>
 
   constructor(options: ReturnType<typeof resolvePageCacheOptions>) {
@@ -92,8 +96,7 @@ export class PageCacheStorage implements PageCacheService {
     render: Fill['render'],
   ) {
     const existing = this.pending.get(key)
-    if (existing?.signal?.aborted || (!existing && this.pending.size >= this.options.maxEntries))
-      return undefined
+    if (existing?.captureSignal?.aborted || (!existing && this.atCapacity())) return undefined
     if (existing) {
       return {
         entry: this.lru.fetch(key, { context: existing }).catch(() => undefined),
@@ -108,7 +111,7 @@ export class PageCacheStorage implements PageCacheService {
     if (context.started) {
       // Hold ownership through both real rendering and the native placeholder's final commit.
       const completed = Promise.allSettled([entry, context.task!]).then(([, rendered]) => {
-        this.pending.delete(key)
+        this.finish(key, context)
         if (rendered.status === 'rejected') throw rendered.reason
       })
       work.waitUntil(completed)
@@ -116,7 +119,7 @@ export class PageCacheStorage implements PageCacheService {
     return {
       entry,
       response: context.started ? context.response.promise : undefined,
-      signal: context.signal,
+      signal: context.renderSignal,
     }
   }
 
@@ -139,7 +142,7 @@ export class PageCacheStorage implements PageCacheService {
     signal: AbortSignal,
     render: Fill['render'],
   ): Promise<Response> | undefined {
-    if (this.pending.size >= this.options.maxEntries) return undefined
+    if (this.atCapacity()) return undefined
     const fill = this.createFill(key, pathname, tags, work, render)
     this.run(fill, signal)
     return fill.response.promise
@@ -160,6 +163,17 @@ export class PageCacheStorage implements PageCacheService {
     this.lru.clear()
   }
 
+  private atCapacity(): boolean {
+    return (
+      this.pending.size >= this.options.maxEntries || this.reservedBytes >= this.options.maxBytes
+    )
+  }
+
+  private finish(identity: string | Fill, fill: Fill): void {
+    this.pending.delete(identity)
+    this.reservedBytes -= fill.reservedBytes
+  }
+
   private createFill(
     key: string,
     pathname: string,
@@ -176,6 +190,7 @@ export class PageCacheStorage implements PageCacheService {
       controller: new AbortController(),
       response: Promise.withResolvers<Response>(),
       started: false,
+      reservedBytes: 0,
     }
   }
 
@@ -197,21 +212,32 @@ export class PageCacheStorage implements PageCacheService {
     fill.started = true
     const identity = fetchOptions ? fill.key : fill
     this.pending.set(identity, fill)
-    const signal = AbortSignal.any([
-      upstream,
+    const renderSignal = AbortSignal.any([
       fill.controller.signal,
       fill.work.signal,
       AbortSignal.timeout(FILL_TIMEOUT),
     ])
-    fill.signal = signal
+    // Evicting an LRU placeholder cancels capture without aborting the client's render.
+    const captureSignal = AbortSignal.any([renderSignal, upstream])
+    fill.renderSignal = renderSignal
+    fill.captureSignal = captureSignal
     let responded = false
     const task = (async () => {
       try {
-        const candidate = await fill.render(signal, (response) => {
-          responded = true
-          fill.response.resolve(response)
-        })
-        if (signal.aborted) return undefined
+        const candidate = await fill.render(
+          { render: renderSignal, capture: captureSignal },
+          (response) => {
+            responded = true
+            fill.response.resolve(response)
+          },
+          (bytes) => {
+            if (this.reservedBytes + bytes > this.options.maxBytes) return false
+            this.reservedBytes += bytes
+            fill.reservedBytes += bytes
+            return true
+          },
+        )
+        if (captureSignal.aborted) return undefined
         if (!candidate) {
           // An undefined fetch restores stale data upstream; an ineligible render must retire it.
           if (fetchOptions) this.lru.delete(fill.key)
@@ -227,10 +253,10 @@ export class PageCacheStorage implements PageCacheService {
       } catch (error) {
         fill.response.reject(error)
         // Before delivery, the HTTP owner reports failure; later failures belong to background work.
-        if (responded && !signal.aborted) throw error
+        if (responded && !captureSignal.aborted) throw error
         return undefined
       } finally {
-        if (!fetchOptions) this.pending.delete(identity)
+        if (!fetchOptions) this.finish(identity, fill)
       }
     })()
     fill.task = task

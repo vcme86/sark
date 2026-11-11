@@ -12,6 +12,7 @@ import type { Context } from 'hono'
 
 import type { AssetMountAssembly } from '../../app/definition'
 import { HttpError } from '../../http/error'
+import { stripTrailingSlashes } from '../../http/url'
 import { resolveSafeFilePath, serveFileResponse } from './file-response'
 
 /** A single runtime directory mount configuration. */
@@ -50,10 +51,8 @@ export function validateMounts(mounts: readonly AssetMount[]): AssetMount[] {
     if (!mount.dir || typeof mount.dir !== 'string') {
       throw new Error(`Asset mount at index ${index} dir must be a non-empty string.`)
     }
-    // Clean path prefix (e.g. '/files/' -> '/files', but keep '/' as '/')
-    const cleanPath = mount.path === '/' ? '/' : mount.path.replace(/\/+$/, '')
     return {
-      path: cleanPath,
+      path: stripTrailingSlashes(mount.path) || '/',
       dir: mount.dir,
       headers: mount.headers,
       followSymlinks: mount.followSymlinks ?? false,

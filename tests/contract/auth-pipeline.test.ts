@@ -249,6 +249,23 @@ describe('Auth Pipeline & Request Context Integration', () => {
     expect(meData.identity.sub).toBe('alice')
     expect(meData.identity.claims.plan).toBe('pro')
 
+    const cookie = `custom_session=${sessionToken}`
+    const basic = await instance.fetch(
+      new Request('http://localhost/api/me', {
+        headers: { Cookie: cookie, Authorization: 'Basic dXNlcjpwYXNz' },
+      }),
+    )
+    expect(await basic.json()).toMatchObject({ identity: { sub: 'alice' } })
+
+    for (const authorization of ['bEaReR', 'Bearer invalid.token.payload']) {
+      const response = await instance.fetch(
+        new Request('http://localhost/api/me', {
+          headers: { Cookie: cookie, Authorization: authorization },
+        }),
+      )
+      expect(await response.json()).toMatchObject({ identity: null })
+    }
+
     // 3. Call /api/logout -> receives clearance Set-Cookie with Max-Age=0
     const logoutRes = await instance.fetch(
       new Request('http://localhost/api/logout', {

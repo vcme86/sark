@@ -7,7 +7,7 @@ import { type BaseDeclaration, evaluateDeclaration, type RequiresEnv } from '../
 export interface PageCacheOptions {
   /** Maximum number of entries in the LRU cache. Defaults to 500. */
   readonly maxEntries?: number
-  /** Maximum total byte size of cached response bodies. Defaults to 31457280 (30 MiB). */
+  /** Byte limit applied separately to stored bodies and concurrent captures. Defaults to 30 MiB. */
   readonly maxBytes?: number
   /** Maximum body byte size for a single cache entry. Defaults to 4194304 (4 MiB). */
   readonly maxEntryBytes?: number

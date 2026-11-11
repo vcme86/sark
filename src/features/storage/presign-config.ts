@@ -36,21 +36,23 @@ export type PresignConfig = S3PresignConfig | R2PresignConfig
 
 export type R2Signer = (options: PresignOptions) => Promise<PresignResult>
 
+interface ResolvedR2PresignConfig {
+  expiresIn: number
+  endpoint: URL
+  region: string
+  bucket: string
+  credentials: {
+    accessKeyId: string
+    secretAccessKey: string
+    sessionToken?: string
+  }
+}
+
 /** Presign declaration retained in storage configuration. */
 export interface PresignDeclaration<Options extends PresignConfig = PresignConfig> {
   readonly kind: 'presign'
   readonly options: Options
-  createR2Signer(validatedConfig: {
-    expiresIn: number
-    endpoint: string
-    region: string
-    bucket: string
-    credentials: {
-      accessKeyId: string
-      secretAccessKey: string
-      sessionToken?: string
-    }
-  }): Promise<R2Signer>
+  createR2Signer(config: ResolvedR2PresignConfig): Promise<R2Signer>
 }
 
 /** Validates S3 presign options to ensure no repeated bucket/credentials are passed. */
@@ -75,17 +77,7 @@ export function validateS3PresignConfig(config?: PresignConfig): { expiresIn: nu
 }
 
 /** Validates R2 presign options to ensure required S3 endpoint, bucket and credentials exist. */
-export function validateR2PresignConfig(config?: PresignConfig): {
-  expiresIn: number
-  endpoint: string
-  region: string
-  bucket: string
-  credentials: {
-    accessKeyId: string
-    secretAccessKey: string
-    sessionToken?: string
-  }
-} {
+export function validateR2PresignConfig(config?: PresignConfig): ResolvedR2PresignConfig {
   if (!config) {
     throw new StorageError('storage_error', 'R2 presign requires a presign configuration.')
   }
@@ -142,7 +134,7 @@ export function validateR2PresignConfig(config?: PresignConfig): {
   }
   return {
     expiresIn,
-    endpoint: r2.endpoint,
+    endpoint,
     region: r2.region ?? 'auto',
     bucket: r2.bucket,
     credentials: {

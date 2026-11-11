@@ -80,7 +80,7 @@ export function resolveRateLimitConfig(raw: RateLimitConfig): ResolvedRateLimitC
   if (raw.headers !== undefined && typeof raw.headers !== 'boolean')
     throw new Error('Rate limit headers must be a boolean.')
 
-  const maxKeys = raw.maxKeys ?? 10000
+  const maxKeys = raw.maxKeys ?? 50_000
   if (!Number.isInteger(maxKeys) || maxKeys <= 0) {
     throw new Error('Node rate limit "maxKeys" must be a positive integer.')
   }

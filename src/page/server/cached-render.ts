@@ -4,8 +4,8 @@ import { Context } from 'hono'
 import { type RequestScope, runInScope } from '../../app/context'
 import { bindRequestServices, createRequestScope } from '../../app/http/request-context'
 import { matchesETag } from '../../http/etag'
-import type { PageCacheRuntime } from './assembly'
 import type { CachedPage, PageCacheStorage, PageCandidate } from './cache'
+import type { PageCacheRuntime } from './cache-assembly'
 import { type PageHttpCache, parseCacheDirectives, resolveCacheTags } from './policy'
 
 type RenderPage = (
@@ -69,13 +69,15 @@ export async function renderCachedPage(
   const capture =
     (produce: (signal: AbortSignal) => Promise<Response>, staleResponse?: Response) =>
     async (
-      signal: AbortSignal,
+      signals: { render: AbortSignal; capture: AbortSignal },
       respond: (response: Response) => void,
+      reserve: (bytes: number) => boolean,
     ): Promise<PageCandidate | undefined> => {
       const finalized = Promise.withResolvers<Response>()
       scope.onResponse = finalized.resolve
-      const response = await produce(signal)
+      const response = await produce(staleResponse ? signals.capture : signals.render)
       if (
+        signals.capture.aborted ||
         !response.body ||
         !eligible(response.status, response.headers, effective.vary, response.headers.get('vary'))
       ) {
@@ -88,11 +90,16 @@ export async function renderCachedPage(
       const deliveredHeaders = new Headers(delivery.headers)
       const deliveredBody = delivery.body
       respond(delivery)
-      const body = await collectBody(collector, storage.options.maxEntryBytes, signal)
+      const body = await collectBody(
+        collector,
+        storage.options.maxEntryBytes,
+        signals.capture,
+        reserve,
+      )
       if (!body) return undefined
       const final = await finalized.promise
       if (
-        signal.aborted ||
+        signals.capture.aborted ||
         final.status !== delivery.status ||
         (request.method !== 'HEAD' && final.body !== deliveredBody)
       )
@@ -299,12 +306,14 @@ function reusableHeaders(headers: Headers): [string, string][] {
  * @param stream - Capture branch or background response body.
  * @param limit - Maximum accepted body size in bytes.
  * @param signal - Work cancellation, independent of other waiting clients.
+ * @param reserve - Reserves bytes in the shared capture budget until the fill settles.
  * @returns Complete bytes, or undefined on overflow, cancellation, or an incomplete body.
  */
 async function collectBody(
   stream: ReadableStream<Uint8Array>,
   limit: number,
   signal: AbortSignal,
+  reserve: (bytes: number) => boolean,
 ): Promise<Uint8Array | undefined> {
   const reader = stream.getReader()
   // Awaiting cancellation of a tee branch can block on the client's delivery branch.
@@ -327,8 +336,10 @@ async function collectBody(
         }
         return signal.aborted ? undefined : body
       }
-      size += chunk.value.length
-      if (size > limit) {
+      const length = chunk.value.byteLength
+      size += length
+      // The contiguous response body briefly overlaps the collected chunks.
+      if (size > limit || !reserve(2 * length)) {
         void reader.cancel().catch(() => {})
         return undefined
       }

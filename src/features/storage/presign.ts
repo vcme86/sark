@@ -1,4 +1,5 @@
 /** Optional object storage signing capability using the AWS SDK. */
+import { stripTrailingSlashes } from '../../http/url'
 import {
   type PresignConfig,
   type PresignDeclaration,
@@ -46,6 +47,7 @@ export function definePresign(options: PresignConfig = {}): PresignDeclaration {
         credentials: config.credentials,
         sha256: Sha256,
       })
+      const bucketPath = `${stripTrailingSlashes(config.endpoint.pathname)}/${encodeURIComponent(config.bucket)}`
 
       return async (requestOptions) => {
         const { key, expiresIn, method, headers } = resolvePresignRequest(
@@ -53,7 +55,7 @@ export function definePresign(options: PresignConfig = {}): PresignDeclaration {
           config.expiresIn,
         )
         const target = new URL(config.endpoint)
-        target.pathname = `${target.pathname.replace(/\/+$/, '')}/${encodeURIComponent(config.bucket)}/${encodeStorageKey(key)}`
+        target.pathname = `${bucketPath}/${encodeStorageKey(key)}`
         const signingDate = new Date()
         const request = await signer.presign(
           {

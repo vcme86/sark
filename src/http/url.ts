@@ -7,6 +7,13 @@ export interface UrlPolicy {
 /** Defaults shared by the HTTP host and browser router. */
 export const DEFAULT_URL_POLICY: UrlPolicy = { caseSensitive: false, trailingSlash: 'never' }
 
+/** Removes trailing slashes while preserving the rest of the URL or path. */
+export function stripTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') end--
+  return value.slice(0, end)
+}
+
 /**
  * Validates a static endpoint path and normalizes duplicate and trailing slashes.
  *

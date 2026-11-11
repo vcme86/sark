@@ -93,7 +93,11 @@ export class LifecycleManager {
    */
   endRequest(): void {
     this.activeRequests--
-    if (this.activeRequests === 0) this.idle?.resolve()
+    if (this.activeRequests === 0) {
+      const idle = this.idle
+      this.idle = undefined
+      idle?.resolve()
+    }
   }
 
   /**

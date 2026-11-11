@@ -4,6 +4,8 @@
  * @module
  */
 
+import { stripTrailingSlashes } from '../../http/url'
+
 /** Valid payload types for storage write operations. */
 export type FileBody = Blob | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>
 
@@ -176,8 +178,7 @@ export function validateStorageKey(key: string): string {
 /** Constructs a public URL by encoding key segments onto a base URL. */
 export function buildPublicUrl(publicUrl: string | undefined, key: string): string | undefined {
   if (!publicUrl) return undefined
-  const cleanBase = publicUrl.replace(/\/+$/, '')
-  return `${cleanBase}/${encodeStorageKey(key)}`
+  return `${stripTrailingSlashes(publicUrl)}/${encodeStorageKey(key)}`
 }
 
 /** Checks byte-range arithmetic before passing it to a storage backend. */

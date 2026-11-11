@@ -6,10 +6,19 @@ import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
 import { createRateLimitAssembly } from '../../src/middleware/rate-limit/assembly'
-import { defineRateLimit } from '../../src/middleware/rate-limit/declaration'
+import {
+  defineRateLimit,
+  resolveRateLimitConfig,
+} from '../../src/middleware/rate-limit/declaration'
 import { NodeRateLimiter } from '../../src/middleware/rate-limit/node'
 
 describe('rate limit contract', () => {
+  it('applies the default Node capacity and honors an explicit override', () => {
+    const options = { window: 60_000, limit: 20 }
+    expect(resolveRateLimitConfig(options)).toMatchObject({ kind: 'node', maxKeys: 50_000 })
+    expect(resolveRateLimitConfig({ ...options, maxKeys: 200 })).toMatchObject({ maxKeys: 200 })
+  })
+
   it('enforces in-memory bounded fixed-window counter, emits headers, and rejects on exceeded limit', () => {
     const limiter = new NodeRateLimiter({
       kind: 'node',

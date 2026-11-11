@@ -20,7 +20,7 @@ export interface NodeRateLimitConfig {
   headers?: boolean
   /** Custom key extractor; defaults to client IP. */
   key?: RateLimitKey
-  /** Maximum number of partition keys retained in memory before eviction (defaults to 10000). */
+  /** Maximum number of partition keys retained in memory before eviction. Defaults to 50,000. */
   maxKeys?: number
   binding?: never
 }
