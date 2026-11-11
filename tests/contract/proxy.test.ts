@@ -85,10 +85,36 @@ it('returns the leftmost IP if all hops are trusted proxies', () => {
 
 it('stops at malformed forwarding hops and normalizes mapped IPv4 clients', () => {
   const rules = compileProxyRules(['loopback', 'private'])
-  const headers = new Headers({ 'X-Forwarded-For': '203.0.113.50, 1.2.3.4:5678, 10.0.0.2' })
-  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('10.0.0.2')
+  const headers = new Headers()
+  for (const hop of [
+    '1.2.3.4:0',
+    '1.2.3.4:65536',
+    '1.2.3.4:abc',
+    'fe80::1%eth0',
+    '[fe80::1%eth0]:443',
+  ]) {
+    headers.set('X-Forwarded-For', `203.0.113.50, ${hop}, 10.0.0.2`)
+    expect(resolveClientIp(headers, '127.0.0.1', rules), hop).toBe('10.0.0.2')
+  }
   headers.set('X-Forwarded-For', '::ffff:203.0.113.50, 10.0.0.2')
   expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('203.0.113.50')
+})
+
+it('resolves forwarded IP endpoints without changing the trusted proxy boundary', () => {
+  const rules = compileProxyRules(['loopback', 'private'])
+  const headers = new Headers({
+    'X-Forwarded-For': '192.0.2.1, 203.0.113.50:52300, 10.0.0.2:443',
+  })
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('203.0.113.50')
+  expect(resolveClientIp(headers, '198.51.100.1', rules)).toBe('198.51.100.1')
+
+  headers.set('X-Forwarded-For', '[2001:db8::50]:52300, [fc00::2]:443')
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('2001:db8::50')
+  headers.set('X-Forwarded-For', '2001:db8::443, [fc00::2]:65535')
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('2001:db8::443')
+  headers.set('X-Forwarded-For', '[::ffff:203.0.113.50]:52300, 10.0.0.2')
+  expect(resolveClientIp(headers, '127.0.0.1', rules)).toBe('203.0.113.50')
+  expect(resolveClientIp(new Headers(), 'fe80::1%eth0', rules)).toBe('fe80::1')
 })
 
 it('validates Host header against whitelist and wildcard patterns', () => {

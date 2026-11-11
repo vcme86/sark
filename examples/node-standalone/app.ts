@@ -6,12 +6,11 @@ import { defineStorage } from '@olivaw/sark/storage/local'
 import { and, eq, isNotNull, lte } from 'drizzle-orm'
 
 import { attachments, posts, users } from './db/schema'
-import { databaseFile } from './lib/data-paths.mjs'
 
 export const app = defineApp({})
 
 export const database = defineDatabase((env: NodeJS.ProcessEnv) => ({
-  filename: databaseFile(env),
+  filename: env.DATABASE_FILE,
   schema: { users, posts, attachments },
 }))
 

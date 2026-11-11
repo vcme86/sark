@@ -71,6 +71,8 @@ Node 25 起不再内置 Corepack，模板显式安装选定 pnpm。镜像不包�
 
 Node 默认 trustedProxies 为 loopback/private，适合同机代理和受控容器网络。公网直连以 socket 对端为准，不能信任客户端自带转发头。入口把公开协议/主机/端口与客户端地址正确交给应用。
 
+从可信代理读取 `X-Forwarded-For` 时，逐跳接受裸 IP、`IPv4:port` 或 `[IPv6]:port`，按 IP 判断信任。端口范围为 1–65535，带 zone ID 的地址视为无效。遇到无效条目时停止向左遍历，保留最近一次确认的地址。
+
 TLS 在公网 CDN 或负载均衡器终止、源站接收 HTTP 时，将实际代理地址或网段配置到 trustedProxies，并限制源站入口。否则应用会按源站连接还原 origin 和客户端 IP，影响表单来源检查与按 IP 限流。
 
 ```nginx

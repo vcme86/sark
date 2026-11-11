@@ -4,6 +4,10 @@
  * @module
  */
 
+import { isIPv6 } from 'node:net'
+
+import { convertIPv6BinaryToString, convertIPv6ToBinary } from 'hono/utils/ipaddr'
+
 import { getCurrentScope } from '../../app/context'
 import type { MiddlewareHandler } from '../../app/http/types'
 import { HttpError } from '../../http/error'
@@ -11,6 +15,12 @@ import { checkCloudflareRateLimit } from './cloudflare'
 import { resolveRateLimitConfig } from './declaration'
 import { NodeRateLimiter } from './node'
 import type { RateLimitConfig, ResolvedRateLimitConfig } from './types'
+
+function defaultClientKey(ip: string): string {
+  if (!isIPv6(ip)) return ip
+  const subnet = (convertIPv6ToBinary(ip) >> 64n) << 64n
+  return `${convertIPv6BinaryToString(subnet)}/64`
+}
 
 /**
  * Creates an independent rate limiting middleware handler.
@@ -38,7 +48,9 @@ export function createRateLimitMiddleware(
       return next()
     }
 
-    const key = options.key ? await options.key(ctx) : (scope?.clientIp ?? '127.0.0.1')
+    const key = options.key
+      ? await options.key(ctx)
+      : defaultClientKey(scope?.clientIp ?? '127.0.0.1')
 
     if (options.kind === 'node') {
       const res = staticLimiter!.check(key)

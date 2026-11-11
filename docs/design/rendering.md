@@ -101,7 +101,7 @@ SSR 的 Loader 和 meta 使用请求入口已解析的可信公开 origin，并�
 
 整份 document 水合，单应用单根：hydrateRoot(document, App)。_root 可自定义，默认根组合 Head/Outlet/Scripts，不需要容器 ID。
 
-SSR 按实际 root、布局、页面及其组件依赖收集 CSS，由 Head 输出去重、保序的 stylesheet 标签。水合时复用首屏标签，后续导航随 Vite 动态导入加载目标模块的 CSS。全站资源映射保留在构建和服务端交付链路。
+SSR 按实际 root、布局、页面及其组件依赖收集 CSS，由 Head 输出去重、保序的 stylesheet 标签。水合时复用首屏标签，后续导航随 Vite 动态导入加载目标模块的 CSS。已加载的模块样式表在当前文档内保留，切换路由后仍按 CSS 层叠规则生效。全站资源映射保留在构建和服务端交付链路。
 
 Scripts 输出 `id="__PAGE_CONTEXT__"` 的 JSON 载荷元素，React 注入一次浏览器入口。客户端读取载荷并准备首屏模块后水合。载荷或模块准备失败时保留静态 SSR 输出，进入 React 后按 React 恢复行为处理。
 

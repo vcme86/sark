@@ -7,11 +7,12 @@ import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
-import { databaseFile } from '../lib/data-paths.mjs'
-import { hashPassword } from '../lib/password.mjs'
+import { hashPassword } from '../lib/password.ts'
 
-const env = readNodeEnv(process.cwd(), process.env.NODE_ENV ?? 'development')
-const filename = resolve(databaseFile(env))
+const { DATABASE_FILE } = readNodeEnv(process.cwd(), process.env.NODE_ENV ?? 'development')
+if (!DATABASE_FILE) throw new Error('Set DATABASE_FILE before initializing SQLite.')
+
+const filename = resolve(DATABASE_FILE)
 mkdirSync(dirname(filename), { recursive: true })
 
 const sqlite = new Database(filename)
@@ -22,13 +23,13 @@ try {
   console.log(`Database migrations applied to ${filename}`)
 
   if (process.argv.includes('--demo')) {
+    const passwordHash = await hashPassword('admin123456')
     const seed = sqlite.transaction(() => {
       if (sqlite.prepare('SELECT id FROM users WHERE username = ?').get('admin')) return
 
       const now = Date.now()
 
       const userId = 'usr_admin_01'
-      const passwordHash = hashPassword('admin123456')
       sqlite
         .prepare(
           `INSERT INTO users (id, username, password_hash, display_name, role, created_at)

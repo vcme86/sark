@@ -16,7 +16,7 @@ export const rateLimit = defineRateLimit({
 
 Node 的 `window` 为有限正数，单位毫秒，`limit` 为正整数，两项必填。`headers` 默认 `true`。`maxKeys` 限制每个计数器最多保留的键数，默认 50,000，只接受正整数。满表时，新键先回收过期计数。若仍无空位，则淘汰最早登记的键，即使其窗口仍然有效。被淘汰的键再次进入时重新计数。
 
-缺省 `key` 使用框架确定的 `clientIp`。可通过 `key(ctx): string | Promise<string>` 改用已验证身份。应用不把正文自报 ID 当成可信主体。
+缺省 `key` 使用框架确定的 `clientIp`，按 IPv4 地址或 IPv6 `/64` 网段计数。同一 `/64` 内的客户端共享额度，持有多个 `/64` 的来源在各网段分别计数。可通过 `key(ctx): string | Promise<string>` 提供自定义计数键，例如已验证身份。应用不把正文自报 ID 当成可信主体。
 
 Workers 声明 `defineRateLimit({ binding: 'HTTP_LIMIT', key? })`，从本次 env 解析平台 limiter。配额、10/60 秒周期在 Wrangler 单独配置；不接受 Node window/limit，不伪造精确剩余和重置时间。
 

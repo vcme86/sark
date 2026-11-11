@@ -1,10 +1,11 @@
 import { HttpError, route, z } from '@olivaw/sark'
+import { rateLimit } from '@olivaw/sark/middleware'
 import { eq } from 'drizzle-orm'
 
 import { users } from '../../db/schema'
-import { verifyPassword } from '../../lib/password.mjs'
+import { verifyPassword } from '../../lib/password'
 
-export default route()
+export default route({ middleware: [rateLimit({ limit: 10, window: 60_000 })] })
   .validate({
     json: z.object({
       username: z.string().min(1),
@@ -16,7 +17,8 @@ export default route()
 
     const user = db.select().from(users).where(eq(users.username, json.username)).get()
 
-    if (!user || !verifyPassword(json.password, user.passwordHash)) {
+    const valid = await verifyPassword(json.password, user?.passwordHash)
+    if (!user || !valid) {
       throw new HttpError(401, 'Invalid username or password')
     }
 

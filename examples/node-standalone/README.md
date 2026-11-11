@@ -21,7 +21,7 @@ node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.
 
 Run `pnpm db:init` to apply the SQLite migrations. For a local walkthrough, run `pnpm db:seed` instead. It applies the migrations and creates sample articles and a demo editor (`admin` / `admin123456`). Use the seeded database for local testing.
 
-By default, the app listens on port `3000` in production, stores SQLite data at `./data/app.db`, and saves attachments under `./data/uploads`. Override these with `PORT`, `DATABASE_FILE`, and `STORAGE_DIR` in `.env`.
+Set `DATABASE_FILE` in `.env` for both the app and the database scripts. The example environment file sets it to `./data/app.db`. The production port defaults to `3000` and attachments default to `./data/uploads`. Set `PORT` or `STORAGE_DIR` in `.env` to override those defaults.
 
 ## Development
 
@@ -42,3 +42,7 @@ pnpm start
 ```
 
 Apply migrations against the persistent database before starting a new version. Keep the database and uploads outside `dist/` so that rebuilding or replacing the application does not affect stored data. The production entry is `dist/server.mjs`.
+
+Password verification uses Node's shared worker pool. The example limits sign-in requests per source. For a public deployment, budget aggregate sign-in traffic against the capacity of that pool.
+
+Behind a reverse proxy or load balancer, configure `trustedProxies` for the actual proxy addresses so sign-in limits are applied to clients. See the [deployment design](../../docs/design/deployment.md#反向代理与来源).

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
+import { getCurrentScope } from '../../src/app/context'
 import { rateLimit } from '../../src/entries/middleware'
 import { createApp, defineApp, route } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
@@ -316,6 +317,45 @@ describe('rate limit contract', () => {
   })
 })
 
+it('shares the default Node quota within an IPv6 /64 and preserves full client IPs for custom keys', async () => {
+  const app = await createApp(
+    createDefinition({
+      admission: createRateLimitAssembly(defineRateLimit({ limit: 1, window: 60_000 })),
+      routes: [
+        {
+          routePath: parseApiFilePath('default.get.ts', '/')!,
+          declaration: route().handler(() => ({ ip: getCurrentScope()?.clientIp })),
+        },
+        {
+          routePath: parseApiFilePath('custom.get.ts', '/')!,
+          declaration: route({
+            rateLimit: { key: () => getCurrentScope()?.clientIp ?? 'missing-client-ip' },
+          }).handler(() => null),
+        },
+      ],
+    }),
+  )
+  const request = (path: string, remoteAddress: string) =>
+    app.fetch(new Request(`http://localhost/${path}`), { incoming: { socket: { remoteAddress } } })
+
+  try {
+    const first = await request('default', '2001:db8:1:2::1')
+    expect(first.status).toBe(200)
+    expect(await first.json()).toEqual({ ip: '2001:db8:1:2::1' })
+    expect((await request('default', '2001:db8:1:2::2')).status).toBe(429)
+    expect((await request('default', '2001:db8:1:3::1')).status).toBe(200)
+    expect((await request('default', '::ffff:203.0.113.1')).status).toBe(200)
+    expect((await request('default', '203.0.113.1')).status).toBe(429)
+    expect((await request('default', '::ffff:203.0.113.2')).status).toBe(200)
+    expect((await request('default', '203.0.113.2')).status).toBe(429)
+    expect((await request('custom', '2001:db8:1:2::1')).status).toBe(200)
+    expect((await request('custom', '2001:db8:1:2::2')).status).toBe(200)
+    expect((await request('custom', '2001:db8:1:2::1')).status).toBe(429)
+  } finally {
+    await app.close()
+  }
+})
+
 it('shares inherited counting across empty, undefined and header-only overrides, including unmatched requests', async () => {
   const routes = [
     {
@@ -405,7 +445,7 @@ it('uses scope defaults per route and supports re-enabling a disabled scope', as
   }
 })
 
-it('applies the Worker binding to unmatched requests without duplicate counting', async () => {
+it('passes the IPv6 subnet key to the Worker binding once per unmatched request', async () => {
   const binding = { limit: vi.fn(async () => ({ success: false })) }
   const handler = createWorkerHandler(
     createDefinition({
@@ -415,7 +455,9 @@ it('applies the Worker binding to unmatched requests without duplicate counting'
   )
   const work: Promise<unknown>[] = []
   const response = await handler.fetch(
-    new Request('https://example.test/missing'),
+    new Request('https://example.test/missing', {
+      headers: { 'CF-Connecting-IP': '2001:db8::42' },
+    }),
     { LIMITER: binding },
     { waitUntil: (promise) => work.push(promise), passThroughOnException() {} },
   )
@@ -423,4 +465,5 @@ it('applies the Worker binding to unmatched requests without duplicate counting'
   await response.text()
   await Promise.all(work)
   expect(binding.limit).toHaveBeenCalledOnce()
+  expect(binding.limit).toHaveBeenCalledWith({ key: '2001:db8::/64' })
 })

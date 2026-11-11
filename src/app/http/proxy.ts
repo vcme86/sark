@@ -144,6 +144,19 @@ export function matchesCompiledRules(ip: string, compiled: CompiledProxyRules): 
   return false
 }
 
+function parseForwardedIp(hop: string): string | undefined {
+  if (hop.includes('%')) return undefined
+  if (isIP(hop)) return hop
+
+  const endpoint = /^(?:\[([^\]]+)\]|([^:]+)):(\d{1,5})$/.exec(hop)
+  if (!endpoint) return undefined
+
+  const [, ipv6, ipv4, port] = endpoint
+  const ip = ipv6 ?? ipv4
+  const portNumber = Number(port)
+  if (portNumber >= 1 && portNumber <= 65_535 && isIP(ip) === (ipv6 ? 6 : 4)) return ip
+}
+
 /**
  * Resolves the client address by traversing X-Forwarded-For across trusted proxies.
  *
@@ -170,8 +183,8 @@ export function resolveClientIp(
   let nearest = peerIp
   const hops = xff.split(',')
   for (let i = hops.length - 1; i >= 0; i--) {
-    const hop = hops[i].trim()
-    if (!isIP(hop)) break
+    const hop = parseForwardedIp(hops[i].trim())
+    if (!hop) break
     nearest = hop
     if (!matchesCompiledRules(hop, trustedRules)) break
   }
