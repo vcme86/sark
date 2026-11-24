@@ -1,7 +1,9 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
+import { setTimeout } from 'node:timers/promises'
 
 export const projectRoot = resolve('.')
 export const cliEntry = join(projectRoot, 'dist/tooling/cli.mjs')
@@ -40,4 +42,47 @@ export function runProjectCli(root: string, args: string[], env?: NodeJS.Process
   })
   if (result.error) throw result.error
   return result
+}
+
+/** Starts a built Node application on an OS-assigned port and waits for the listening log. */
+export async function startNodeProject(root: string, env?: NodeJS.ProcessEnv) {
+  const child = spawn(process.execPath, [join(root, 'dist/server.mjs')], {
+    cwd: root,
+    env: { ...process.env, ...env, PORT: '0' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const exited = once(child, 'exit')
+  const listening = Promise.withResolvers<string>()
+  let output = ''
+  child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+    output += chunk
+    const port = /Node server listening on port (\d+)[^\n]*\n/.exec(output)?.[1]
+    if (port) listening.resolve(`http://127.0.0.1:${port}`)
+  })
+  child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+    output += chunk
+  })
+
+  try {
+    const origin = await Promise.race([
+      listening.promise,
+      exited.then(([code]) => {
+        throw new Error(`Node application exited before listening (${code}):\n${output}`)
+      }),
+      setTimeout(10_000, undefined, { ref: false }).then(() => {
+        throw new Error(`Node application did not start:\n${output}`)
+      }),
+    ])
+    return {
+      origin,
+      stop() {
+        child.kill('SIGTERM')
+        return exited
+      },
+    }
+  } catch (error) {
+    child.kill('SIGKILL')
+    await exited.catch(() => {})
+    throw error
+  }
 }

@@ -1,0 +1,31 @@
+{
+  "name": "sark-cloudflare-example",
+  "main": ".build/worker.ts",
+  "compatibility_date": "2026-11-10",
+  "assets": {
+    "html_handling": "none",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sark-example",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "db/migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "sark-example-files",
+    },
+  ],
+  "secrets": {
+    "required": ["AUTH_SECRET", "DEMO_TOKEN"],
+  },
+  "triggers": {
+    "crons": ["0 * * * *"],
+  },
+}
