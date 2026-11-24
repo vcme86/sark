@@ -226,6 +226,42 @@ describe('node delivery', () => {
     }
   })
 
+  it('releases an SSE producer after delivering a replacement over HTTP', async () => {
+    let closed = false
+    const app = await createApp(
+      createDefinition({
+        app: defineApp({
+          middleware: [
+            async (ctx, next) => {
+              await next()
+              return new Response('data: replacement\n\n', ctx.res)
+            },
+          ],
+        }),
+        routes: [
+          entry(
+            'events.sse.ts',
+            route()
+              .events({ heartbeat: false })
+              .handler(() => ({
+                onClose() {
+                  closed = true
+                },
+              })),
+          ),
+        ],
+      }),
+    )
+    const server = await startNodeServer(app, defineNodeRuntime({ port: 0, hostname: '127.0.0.1' }))
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/events`)
+      expect(await response.text()).toBe('data: replacement\n\n')
+      await expect.poll(() => closed).toBe(true)
+    } finally {
+      await server.close()
+    }
+  })
+
   it('cancels an SSE producer cooperatively before disposing the Node application', async () => {
     const entered = Promise.withResolvers<void>()
     let closedTriggered = false

@@ -159,21 +159,24 @@ export function createNodeJobsManager(
         await currentExecution
       } finally {
         activeExecutions.delete(currentExecution)
+        if (isManual && isInterval && activeExecutions.size === 0) {
+          scheduleIntervalNext()
+        }
       }
     }
 
     function scheduleIntervalNext(): void {
-      if (stopped || paused || isDraining) return
+      if (stopped || paused || isDraining || intervalTimer) return
       const intervalMs = (job.schedule as { interval: number }).interval
-      intervalTimer = setTimeout(async () => {
+      const timer = setTimeout(async () => {
         try {
           await runScheduled()
         } finally {
-          if (!stopped && !paused && !isDraining) {
-            scheduleIntervalNext()
-          }
+          if (intervalTimer === timer) intervalTimer = undefined
+          scheduleIntervalNext()
         }
       }, intervalMs)
+      intervalTimer = timer
     }
 
     function stopTriggers(): void {
@@ -250,7 +253,7 @@ export function createNodeJobsManager(
         if (stopped || isDraining) return
         paused = false
         if (cronInstance) cronInstance.resume()
-        if (isInterval && !intervalTimer && activeExecutions.size === 0) {
+        if (isInterval && activeExecutions.size === 0) {
           scheduleIntervalNext()
         }
       },

@@ -7,7 +7,6 @@
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import type { Manifest, ResolvedConfig } from 'vite'
 
@@ -188,9 +187,7 @@ async function projectFromConfig(config: ResolvedConfig): Promise<ResolvedProjec
   return project
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runCli().catch((err) => {
-    console.error(err instanceof UsageError ? err.message : err)
-    process.exit(1)
-  })
-}
+runCli().catch((err) => {
+  console.error(err instanceof UsageError ? err.message : err)
+  process.exit(1)
+})

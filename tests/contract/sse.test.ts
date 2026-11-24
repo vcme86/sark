@@ -1004,75 +1004,161 @@ describe('SSE cancellation and event resource ownership', () => {
     }
   })
 
-  it('retains event services through producer and onClose completion when the body is cancelled', async () => {
-    const entered = Promise.withResolvers<void>()
-    const releaseProducer = Promise.withResolvers<void>()
-    const closeEntered = Promise.withResolvers<void>()
-    const releaseClose = Promise.withResolvers<void>()
-    const background: Promise<unknown>[] = []
-    const dispose = vi.fn()
-    const service: ServiceAssembly = {
-      createRuntime: () => ({
-        prepare: () => ({
-          create(_resources, context) {
-            context.registerDispose('probe', dispose)
-            return {}
-          },
+  it.each([false, true])(
+    'retains event services through SSE cancellation (replacement: %s)',
+    async (replaceBody) => {
+      const entered = Promise.withResolvers<void>()
+      const releaseProducer = Promise.withResolvers<void>()
+      const closeEntered = Promise.withResolvers<void>()
+      const releaseClose = Promise.withResolvers<void>()
+      const background: Promise<unknown>[] = []
+      const dispose = vi.fn()
+      const service: ServiceAssembly = {
+        createRuntime: () => ({
+          prepare: () => ({
+            create(_resources, context) {
+              context.registerDispose('probe', dispose)
+              return {}
+            },
+          }),
         }),
-      }),
-    }
-    const handler = createWorkerHandler(
+      }
+      const handler = createWorkerHandler(
+        createDefinition({
+          app: defineApp({
+            middleware: [
+              async (ctx, next) => {
+                await next()
+                if (replaceBody)
+                  return new Response(new ReadableStream(), { headers: ctx.res.headers })
+              },
+            ],
+          }),
+          services: { probe: service },
+          routes: [
+            entry(
+              'owned.sse.ts',
+              route()
+                .events({ heartbeat: false })
+                .handler(() => ({
+                  async onOpen() {
+                    entered.resolve()
+                    await releaseProducer.promise
+                  },
+                  async onClose() {
+                    closeEntered.resolve()
+                    await releaseClose.promise
+                  },
+                })),
+            ),
+          ],
+        }),
+      )
+      const response = await handler.fetch(
+        new Request('http://example.test/api/owned'),
+        {},
+        {
+          waitUntil(work) {
+            background.push(work)
+          },
+          passThroughOnException() {},
+        },
+      )
+      let cancellation: Promise<void> | undefined
+      try {
+        await entered.promise
+        cancellation = response.body!.cancel()
+        expect(dispose).not.toHaveBeenCalled()
+        releaseProducer.resolve()
+        await closeEntered.promise
+        expect(dispose).not.toHaveBeenCalled()
+        releaseClose.resolve()
+        await cancellation
+        await Promise.all(background)
+        expect(dispose).toHaveBeenCalledOnce()
+      } finally {
+        releaseProducer.resolve()
+        releaseClose.resolve()
+        await cancellation
+        await Promise.allSettled(background)
+      }
+    },
+  )
+})
+
+it.each(['replacement', 'wrapper', 'header error'] as const)(
+  'closes the producer after delivering an SSE %s',
+  async (mode) => {
+    const opened = vi.fn()
+    const closed = vi.fn()
+    const app = await createApp(
       createDefinition({
-        services: { probe: service },
+        app: defineApp({
+          middleware: [
+            async (ctx, next) => {
+              await next()
+              if (mode === 'wrapper') {
+                return new Response(ctx.res.body!.pipeThrough(new TransformStream()), ctx.res)
+              }
+              if (mode === 'replacement') return new Response('data: replacement\n\n', ctx.res)
+            },
+          ],
+        }),
+        services:
+          mode === 'header error'
+            ? {
+                probe: {
+                  createRuntime: () => ({
+                    prepare: () => ({
+                      create: () => ({
+                        createBinding: () => ({
+                          onCommitHeaders() {
+                            throw new HttpError(403, 'Header commit failed')
+                          },
+                        }),
+                      }),
+                    }),
+                  }),
+                },
+              }
+            : undefined,
         routes: [
           entry(
-            'owned.sse.ts',
+            'delivery.sse.ts',
             route()
-              .events({ heartbeat: false })
+              .events<{ message: string }>({ heartbeat: false })
               .handler(() => ({
-                async onOpen() {
-                  entered.resolve()
-                  await releaseProducer.promise
+                async onOpen(stream) {
+                  opened()
+                  if (mode === 'wrapper') {
+                    await stream.send('message', 'original')
+                    stream.close()
+                  }
                 },
-                async onClose() {
-                  closeEntered.resolve()
-                  await releaseClose.promise
-                },
+                onClose: closed,
               })),
           ),
         ],
       }),
     )
-    const response = await handler.fetch(
-      new Request('http://example.test/api/owned'),
-      {},
-      {
-        waitUntil(work) {
-          background.push(work)
-        },
-        passThroughOnException() {},
-      },
-    )
-    let cancellation: Promise<void> | undefined
     try {
-      await entered.promise
-      cancellation = response.body!.cancel()
-      expect(dispose).not.toHaveBeenCalled()
-      releaseProducer.resolve()
-      await closeEntered.promise
-      expect(dispose).not.toHaveBeenCalled()
-      releaseClose.resolve()
-      await cancellation
-      await Promise.all(background)
-      expect(dispose).toHaveBeenCalledOnce()
+      const response = await app.fetch(new Request('http://example.test/api/delivery'))
+      expect(opened).toHaveBeenCalledOnce()
+      expect(response.status).toBe(mode === 'header error' ? 403 : 200)
+      const content = await response.text()
+      const expected = {
+        replacement: 'data: replacement',
+        wrapper: 'data: "original"',
+        'header error': 'Header commit failed',
+      }
+      expect(content).toContain(expected[mode])
+      expect(closed).toHaveBeenCalledOnce()
+      expect(applicationLifecycles.get(app)!.pendingRequests).toBe(0)
     } finally {
-      releaseProducer.resolve()
-      releaseClose.resolve()
-      await cancellation
-      await Promise.allSettled(background)
+      await app.close()
     }
-  })
-})
+  },
+)
 
 describe('SSE reconnect and response cleanup', () => {
   it.each([

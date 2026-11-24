@@ -83,7 +83,7 @@ export class PageCacheStorage implements PageCacheService {
    *
    * @param key - Full URL and declared content dimensions.
    * @param pathname - Canonical page pathname used by invalidation.
-   * @param tags - Tags resolved before execution starts.
+   * @param tags - Resolves tags only when a new fill starts.
    * @param work - Resource lifetime and cancellation owner.
    * @param render - Returns a complete candidate while exposing the leader's streaming response.
    * @returns A shared result and, only for the initiating caller, its streaming response.
@@ -91,7 +91,7 @@ export class PageCacheStorage implements PageCacheService {
   fill(
     key: string,
     pathname: string,
-    tags: readonly string[],
+    tags: () => readonly string[],
     work: CacheWork,
     render: Fill['render'],
   ) {
@@ -104,7 +104,7 @@ export class PageCacheStorage implements PageCacheService {
         signal: undefined,
       }
     }
-    const context = this.createFill(key, pathname, tags, work, render)
+    const context = this.createFill(key, pathname, tags(), work, render)
     // The complete render is observed by its owner; an upstream cancellation is a cache miss.
     const entry = this.lru.fetch(key, { context, forceRefresh: true }).catch(() => undefined)
     // The supported LRU invokes fetchMethod synchronously, attaching the actual task before return.
@@ -128,7 +128,7 @@ export class PageCacheStorage implements PageCacheService {
    *
    * @param key - Full URL and declared content dimensions.
    * @param pathname - Page pathname used by invalidation.
-   * @param tags - Tags resolved before rendering starts.
+   * @param tags - Resolves tags when capture has capacity to start.
    * @param work - Resource lifetime and instance cancellation owner.
    * @param signal - Cancellation of this independent request.
    * @param render - Produces a streaming response and an eligible complete representation.
@@ -137,13 +137,13 @@ export class PageCacheStorage implements PageCacheService {
   capture(
     key: string,
     pathname: string,
-    tags: readonly string[],
+    tags: () => readonly string[],
     work: CacheWork,
     signal: AbortSignal,
     render: Fill['render'],
   ): Promise<Response> | undefined {
     if (this.atCapacity()) return undefined
-    const fill = this.createFill(key, pathname, tags, work, render)
+    const fill = this.createFill(key, pathname, tags(), work, render)
     this.run(fill, signal)
     return fill.response.promise
   }

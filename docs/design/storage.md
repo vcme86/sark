@@ -147,6 +147,8 @@ expiresIn 默认 300 秒，只接受 1 至 604800 的整数秒。签发时省略
 
 依赖按选中能力安装：Node S3 需要 @aws-sdk/client-s3 与 @aws-sdk/lib-storage；预签名需要 @aws-sdk/s3-request-presigner，R2 预签名另需 @aws-sdk/checksums。框架将这些包声明为可选 peerDependencies，开发测试作为 devDependencies 安装；未选能力的应用不要求安装。
 
+Workers 在事件准备阶段校验 R2 签名配置，首次签名时才创建签名器，同一事件内复用。
+
 启用后该存储增加 `presign({ operation: 'put' | 'get', key, expiresIn?, contentType? })`，返回 url、method、必须携带的 headers 和 expiresAt（签名声明的过期时间，Unix 秒；凭据过期或撤销可使其提前失效）。未启用时不提供该方法。
 
 R2 binding 本身没有 S3 预签名能力。选择 R2 浏览器直传时，除上述签名配置外还须设置 bucket CORS；普通 binding 读写不增加这些要求。[R2 预签名 URL](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)

@@ -7,10 +7,11 @@ export function scanRouteFiles(root: string): Array<{ fullPath: string; rel: str
   if (!existsSync(root)) return files
 
   function walk(directory: string): void {
-    for (const entry of readdirSync(directory)) {
+    for (const dirent of readdirSync(directory, { withFileTypes: true })) {
+      const entry = dirent.name
       if (entry.startsWith('.')) continue
       const fullPath = join(directory, entry)
-      const stat = statSync(fullPath)
+      const stat = dirent.isSymbolicLink() ? statSync(fullPath) : dirent
       if (stat.isDirectory()) {
         if (!entry.startsWith('_')) walk(fullPath)
       } else if (

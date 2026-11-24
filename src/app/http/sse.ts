@@ -211,7 +211,7 @@ export async function executeSseEndpoint(
       await closeStream(true, reason)
     },
   })
-  ctx.set('sark_sse_close', () => closeStream(true))
+  ctx.set('sark_sse', { body: responseStream, close: () => closeStream(true) })
 
   function subscribe(signal: AbortSignal, handler: () => void): void {
     signal.addEventListener('abort', handler, { once: true })

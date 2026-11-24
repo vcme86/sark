@@ -117,7 +117,11 @@ describe('public page cache', () => {
 
   it('reuses a complete representation with ETag, Age and HEAD delivery', async () => {
     let renders = 0
-    const { app, read, idle } = await fixture({ loader: () => ({ version: ++renders }) })
+    const tags = vi.fn(() => ['articles'])
+    const { app, read, idle } = await fixture({
+      cache: { ttl: 60, tags },
+      loader: () => ({ version: ++renders }),
+    })
     const first = await read()
     await idle()
     const second = await read()
@@ -132,6 +136,11 @@ describe('public page cache', () => {
     expect(head.headers.get('etag')).toBe(second.response.headers.get('etag'))
     expect(await head.text()).toBe('')
     expect(renders).toBe(1)
+    expect(tags).toHaveBeenCalledTimes(1)
+    app.cache!.revalidateTag('articles')
+    expect((await read()).text).toContain('"version":2')
+    await idle()
+    expect(tags).toHaveBeenCalledTimes(2)
   })
 
   it('partitions by public origin, complete query, and declared header values', async () => {

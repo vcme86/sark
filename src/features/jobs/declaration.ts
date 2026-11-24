@@ -102,6 +102,7 @@ export function resolveJobsDeclaration(
     return resolved
   }
 
+  const maxTimerDelay = 2_147_483_647
   const resolved: ResolvedNodeJobDefinition[] = []
   for (const job of rawJobs) {
     if ((job as any).onCron !== undefined) {
@@ -116,15 +117,22 @@ export function resolveJobsDeclaration(
       typeof (job as any).schedule === 'object' && 'interval' in (job as any).schedule
     if (isInterval) {
       const interval = (job.schedule as { interval: number }).interval
-      if (!Number.isFinite(interval) || interval <= 0) {
-        throw new Error(`Job "${job.name}" interval must be a positive number of milliseconds.`)
+      if (!Number.isFinite(interval) || interval < 1 || interval > maxTimerDelay) {
+        throw new Error(
+          `Job "${job.name}" interval must be between 1 and ${maxTimerDelay} milliseconds.`,
+        )
       }
     } else if (typeof (job as any).schedule !== 'string' || !(job as any).schedule.trim()) {
       throw new Error(`Job "${job.name}" must specify a cron string or interval schedule.`)
     }
 
-    if (job.timeout !== undefined && (!Number.isFinite(job.timeout) || job.timeout <= 0)) {
-      throw new Error(`Job "${job.name}" timeout must be a positive number of milliseconds.`)
+    if (
+      job.timeout !== undefined &&
+      (!Number.isFinite(job.timeout) || job.timeout < 1 || job.timeout > maxTimerDelay)
+    ) {
+      throw new Error(
+        `Job "${job.name}" timeout must be between 1 and ${maxTimerDelay} milliseconds.`,
+      )
     }
 
     resolved.push({

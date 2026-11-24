@@ -9,14 +9,22 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Hono } from 'hono'
 
 import type { ResolvedHttpConfig } from './config'
-import type { RouteAdmission } from './http/assembly'
+import type { RouteAdmission, SseDelivery } from './http/assembly'
 import type { ServiceBinding, ServiceBindingFactory } from './service'
 import type { AppInstance } from './types'
+
+/** Metadata retained through host response wrapping and delivery. */
+export interface HttpDispatchResult {
+  metadata?: { clientIp: string; requestId: string; route: string; scope?: RequestScope }
+  sse?: SseDelivery
+}
 
 /** Execution scope metadata associated with an asynchronous call tree. */
 export interface ExecutionScope {
   /** Request identifier shared by the root request and its internal calls. */
   readonly requestId: string
+  /** Result owned by this HTTP dispatch, including when the host replaces its Response. */
+  readonly httpResult?: HttpDispatchResult
   /** Selected route template, assigned before service binding or business admission. */
   route?: string
   /** Application Vary value captured before framework CORS adds delivery metadata. */

@@ -3,7 +3,7 @@ import { getCurrentScope } from '../../app/context'
 import type { EnvironmentRequirement } from '../../app/declaration'
 import type { RouteEntry } from '../../app/http/assembly'
 import type { Context } from '../../app/http/types'
-import type { ServiceAssembly, ServiceRuntime } from '../../app/service'
+import type { ServiceAssembly, ServicePreparation, ServiceRuntime } from '../../app/service'
 import { routeShape } from '../../http/path'
 import { type FeedsDeclaration, resolveFeedsConfig } from './config'
 import { generateFeed } from './generate'
@@ -23,22 +23,28 @@ export function createFeedsAssembly(declaration: FeedsDeclaration): ServiceAssem
 }
 
 function createFeedsRuntime(declaration: FeedsDeclaration): ServiceRuntime<never> {
-  let staticRoutes: readonly RouteEntry[] | undefined
-  const createRoutes = (env: unknown) => resolveFeedsConfig(declaration, env).map(createFeedRoute)
+  let staticPreparation: ServicePreparation<never> | undefined
+  let graph: { key: string; routes: readonly RouteEntry[] } | undefined
   return {
     prepare(env) {
-      return {
-        routes: declaration.isFactory ? createRoutes(env) : (staticRoutes ??= createRoutes(env)),
-        create: () => ({}),
+      if (staticPreparation) return staticPreparation
+      const configs = resolveFeedsConfig(declaration, env)
+      const key = JSON.stringify(configs.map(({ name, path }) => [name, path]))
+      if (graph?.key !== key) graph = { key, routes: configs.map(createFeedRoute) }
+      const state = new Map(configs.map((config) => [config.name, config]))
+      const preparation = {
+        routes: graph.routes,
+        create: () => ({ createBinding: () => ({ state }) }),
       }
+      if (!declaration.isFactory) staticPreparation = preparation
+      return preparation
     },
   }
 }
 
-function createFeedRoute(config: ResolvedFeedConfig): RouteEntry {
-  const path = config.path
+function createFeedRoute({ name, path }: ResolvedFeedConfig): RouteEntry {
   return {
-    source: `feeds:${config.name}`,
+    source: `feeds:${name}`,
     routePath: {
       urlPath: path,
       clientPath: path,
@@ -56,7 +62,10 @@ function createFeedRoute(config: ResolvedFeedConfig): RouteEntry {
       options: { middleware: [] },
       validators: {},
       handler: async (ctx) => {
-        const signal = getCurrentScope()!.signal!
+        const scope = getCurrentScope()!
+        const feeds = scope.serviceBindings!.feeds.state as ReadonlyMap<string, ResolvedFeedConfig>
+        const config = feeds.get(name)!
+        const signal = scope.signal!
         signal.throwIfAborted()
         const content = await config.load(ctx as Context)
         signal.throwIfAborted()

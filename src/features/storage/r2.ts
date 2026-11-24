@@ -13,6 +13,7 @@ import { matchesETag } from '../../http/etag'
 import {
   type PresignDeclaration,
   type R2PresignConfig,
+  type R2Signer,
   validateR2PresignConfig,
 } from './presign-config'
 import {
@@ -116,10 +117,15 @@ export function defineStorage<
       }
 
       let store: R2FileStore
-      if (config.presign) {
-        const validated = validateR2PresignConfig(config.presign.options)
-        const signer = await config.presign.createR2Signer(validated)
-        store = new R2PresignedFileStoreImpl(bucket, config.publicUrl, signer)
+      const presign = config.presign
+      if (presign) {
+        const validated = validateR2PresignConfig(presign.options)
+        let signer: Promise<R2Signer> | undefined
+        store = new R2PresignedFileStoreImpl(bucket, config.publicUrl, async (options) => {
+          signer ??= presign.createR2Signer(validated)
+          const sign = await signer
+          return sign(options)
+        })
       } else {
         store = new R2FileStoreBase(bucket, config.publicUrl)
       }

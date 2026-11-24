@@ -38,6 +38,8 @@ export const cache: PageCacheConfig | false = {
 
 ttl/SWR 为秒；vary 是额外参与内容匹配的请求头名。布局向下继承，页面同名标量覆盖，tags/vary 合并去重。cache=false 关闭该处继承，子级可以明确重新声明。未声明 cache 不缓存，ttl=0 不缓存。
 
+函数形式的 tags 仅在开始新一轮缓存收集时执行，包括触发后台刷新时。
+
 新鲜截止是写入时刻+ttl；SWR 截止再加 staleWhileRevalidate。新鲜直接命中，SWR 内返回旧产物并触发合并刷新，超过截止按未命中。超过可用期限后不再命中；内存释放由上游按容量与 TTL 淘汰规则处理。
 
 ## HTTP 策略与资格

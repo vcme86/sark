@@ -178,6 +178,8 @@ export async function collectDevelopmentAssets(
   const styles: Record<string, string[]> = {}
   const files: Record<string, { path: string; hashed: boolean }> = {}
   const chains = pageSourceModules(pages)
+  // Share module transforms across routes while keeping CSS collection local to each route.
+  const moduleDependencies = new Map<string, Promise<ReadonlySet<string>>>()
   function register(url: string) {
     const browserUrl = url.startsWith('\0') ? '/@id/__x00__' + url.slice(1) : url
     const path = browserUrl.split('?')[0].replace(/^\//, '')
@@ -202,6 +204,15 @@ export async function collectDevelopmentAssets(
       params.set('direct', '')
       css.add(server.config.base + pathname.replace(/^\//, '') + '?' + params)
     }
+    let pending = moduleDependencies.get(url)
+    if (!pending) {
+      pending = registerModuleAssets(url, isCss)
+      moduleDependencies.set(url, pending)
+    }
+    const dependencies = await pending
+    await Promise.all([...dependencies].map((dependency) => visit(dependency, css, visited)))
+  }
+  async function registerModuleAssets(url: string, isCss: boolean): Promise<ReadonlySet<string>> {
     const id = url.startsWith('/@id/') ? url.slice('/@id/'.length).replace('__x00__', '\0') : url
     const transformed = await server.environments.client.transformRequest(id)
     const module = await server.environments.client.moduleGraph.getModuleByUrl(id)
@@ -231,7 +242,7 @@ export async function collectDevelopmentAssets(
             )
         }
       }
-    await Promise.all([...dependencies].map((dependency) => visit(dependency, css, visited)))
+    return dependencies
   }
   for (const chain of chains) {
     const css = new Set<string>()

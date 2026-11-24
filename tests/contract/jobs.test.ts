@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createWorkerHandler } from '../../src/adapter/cloudflare/runtime'
 import { defineJobs } from '../../src/entries/jobs'
@@ -10,6 +10,14 @@ import {
   dispatchCloudflareJobs,
 } from '../../src/features/jobs/cloudflare'
 import { resolveJobsDeclaration } from '../../src/features/jobs/declaration'
+
+function resolveIntervalJob(interval: number, timeout = interval) {
+  return resolveJobsDeclaration(
+    defineJobs([{ name: 'interval-job', schedule: { interval }, timeout, handler() {} }]),
+    {},
+    'node',
+  )
+}
 
 describe('jobs contract', () => {
   it('schedules interval jobs, respects overlap protection, and supports JobHandle operations', async () => {
@@ -73,6 +81,44 @@ describe('jobs contract', () => {
     } finally {
       await app.close()
     }
+  })
+
+  it('reschedules an interval when resumed during a manual run', async () => {
+    vi.useFakeTimers()
+    const work = Promise.withResolvers<void>()
+    const handler = vi.fn(() => work.promise)
+    const jobs = defineJobs([{ name: 'interval-job', schedule: { interval: 20 }, handler }])
+    try {
+      const app = await createApp(
+        createDefinition({ services: { jobs: createNodeJobsAssembly(jobs) } }),
+      )
+      try {
+        const handle = app.jobs!.get('interval-job')!
+        handle.pause()
+        const execution = handle.run()
+        handle.resume()
+        await vi.advanceTimersByTimeAsync(100)
+        expect(handler).toHaveBeenCalledTimes(1)
+        work.resolve()
+        await execution
+        await vi.advanceTimersByTimeAsync(19)
+        expect(handler).toHaveBeenCalledTimes(1)
+        await vi.advanceTimersByTimeAsync(21)
+        expect(handler).toHaveBeenCalledTimes(3)
+      } finally {
+        work.resolve()
+        await app.close()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects delays that the Node timer would shorten to one millisecond', () => {
+    expect(() => resolveIntervalJob(2_147_483_647)).not.toThrow()
+    expect(() => resolveIntervalJob(2_147_483_648)).toThrow(/interval/)
+    expect(() => resolveIntervalJob(20, 2_147_483_648)).toThrow(/timeout/)
+    expect(() => resolveIntervalJob(0.5)).toThrow(/interval/)
   })
 
   it('runs job on init when runOnInit is true', async () => {
@@ -648,7 +694,6 @@ describe('jobs contract', () => {
 
 it('releases already prepared paused Croner instances when a later schedule fails', async () => {
   const { Cron } = await import('croner')
-  const { vi } = await import('vitest')
   const stopped = vi.spyOn(Cron.prototype, 'stop')
   const handler = vi.fn()
   const jobs = defineJobs([

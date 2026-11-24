@@ -15,20 +15,24 @@ export const requestDeliveries = new WeakMap<Request, Promise<DeliveryResult>>()
  *
  * @param response - Response whose body reader is transferred to the wrapper.
  * @param complete - Called once on body completion, failure, or settled cancellation.
+ *   Streamed delivery awaits any cleanup promise it returns.
  * @returns The original bodyless response or a response with an observed body stream.
  */
 export function trackResponseCompletion(
   response: Response,
-  complete: (outcome: 'ok' | 'error' | 'aborted') => void,
+  complete: (outcome: 'ok' | 'error' | 'aborted') => Promise<void> | void,
 ): Response {
   let finished = false
+  let completion: Promise<void> | void
   const finish = AsyncLocalStorage.bind((outcome: 'ok' | 'error' | 'aborted') => {
-    if (finished) return
-    finished = true
-    complete(outcome)
+    if (!finished) {
+      finished = true
+      completion = complete(outcome)
+    }
+    return completion
   })
   if (!response.body) {
-    finish(response.status < 400 ? 'ok' : 'error')
+    void finish(response.status < 400 ? 'ok' : 'error')
     return response
   }
   const reader = response.body.getReader()
@@ -37,29 +41,43 @@ export function trackResponseCompletion(
     {
       pull: AsyncLocalStorage.bind(
         async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+          let chunk: ReadableStreamReadResult<Uint8Array>
           try {
-            const chunk = await reader.read()
-            if (cancelled) return
-            if (chunk.done) {
-              reader.releaseLock()
-              finish(response.status < 400 ? 'ok' : 'error')
-              controller.close()
-            } else controller.enqueue(chunk.value)
+            chunk = await reader.read()
           } catch (error) {
             if (cancelled) return
             reader.releaseLock()
-            finish('error')
-            controller.error(error)
+            try {
+              const work = finish('error')
+              if (work) await work
+            } finally {
+              if (!cancelled) controller.error(error)
+            }
+            return
           }
+          if (cancelled) return
+          if (!chunk.done) {
+            controller.enqueue(chunk.value)
+            return
+          }
+          reader.releaseLock()
+          const work = finish(response.status < 400 ? 'ok' : 'error')
+          if (work) await work
+          if (!cancelled) controller.close()
         },
       ),
       cancel: AsyncLocalStorage.bind(async (reason: unknown) => {
         cancelled = true
+        if (finished) {
+          await completion
+          return
+        }
         try {
           await reader.cancel(reason)
         } finally {
           reader.releaseLock()
-          finish('aborted')
+          const work = finish('aborted')
+          if (work) await work
         }
       }),
     },

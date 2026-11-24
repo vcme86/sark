@@ -16,29 +16,19 @@ import { HttpError } from '../http/error'
  * - Other media types: reads an ArrayBuffer.
  *
  * Failure handling:
+ * - A non-2xx response with no body becomes HttpError with its status and headers.
  * - A decoded non-2xx response becomes HttpError with its body, status, and headers.
  * - A structured error envelope supplies message, code, and details when present.
  * - Body reading or parsing errors propagate without conversion to HttpError.
  *
  * @param response - Standard `Response` object received from fetch.
  * @returns Decoded JSON, text, binary data, or undefined for HTTP 204/205.
- * @throws {HttpError} For a non-2xx response whose body was successfully decoded.
+ * @throws {HttpError} For a non-2xx response with no body or a successfully decoded body.
  * @throws If reading or parsing the response body fails.
  */
 export async function decodeResponse(response: Response): Promise<unknown> {
   if (response.status === 204 || response.status === 205) return undefined
-
-  const mediaType = (response.headers.get('Content-Type') ?? '')
-    .split(';', 1)[0]
-    .trim()
-    .toLowerCase()
-  const body: unknown =
-    mediaType === 'application/json' || mediaType.endsWith('+json')
-      ? await response.json()
-      : mediaType.startsWith('text/')
-        ? await response.text()
-        : await response.arrayBuffer()
-
+  const body = !response.ok && response.body === null ? undefined : await decodeBody(response)
   if (response.ok) return body
 
   const error =
@@ -61,4 +51,13 @@ export async function decodeResponse(response: Response): Promise<unknown> {
       body,
     },
   )
+}
+
+function decodeBody(response: Response): Promise<unknown> {
+  const mediaType = (response.headers.get('Content-Type') ?? '')
+    .split(';', 1)[0]
+    .trim()
+    .toLowerCase()
+  if (mediaType === 'application/json' || mediaType.endsWith('+json')) return response.json()
+  return mediaType.startsWith('text/') ? response.text() : response.arrayBuffer()
 }

@@ -145,6 +145,10 @@ describe('metrics contract', () => {
     expect(res1.status).toBe(200)
     await res1.json()
 
+    const head = await app.fetch(new Request('http://localhost/users/42', { method: 'HEAD' }))
+    expect(head.status).toBe(200)
+    expect(head.body).toBeNull()
+
     const metricsRes = await app.fetch(new Request('http://localhost/metrics'))
     expect(metricsRes.status).toBe(200)
     expect(metricsRes.headers.get('content-type')).toContain('text/plain; version=0.0.4')
@@ -152,9 +156,11 @@ describe('metrics contract', () => {
 
     const metricsText = await metricsRes.text()
     expect(metricsText).toContain('http_requests_total')
-    expect(metricsText).toContain('route="/users/:id"')
-    expect(metricsText).toContain('method="GET"')
-    expect(metricsText).toContain('status="200"')
+    for (const method of ['GET', 'HEAD']) {
+      expect(metricsText).toContain(
+        `http_requests_total{method="${method}",route="/users/:id",status="200"} 1`,
+      )
+    }
 
     expect(metricsText).toContain('http_request_duration_seconds')
 

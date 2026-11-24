@@ -14,6 +14,7 @@ import {
   applicationRoutes,
   type ExecutionScope,
   getCurrentScope,
+  type HttpDispatchResult,
   runInScope,
   runWithoutScope,
 } from './context'
@@ -23,7 +24,7 @@ import type { RouteEntry, SystemEndpoint } from './http/assembly'
 import { requestDeliveries, trackResponseCompletion } from './http/delivery'
 import { formatErrorResponse } from './http/output'
 import { buildHttpApp } from './http/pipeline'
-import { applyResponseHeaders, responseMetadata } from './http/request-context'
+import { applyResponseHeaders } from './http/request-context'
 import { getWsUpgradeState } from './http/websocket'
 import { applicationLifecycles, LifecycleManager } from './lifecycle'
 import { applicationLogging, ensureBasicLogging, type ExecutionLogging } from './logging'
@@ -103,21 +104,21 @@ export async function assembleApp<D extends AppDefinition>(
       ([name, assembly]) => [name, assembly.createRuntime()] as const,
     )
 
-    async function prepareServices(env: unknown, config: ResolvedHttpConfig) {
+    async function prepareServices(env: unknown, config: ResolvedHttpConfig, prepareHttp = true) {
       const preparations = new Map<string, ServicePreparation<unknown>>()
-      const routes = [...definition.routes]
+      const routes = prepareHttp ? [...definition.routes] : []
       const endpoints: SystemEndpoint[] = []
       for (const [name, runtime] of serviceRuntimes) {
         const preparation = await runtime.prepare(env, config)
         preparations.set(name, preparation)
-        routes.push(...(preparation.routes ?? []))
-        endpoints.push(...(preparation.endpoints ?? []))
+        if (prepareHttp) {
+          routes.push(...(preparation.routes ?? []))
+          endpoints.push(...(preparation.endpoints ?? []))
+        }
       }
-      const admission = admissionRuntime?.prepare(
-        env,
-        routes,
-        options.kind === 'static' ? 'node' : 'cloudflare',
-      )
+      const admission = prepareHttp
+        ? admissionRuntime?.prepare(env, routes, options.kind === 'static' ? 'node' : 'cloudflare')
+        : undefined
       return { preparations, routes, endpoints, admission }
     }
 
@@ -225,7 +226,7 @@ export async function assembleApp<D extends AppDefinition>(
       compileHttpApp = false,
     ): Promise<EventScopeContext> {
       const effectiveConfig = options.kind === 'event' ? options.resolve(eventEnv) : options.config
-      const eventPlan = await prepareServices(eventEnv, effectiveConfig)
+      const eventPlan = await prepareServices(eventEnv, effectiveConfig, compileHttpApp)
       const eventDisposals: Array<() => Promise<void> | void> = []
       const eventWork = new Set<Promise<unknown>>()
       const trackEventWork = (promise: Promise<unknown>) => {
@@ -426,8 +427,10 @@ export async function assembleApp<D extends AppDefinition>(
             : eventScope!.observers
 
         const dispatch = async (finishEvent?: () => Promise<void>): Promise<Response> => {
+          const httpResult: HttpDispatchResult = {}
           const requestScope: ExecutionScope = {
             ...parent,
+            httpResult,
             requestId,
             app: instance,
             config: effectiveConfig,
@@ -453,7 +456,7 @@ export async function assembleApp<D extends AppDefinition>(
           }
 
           const upgrade = getWsUpgradeState(response)
-          const meta = responseMetadata.get(response)
+          const meta = httpResult.metadata
           const recordAccess = (
             outcome: 'ok' | 'error' | 'aborted',
             status: number | undefined,
@@ -501,6 +504,13 @@ export async function assembleApp<D extends AppDefinition>(
             )
             return response
           }
+          // A replacement can wrap the SSE body; keep its producer until delivery ends.
+          const sse = httpResult.sse
+          let closeReplacedSse = sse && sse.body !== response.body ? sse.close : undefined
+          if (closeReplacedSse && !response.body) {
+            await closeReplacedSse()
+            closeReplacedSse = undefined
+          }
           const delivery = !isInternal ? requestDeliveries.get(request) : undefined
           if (delivery) {
             lifecycle.beginRequest()
@@ -509,6 +519,7 @@ export async function assembleApp<D extends AppDefinition>(
                 AsyncLocalStorage.bind(async ({ outcome, status }) => {
                   try {
                     recordAccess(outcome, status)
+                    if (closeReplacedSse) await closeReplacedSse()
                     await finishEvent?.()
                   } finally {
                     lifecycle.endRequest()
@@ -518,10 +529,15 @@ export async function assembleApp<D extends AppDefinition>(
               .catch((error) => logger.error('Delivery completion failed: {error}', { error }))
             return response
           }
-          if (!shouldLogAccess && !observers && !finishEvent) return response
+          if (!shouldLogAccess && !observers && !finishEvent && !closeReplacedSse) return response
           return runInScope(meta?.scope ?? requestScope, () =>
             trackResponseCompletion(response, (outcome) => {
               recordAccess(outcome, response.status)
+              if (closeReplacedSse) {
+                return closeReplacedSse().finally(() => {
+                  void finishEvent?.()
+                })
+              }
               void finishEvent?.()
             }),
           )
@@ -611,7 +627,6 @@ export async function assembleApp<D extends AppDefinition>(
                       app: instance,
                       requestId: crypto.randomUUID(),
                       config: event.effectiveConfig,
-                      admission: event.admission,
                       resources: event.resources,
                       services: event.services,
                       serviceBindingFactories: event.serviceBindingFactories,

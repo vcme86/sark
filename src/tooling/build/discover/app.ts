@@ -288,9 +288,7 @@ export type DiscoveredJobs =
   | { kind: 'dynamic' }
   | { kind: 'none' }
 
-/**
- * Discovers declared jobs structure from the application entry without evaluating code.
- */
+/** Discovers declared jobs structure from the application entry without evaluating code. */
 export function discoverJobsDeclaration(appFilePath: string): DiscoveredJobs {
   if (!existsSync(appFilePath)) return { kind: 'none' }
   const program = parseModule(appFilePath)

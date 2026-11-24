@@ -1,5 +1,5 @@
 import type { R2Bucket } from '@cloudflare/workers-types'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { definePresign } from '../../src/features/storage/presign'
 import { defineStorage as defineR2Storage } from '../../src/features/storage/r2'
@@ -18,28 +18,38 @@ describe('Cloudflare R2 Presign & Validation Contract', () => {
     // Dummy binding reference - presign generates signed S3 API URLs without invoking the binding
     const dummyBucket = {} as R2Bucket
 
+    const presign = definePresign({
+      endpoint: 'https://test-account.r2.cloudflarestorage.com/storage///',
+      bucket: 'media-bucket',
+      credentials: {
+        accessKeyId: 'r2-access-key',
+        secretAccessKey: 'r2-secret-key-1234567890',
+      },
+      expiresIn: 120,
+    })
+    const createR2Signer = vi.fn(presign.createR2Signer)
     const decl = defineR2Storage({
       binding: dummyBucket,
-      presign: definePresign({
-        endpoint: 'https://test-account.r2.cloudflarestorage.com/storage///',
-        bucket: 'media-bucket',
-        credentials: {
-          accessKeyId: 'r2-access-key',
-          secretAccessKey: 'r2-secret-key-1234567890',
-        },
-        expiresIn: 120,
-      }),
+      presign: { ...presign, createR2Signer },
     })
 
     const r2Store = (await decl.createForEvent!({})).value
-    expect(typeof r2Store.presign).toBe('function')
+    expect(createR2Signer).not.toHaveBeenCalled()
 
-    const presignedPut = await r2Store.presign({
-      operation: 'put',
-      key: 'uploads/avatar.png',
-      contentType: 'image/png',
-      expiresIn: 60,
-    })
+    const [presignedPut, presignedGet] = await Promise.all([
+      r2Store.presign({
+        operation: 'put',
+        key: 'uploads/avatar.png',
+        contentType: 'image/png',
+        expiresIn: 60,
+      }),
+      r2Store.presign({
+        operation: 'get',
+        key: 'uploads/avatar.png',
+        expiresIn: 30,
+      }),
+    ])
+    expect(createR2Signer).toHaveBeenCalledTimes(1)
 
     expect(presignedPut.method).toBe('PUT')
     expect(presignedPut.url).toContain(
@@ -50,12 +60,6 @@ describe('Cloudflare R2 Presign & Validation Contract', () => {
     expect(presignedPut.url).toContain('X-Amz-Expires=60')
     expect(presignedPut.headers['content-type']).toBe('image/png')
     expect(presignedPut.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000))
-
-    const presignedGet = await r2Store.presign({
-      operation: 'get',
-      key: 'uploads/avatar.png',
-      expiresIn: 30,
-    })
 
     expect(presignedGet.method).toBe('GET')
     expect(presignedGet.url).toContain(

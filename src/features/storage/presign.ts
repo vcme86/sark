@@ -36,8 +36,7 @@ export function definePresign(options: PresignConfig = {}): PresignDeclaration {
     kind: 'presign',
     options,
     async createR2Signer(config) {
-      // Ordinary R2 imports only configuration types and validators. The selected
-      // capability awaits its SDK imports so initialization failures reach the owner.
+      // Load the signing SDK on the first presign call, outside the ordinary R2 read/write path.
       const [{ S3RequestPresigner }, { Sha256 }] = await Promise.all([
         import('@aws-sdk/s3-request-presigner'),
         import('@aws-sdk/checksums/sha'),

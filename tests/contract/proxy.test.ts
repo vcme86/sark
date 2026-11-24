@@ -3,10 +3,11 @@ import { expect, it } from 'vitest'
 import { getCurrentScope } from '../../src/app/context'
 import type { RouteEntry } from '../../src/app/http/assembly'
 import {
+  type CompiledProxyRules,
   compileProxyRules,
   matchesCompiledRules,
-  resolveClientIp,
   resolveExternalOrigin,
+  resolveClientIp as resolveForwardedClientIp,
   validateHost,
 } from '../../src/app/http/proxy'
 import {
@@ -18,6 +19,10 @@ import {
 } from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { parseApiFilePath } from '../../src/http/path'
+
+function resolveClientIp(headers: Headers, peerIp: string, rules: CompiledProxyRules): string {
+  return resolveForwardedClientIp(headers, peerIp, matchesCompiledRules(peerIp, rules), rules)
+}
 
 async function withApp(
   config: AppConfig,
@@ -148,21 +153,11 @@ it('resolves external origin from proxy headers only if peer is trusted', () => 
   })
 
   // 1. Trusted peer resolves to external origin
-  const trustedOrigin = resolveExternalOrigin(
-    reqUrl,
-    headers,
-    '127.0.0.1',
-    compileProxyRules(['loopback']),
-  )
+  const trustedOrigin = resolveExternalOrigin(reqUrl, headers, true)
   expect(trustedOrigin.origin).toBe('https://api.production.example')
 
   // 2. Untrusted peer ignores forwarded headers
-  const untrustedOrigin = resolveExternalOrigin(
-    reqUrl,
-    headers,
-    '203.0.113.1',
-    compileProxyRules(['loopback']),
-  )
+  const untrustedOrigin = resolveExternalOrigin(reqUrl, headers, false)
   expect(untrustedOrigin.origin).toBe('http://127.0.0.1:3000')
 })
 
@@ -299,12 +294,7 @@ it('rejects ::2 from loopback, matches mapped IPv6 CIDR, and handles IPv6 host v
     'x-forwarded-host': 'example.com',
     'x-forwarded-port': '8443',
   })
-  const origin = resolveExternalOrigin(
-    reqUrl,
-    headers,
-    '127.0.0.1',
-    compileProxyRules(['loopback']),
-  )
+  const origin = resolveExternalOrigin(reqUrl, headers, true)
   expect(origin.origin).toBe('https://example.com:8443')
 
   // E. resolveClientIp traverses right-to-left across trusted proxies

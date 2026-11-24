@@ -13,6 +13,21 @@ import { getLogger } from '../logging'
 
 const JSON_MEDIA_TYPES = ['application/json']
 const textEncoder = new TextEncoder()
+const REPRESENTATION_HEADERS = [
+  'accept-ranges',
+  'content-digest',
+  'content-disposition',
+  'content-encoding',
+  'content-language',
+  'content-length',
+  'content-location',
+  'content-range',
+  'etag',
+  'last-modified',
+  'repr-digest',
+  'trailer',
+  'transfer-encoding',
+]
 
 /**
  * Formats expected HTTP failures and logs unexpected request errors.
@@ -63,32 +78,74 @@ export function preserveResponseCookies(ctx: Context, response: Response): Respo
 }
 
 /**
- * Preserves cookies from early middleware responses before Hono assigns them.
+ * Prepares a middleware or error response for Hono assignment.
  *
- * @param middleware - Underlying Hono middleware handler.
- * @returns Wrapped middleware with cookie preservation.
+ * @param ctx - Active Hono context.
+ * @param response - Response selected for delivery.
+ * @returns The response to assign, with cookies and Vary fields retained.
  */
-export function preserveMiddlewareCookies(middleware: MiddlewareHandler): MiddlewareHandler {
+export function prepareResponse(ctx: Context, response: Response): Response {
+  if (!ctx.finalized) {
+    const vary = response.headers.get('Vary')
+    if (vary) mergeVary(ctx.res.headers, vary)
+    return preserveResponseCookies(ctx, response)
+  }
+
+  const previous = ctx.res
+  if (previous === response) return response
+  const headers = new Headers(previous.headers)
+  headers.delete('content-type')
+  // A HEAD response and a replacement 204 can both have a null body.
+  if (
+    previous.body !== response.body ||
+    (response.body === null && previous.status !== response.status)
+  ) {
+    for (const name of REPRESENTATION_HEADERS) headers.delete(name)
+  }
+  for (const [name, value] of response.headers) {
+    if (name === 'vary') mergeVary(headers, value)
+    else if (name !== 'set-cookie') headers.set(name, value)
+  }
+  const cookies = new Set([...previous.headers.getSetCookie(), ...response.headers.getSetCookie()])
+  headers.delete('set-cookie')
+  for (const cookie of cookies) headers.append('set-cookie', cookie)
+
+  const replacement = new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+  // Hono's setter would otherwise copy the headers from the old response again.
+  ctx.res = undefined
+  return replacement
+}
+
+/** Applies response replacement rules to middleware that returns a Response. */
+export function wrapMiddlewareResponse(middleware: MiddlewareHandler): MiddlewareHandler {
   return async (ctx, next) => {
     const response = await middleware(ctx, next)
-    if (response instanceof Response) {
-      if (!ctx.finalized) preserveResponseCookies(ctx, response)
-      ctx.res = response
-    }
-    return response
+    if (!(response instanceof Response) || response === ctx.res) return response
+    ctx.res = prepareResponse(ctx, response)
+    return ctx.res
   }
 }
 
-function mergeVaryAccept(headers: Headers): void {
+function mergeVary(headers: Headers, value: string): void {
   const existingVary = headers.get('Vary')
   if (!existingVary) {
-    headers.set('Vary', 'Accept')
+    headers.set('Vary', value)
     return
   }
-  const tokens = existingVary.split(',').map((t) => t.trim().toLowerCase())
-  if (!tokens.includes('*') && !tokens.includes('accept')) {
-    headers.set('Vary', `${existingVary}, Accept`)
+  const fields = new Map<string, string>()
+  for (const part of `${existingVary},${value}`.split(',')) {
+    const field = part.trim()
+    if (field === '*') {
+      headers.set('Vary', '*')
+      return
+    }
+    if (field) fields.set(field.toLowerCase(), field)
   }
+  headers.set('Vary', [...fields.values()].join(', '))
 }
 
 /**
@@ -146,7 +203,7 @@ export function formatResponse(output: unknown, request: Request, baseHeaders?: 
   }
 
   if (!acceptsJson(request.headers.get('Accept'))) {
-    mergeVaryAccept(headers)
+    mergeVary(headers, 'Accept')
     throw new HttpError(406, 'Not Acceptable: client does not accept application/json', {
       headers,
     })
@@ -154,7 +211,7 @@ export function formatResponse(output: unknown, request: Request, baseHeaders?: 
 
   headers.set('Content-Type', 'application/json; charset=utf-8')
 
-  mergeVaryAccept(headers)
+  mergeVary(headers, 'Accept')
 
   const encoded = textEncoder.encode(JSON.stringify(output))
   headers.set('Content-Length', String(encoded.byteLength))

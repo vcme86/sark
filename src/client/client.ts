@@ -348,36 +348,36 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
   }
 
   return {
-    async get(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('GET', path, args[0]))
+    async get(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('GET', path, callOptions))
     },
 
-    async post(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('POST', path, args[0]))
+    async post(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('POST', path, callOptions))
     },
 
-    async query(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('QUERY', path, args[0]))
+    async query(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('QUERY', path, callOptions))
     },
 
-    async put(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('PUT', path, args[0]))
+    async put(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('PUT', path, callOptions))
     },
 
-    async patch(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('PATCH', path, args[0]))
+    async patch(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('PATCH', path, callOptions))
     },
 
-    async delete(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('DELETE', path, args[0]))
+    async delete(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('DELETE', path, callOptions))
     },
 
-    async options(path: string, ...args: any[]): Promise<any> {
-      return decodeResponse(await send('OPTIONS', path, args[0]))
+    async options(path: string, callOptions?: ClientCallOptions) {
+      return decodeResponse(await send('OPTIONS', path, callOptions))
     },
 
-    async head(path: string, ...args: any[]): Promise<Response> {
-      const res = await send('HEAD', path, args[0])
+    async head(path: string, callOptions?: ClientCallOptions): Promise<Response> {
+      const res = await send('HEAD', path, callOptions)
       if (!res.ok) {
         throw new HttpError(res.status, `Request failed with status ${res.status}`, {
           code: 'http_error',
@@ -403,8 +403,7 @@ export function createClient<Api = DefaultApi>(options: ClientOptions = {}): Htt
       )
     },
 
-    sse(path: string, ...args: any[]): SseConnection {
-      const input = (args[0] ?? {}) as ClientCallOptions
+    sse(path: string, input: ClientCallOptions = {}): SseConnection {
       const callOptions = { ...input, init: { ...input.init } }
       const url = buildUrl(baseUrl, path, callOptions.params, callOptions.query)
       const credentials = callOptions.init.credentials ?? defaultCredentials

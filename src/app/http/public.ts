@@ -3,11 +3,12 @@ import type { MiddlewareHandler } from 'hono'
 
 import { cors } from '../../middleware/cors'
 import type { ResolvedHttpConfig } from '../config'
+import type { HttpDispatchResult } from '../context'
 import { applicationLifecycles } from '../lifecycle'
 import { type ExecutionLogging, getLogger } from '../logging'
 import type { AppInstance } from '../types'
 import { requestDeliveries, trackResponseCompletion } from './delivery'
-import { requestContext, responseMetadata } from './request-context'
+import { requestContext } from './request-context'
 
 /**
  * Applies source checks, request IDs, CORS and access completion to a selected public response.
@@ -29,12 +30,17 @@ export function publicRequest(
     const lifecycle = instance && applicationLifecycles.get(instance)
     lifecycle?.beginRequest()
     try {
-      await context(ctx, async () => {
-        if (corsPolicy) await corsPolicy(ctx, next)
-        else await next()
-      })
+      const result: HttpDispatchResult = {}
+      await context(
+        ctx,
+        async () => {
+          if (corsPolicy) await corsPolicy(ctx, next)
+          else await next()
+        },
+        result,
+      )
       if (!logging?.recordAccess && !lifecycle) return
-      const meta = responseMetadata.get(ctx.res)!
+      const meta = result.metadata!
       const record = (status: number | undefined, outcome: 'ok' | 'error' | 'aborted') =>
         logging?.recordAccess?.(
           {

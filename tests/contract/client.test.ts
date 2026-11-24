@@ -37,6 +37,28 @@ describe('client media encoding and decoding', () => {
     await expect(client.get('/data')).rejects.toBeInstanceOf(SyntaxError)
   })
 
+  it('preserves the status and ETag of a bodyless conditional response', async () => {
+    const client = createClient({
+      baseUrl: 'https://example.test/api',
+      fetch: async () =>
+        new Response(null, {
+          status: 304,
+          headers: { ETag: '"v1"', 'Content-Type': 'application/json' },
+        }),
+    })
+    const headers = { 'If-None-Match': '"v1"' }
+    await expect(client.get('/data', { headers })).rejects.toSatisfy(
+      (error) =>
+        error instanceof HttpError &&
+        error.status === 304 &&
+        error.headers.get('ETag') === '"v1"' &&
+        error.body === undefined,
+    )
+    const response = await client.requestRaw('GET', '/data', { headers })
+    expect(response.status).toBe(304)
+    expect(response.headers.get('ETag')).toBe('"v1"')
+  })
+
   it.each([
     { name: 'URLSearchParams', form: () => new URLSearchParams({ name: 'Alice' }) },
     { name: 'plain object', form: () => ({ name: 'Alice' }) },

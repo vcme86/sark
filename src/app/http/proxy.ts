@@ -167,16 +167,18 @@ function parseForwardedIp(hop: string): string | undefined {
  *
  * @param headers - Request headers object.
  * @param peerIp - Immediate socket connection remote address.
+ * @param trustedPeer - Whether the request boundary trusts the immediate peer.
  * @param trustedRules - Proxy rules compiled at the owning configuration boundary.
  * @returns Resolved client IP address string.
  */
 export function resolveClientIp(
   headers: Headers,
   peerIp: string,
+  trustedPeer: boolean,
   trustedRules: CompiledProxyRules,
 ): string {
   const xff = headers.get('x-forwarded-for')
-  if (!xff?.trim() || !matchesCompiledRules(peerIp, trustedRules)) {
+  if (!trustedPeer || !xff?.trim()) {
     return normalizeClientIp(peerIp)
   }
 
@@ -204,17 +206,15 @@ function normalizeClientIp(ip: string): string {
  *
  * @param requestUrl - Target request URL.
  * @param headers - Incoming request headers.
- * @param peerIp - Immediate socket connection remote address.
- * @param trustedRules - Proxy rules compiled at the owning configuration boundary.
+ * @param trustedPeer - Whether the request boundary trusts the immediate peer.
  * @returns Fully resolved external origin URL.
  */
 export function resolveExternalOrigin(
   requestUrl: URL,
   headers: Headers,
-  peerIp: string,
-  trustedRules: CompiledProxyRules,
+  trustedPeer: boolean,
 ): URL {
-  if (!matchesCompiledRules(peerIp, trustedRules)) {
+  if (!trustedPeer) {
     return new URL(requestUrl.origin)
   }
 

@@ -4,22 +4,23 @@
  * @module
  */
 
-import type { Context, MiddlewareHandler, Next } from 'hono'
+import type { Context, Next } from 'hono'
 
 import type { ResolvedHttpConfig } from '../config'
-import { type ExecutionScope, getCurrentScope, type RequestScope, runInScope } from '../context'
+import {
+  type ExecutionScope,
+  getCurrentScope,
+  type HttpDispatchResult,
+  type RequestScope,
+  runInScope,
+} from '../context'
 import { applicationLifecycles } from '../lifecycle'
 import type { RequestBindingContext, ServiceBinding } from '../service'
 import type { AppInstance } from '../types'
-import { formatErrorResponse, preserveResponseCookies } from './output'
+import type { SseDelivery } from './assembly'
+import { formatErrorResponse, prepareResponse } from './output'
 import { matchesCompiledRules, resolveClientIp, resolveExternalOrigin, validateHost } from './proxy'
 import { wsUpgradeCarrierMap, type WsUpgradeState } from './websocket'
-
-/** Response metadata retaining request identity and scope for deferred completion callbacks. */
-export const responseMetadata = new WeakMap<
-  Response,
-  { clientIp: string; requestId: string; scope?: RequestScope; route?: string }
->()
 
 function getPeerIp(ctx: Context, isWorkers: boolean): string {
   if (isWorkers) {
@@ -81,13 +82,14 @@ function applyConfiguredHeaders(headers: Headers, config: ResolvedHttpConfig): v
  *
  * @param getConfig - Getter returning the owning instance or event configuration.
  * @param instanceProvider - Lazy accessor returning the current application instance.
- * @returns Hono middleware handler.
+ * @returns Middleware that records delivery metadata in the supplied result for public routes,
+ *   or in the dispatch scope for application routes.
  */
 export function requestContext(
   getConfig: () => ResolvedHttpConfig,
   instanceProvider?: () => AppInstance | undefined,
-): MiddlewareHandler {
-  return async (ctx, next) => {
+): (ctx: Context, next: Next, result?: HttpDispatchResult) => Promise<void> {
+  return async (ctx, next, result) => {
     const rawReq = ctx.req.raw
     const reqUrl = new URL(ctx.req.url)
 
@@ -109,10 +111,11 @@ export function requestContext(
       Boolean(executionCtx)
     const peerIp = getPeerIp(ctx, isWorkers)
     const compiledProxies = effectiveConfig.proxyRules
+    const trustedPeer = !isInternal && matchesCompiledRules(peerIp, compiledProxies)
 
     const forwardedId = isWorkers
       ? ctx.req.header('cf-ray')
-      : matchesCompiledRules(peerIp, compiledProxies)
+      : trustedPeer
         ? ctx.req.header('x-request-id')
         : undefined
     const requestId = isInternal
@@ -134,7 +137,7 @@ export function requestContext(
       const inherited = isInternal ? (parent as RequestScope) : undefined
       resolvedClientIp = inherited
         ? inherited.clientIp
-        : resolveClientIp(rawReq.headers, peerIp, compiledProxies) || '127.0.0.1'
+        : resolveClientIp(rawReq.headers, peerIp, trustedPeer, compiledProxies) || '127.0.0.1'
       const scope = createRequestScope(ctx, {
         ...parent,
         requestId,
@@ -143,7 +146,7 @@ export function requestContext(
         clientIp: resolvedClientIp,
         externalOrigin: inherited
           ? inherited.externalOrigin
-          : resolveExternalOrigin(reqUrl, rawReq.headers, peerIp, compiledProxies).origin,
+          : resolveExternalOrigin(reqUrl, rawReq.headers, trustedPeer).origin,
         signal: requestSignal,
         config: effectiveConfig,
         env,
@@ -156,7 +159,7 @@ export function requestContext(
       })
     } catch (error) {
       ctx.res = runInScope({ ...parent, requestId, app: instance }, () =>
-        preserveResponseCookies(ctx, formatErrorResponse(error, effectiveConfig.production)),
+        prepareResponse(ctx, formatErrorResponse(error, effectiveConfig.production)),
       )
     }
     const upgradeState = ctx.get('sark_ws_upgrade') as WsUpgradeState | undefined
@@ -166,29 +169,20 @@ export function requestContext(
       if (!isCarrierRetained) {
         upgradeState.connectionAbort.abort()
         wsUpgradeCarrierMap.delete(upgradeState.carrier)
-      } else {
-        ctx.header('X-Request-Id', requestId)
-        applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
-        responseMetadata.set(ctx.res, {
-          clientIp: resolvedClientIp,
-          requestId,
-          scope: responseScope,
-          route: responseScope?.route ?? '/*',
-        })
-        responseScope?.onResponse?.(ctx.res)
-        return
       }
     }
     ctx.header('X-Request-Id', requestId)
     applyConfiguredHeaders(ctx.res.headers, effectiveConfig)
     responseScope?.onResponse?.(ctx.res)
-    if (ctx.res) {
-      responseMetadata.set(ctx.res, {
+    const dispatch = result ?? parent?.httpResult
+    if (dispatch) {
+      dispatch.sse = ctx.get('sark_sse') as SseDelivery | undefined
+      dispatch.metadata = {
         clientIp: resolvedClientIp,
         requestId,
         scope: responseScope,
         route: responseScope?.route ?? '/*',
-      })
+      }
     }
   }
 }

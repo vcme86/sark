@@ -162,11 +162,12 @@ describe('native subscription delivery', () => {
     const input = createDefinition({
       services: {
         feeds: createFeedsAssembly(
-          defineFeeds((env: { title: string }) => {
+          defineFeeds((env: { title: string; path?: string }) => {
             calls++
             return {
               news: {
                 format: 'atom',
+                path: env.path,
                 load: () => ({ ...fixtures.atomData(), title: { value: env.title } }),
               },
             }
@@ -183,15 +184,22 @@ describe('native subscription delivery', () => {
       await app.close()
     }
     const worker = createWorkerHandler(input)
-    for (const title of ['First', 'Second']) {
-      const response = await worker.fetch(
-        request('/feed.atom'),
-        { title },
-        { waitUntil() {}, passThroughOnException() {} },
-      )
+    const context = { waitUntil() {}, passThroughOnException() {} }
+    for (const [title, path] of [
+      ['First', '/feed.atom'],
+      ['Second', '/feed.atom'],
+      ['Third', '/alternate.atom'],
+    ]) {
+      const response = await worker.fetch(request(path), { title, path }, context)
       expect(Feedsmith.parseAtomFeed(await response.text()).title?.value).toBe(title)
     }
-    expect(calls).toBe(3)
+    const oldPath = await worker.fetch(
+      request('/feed.atom'),
+      { title: 'Fourth', path: '/alternate.atom' },
+      context,
+    )
+    expect(oldPath.status).toBe(404)
+    expect(calls).toBe(5)
   })
 
   it('detects endpoint collisions before resource creation', async () => {

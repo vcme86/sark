@@ -62,7 +62,7 @@ export async function renderCachedPage(
   const storage = runtime.storage
   const url = new URL(request.url)
   const key = cacheKey(scope.externalOrigin, url, effective.vary, request.headers)
-  const tags = resolveCacheTags(effective, params)
+  const tags = () => resolveCacheTags(effective, params)
   const noCache = /\bno-cache\b/i.test(request.headers.get('cache-control') ?? '')
 
   const renderShared = (signal: AbortSignal) => renderOwned(context, scope, signal, execute)

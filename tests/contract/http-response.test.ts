@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 
 import { formatResponse } from '../../src/app/http/output'
 import { createClient } from '../../src/entries/client'
-import { createApp, defineApp, route, setCookie } from '../../src/entries/root'
+import {
+  createApp,
+  defineApp,
+  type MiddlewareHandler,
+  route,
+  setCookie,
+} from '../../src/entries/root'
 import { createDefinition } from '../../src/entries/runtime/core'
 import { HttpError } from '../../src/http/error'
 import { parseApiFilePath } from '../../src/http/path'
@@ -47,6 +53,53 @@ it('preserves middleware headers and cookies when the handler returns an immutab
   }
 })
 
+it('keeps both cookies and discards old body headers when middleware replaces a response', async () => {
+  const app = await createApp(
+    createDefinition({
+      app: defineApp({
+        middleware: [
+          async (_ctx, next) => {
+            await next()
+            return new Response('updated', {
+              headers: {
+                ETag: '"new"',
+                'Content-Disposition': 'attachment; filename="updated.txt"',
+                'Set-Cookie': 'after=two; Path=/',
+              },
+            })
+          },
+        ],
+      }),
+      routes: [
+        {
+          routePath: parseApiFilePath('post.get.ts', '/api')!,
+          declaration: route().handler((ctx) => {
+            setCookie(ctx, 'before', 'one')
+            ctx.header('ETag', '"old"')
+            ctx.header('Content-Disposition', 'attachment; filename="original.txt"')
+            ctx.header('X-Handler', 'observed')
+            return { title: 'Original article title' }
+          }),
+        },
+      ],
+    }),
+  )
+  try {
+    const response = await app.fetch(new Request('http://localhost/api/post'))
+    expect(await response.text()).toBe('updated')
+    expect(response.headers.get('Content-Length')).toBeNull()
+    expect(response.headers.get('ETag')).toBe('"new"')
+    expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="updated.txt"')
+    expect(response.headers.get('X-Handler')).toBe('observed')
+    expect(response.headers.getSetCookie()).toEqual([
+      expect.stringContaining('before=one'),
+      'after=two; Path=/',
+    ])
+  } finally {
+    await app.close()
+  }
+})
+
 it('uses UTF-8 byte length for JSON and preserves representation headers on HEAD', async () => {
   const payload = { message: '中文 🐈', num: 42 }
   const expected = JSON.stringify(payload)
@@ -56,6 +109,95 @@ it('uses UTF-8 byte length for JSON and preserves representation headers on HEAD
     expect(response.headers.get('Content-Length')).toBe(String(Buffer.byteLength(expected)))
     expect(response.headers.get('Content-Type')).toBe('application/json; charset=utf-8')
     expect(await response.text()).toBe(method === 'HEAD' ? '' : expected)
+  }
+})
+
+const responseReplacements: { name: string; status: number; middleware: MiddlewareHandler }[] = [
+  {
+    name: 'a 204 response',
+    status: 204,
+    async middleware(_ctx, next) {
+      await next()
+      return new Response(null, { status: 204 })
+    },
+  },
+  {
+    name: 'a thrown HTTP error',
+    status: 403,
+    async middleware(_ctx, next) {
+      await next()
+      throw new HttpError(403, 'Forbidden by middleware')
+    },
+  },
+]
+
+it.each(responseReplacements)(
+  'drops old representation headers for $name',
+  async ({ status, middleware }) => {
+    const app = await createApp(
+      createDefinition({
+        app: defineApp({ middleware: [middleware] }),
+        routes: [
+          entry('article.get.ts', (ctx) => {
+            ctx.header('ETag', '"article"')
+            ctx.header('Content-Disposition', 'attachment; filename="article.txt"')
+            setCookie(ctx, 'visited', 'yes')
+            return { title: 'Article' }
+          }),
+        ],
+      }),
+    )
+    try {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await app.fetch(new Request('http://localhost/api/article', { method }))
+        expect(response.status).toBe(status)
+        expect(response.headers.get('Content-Length')).toBeNull()
+        expect(response.headers.get('ETag')).toBeNull()
+        expect(response.headers.get('Content-Disposition')).toBeNull()
+        expect(response.headers.getSetCookie()).toEqual([expect.stringContaining('visited=yes')])
+        if (method === 'HEAD' || status === 204) expect(response.body).toBeNull()
+        else {
+          expect(await response.json()).toMatchObject({
+            error: { message: 'Forbidden by middleware' },
+          })
+        }
+      }
+    } finally {
+      await app.close()
+    }
+  },
+)
+
+it('merges Vary fields when middleware reuses the negotiated response body', async () => {
+  const app = await createApp(
+    createDefinition({
+      app: defineApp({
+        middleware: [
+          async (ctx, next) => {
+            await next()
+            if (ctx.res.ok) {
+              return new Response(ctx.res.body, {
+                headers: { 'Content-Type': 'application/json', Vary: 'Cookie' },
+              })
+            }
+          },
+        ],
+      }),
+      routes: [entry('article.get.ts', () => ({ title: 'Article' }))],
+    }),
+  )
+  try {
+    const url = 'http://localhost/api/article'
+    const response = await app.fetch(new Request(url, { headers: { Accept: 'application/json' } }))
+    expect(await response.json()).toEqual({ title: 'Article' })
+    expect(new Set(response.headers.get('Vary')?.toLowerCase().split(', '))).toEqual(
+      new Set(['accept', 'cookie']),
+    )
+    const rejected = await app.fetch(new Request(url, { headers: { Accept: 'image/png' } }))
+    expect(rejected.status).toBe(406)
+    await rejected.text()
+  } finally {
+    await app.close()
   }
 })
 

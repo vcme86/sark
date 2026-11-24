@@ -35,6 +35,8 @@ Node 字段为 schedule、timezone、preventOverlap、runOnInit：
 - runOnInit 默认 false，启动就绪后调用同一执行入口，遵守相同重叠保护
 - timeout 默认无，不表示可以无限拖延应用关闭
 
+interval 与 timeout 使用 Node 定时器，范围为 1 至 2147483647 毫秒。超出范围在解析任务配置时报告错误。需要按月等日历周期执行的任务使用 cron。
+
 日历解析、下一时点、触发、暂停/恢复和停止复用 Croner。创建时准备暂停的调度器并立即登记释放，全部准备成功且应用就绪后激活。重叠保护由自动、启动及手动执行共用的入口负责，不再叠加 Croner protect；Sark 同时负责业务上下文、错误、取消与在途任务登记。固定延迟在上次实际结束后再等 interval，不转换成 cron。
 
 ```ts

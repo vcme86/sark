@@ -19,11 +19,17 @@ export interface AdmissionRuntime {
   ): RouteAdmission
 }
 
+/** Original SSE body and its idempotent shutdown operation. */
+export interface SseDelivery {
+  readonly body: ReadableStream<Uint8Array>
+  readonly close: () => Promise<void>
+}
+
 /** Private variables used during endpoint preparation and host handoff. */
 export interface HttpEnv {
   Variables: {
     sark_connection_abort: AbortController
-    sark_sse_close?: () => Promise<void>
+    sark_sse?: SseDelivery
     sark_ws_upgrade?: WsUpgradeState
   }
 }

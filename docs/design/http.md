@@ -188,6 +188,8 @@ form 为含 Blob/File 的对象时编码 multipart，纯文本对象编码 urlen
 
 ## 中间件与 Cookie
 
+中间件在 `next()` 后返回新的 `Response` 或抛出错误时，框架合并两份响应的 `Set-Cookie` 和 `Vary`。替换正文时应构造独立的 `Response`，由它提供长度、编码和验证器等表示头。Hono 的 `ctx.body()`、`ctx.text()` 等响应助手会复制当前的响应头。
+
 `cors(options)`、`csrf(options?)`、`compress(options?)` 从 middleware 导入，返回 Hono MiddlewareHandler；`rateLimit(options): MiddlewareHandler` 从 middleware 导入，完整选项与独立声明的区别见 [rate-limit.md](rate-limit.md)。CORS 选项沿上游，必须明确 origin。CSRF 与压缩接入遵循下列约定。
 
 CORS 负责跨域响应，CSRF 负责适用的浏览器请求防护，授权由应用执行。Bearer 豁免依据是已通过 Bearer 认证，不是头存在。OAuth 回调的局部协议例外不扩展到业务表单。
@@ -268,6 +270,8 @@ export default route()
 SseStream 提供异步 `send(event, data, { id?, retry? }?)`、signal 和 close。send 遵循标准事件流编码，校验 event/id 字段禁止包含换行符（CR/LF），id 禁止包含空字符（NUL），retry 须为非负整数；data 必须可 JSON 序列化，序列化或写入失败拒绝返回的 Promise。写入受底层流背压约束；id/retry 遵循事件流语义，retry 为毫秒。heartbeat 默认 15000 毫秒，false 关闭；使用注释帧，背压时不积压心跳。
 
 onOpen 返回后不自动结束连接。close 发起优雅关闭，停止新写入与心跳，不等待当前回调；断开或宿主强制取消会中断背压等待。框架等待回调返回的异步操作、onClose 和响应收尾完成后释放连接资源。send 错误由调用方处理，生产者未处理的异常进入一次 onError；正常取消不作为生产者错误。提交头前准入失败用 HttpError/Response；提交后不能改状态，不输出内部异常。
+
+中间件包装原事件流后仍可正常读取。替换响应正文时，最终响应交付结束、失败或取消都会收尾原生产者。
 
 HEAD 执行准入与输入校验，不启动生产者/心跳。每次建连和重连重新认证、授权与限流，不按每个事件重复入口限制。不进入页面缓存，Sark 跳过 text/event-stream 压缩。Node/Workers 均接对应宿主流生命周期。
 

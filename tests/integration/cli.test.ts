@@ -1,6 +1,14 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 
@@ -20,6 +28,16 @@ function withProject(run: (root: string) => void): void {
 function generate(root: string) {
   return runProjectCli(root, ['generate'])
 }
+
+it('builds through a linked CLI entry', () => {
+  withProject((root) => {
+    const entry = join(root, 'sark.mjs')
+    symlinkSync(cli, entry, 'file')
+    const result = spawnSync(process.execPath, [entry, 'build'], { cwd: root, encoding: 'utf8' })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(existsSync(join(root, 'dist/server.mjs'))).toBe(true)
+  })
+})
 
 it('generates from the resolved Vite root and Sark options without executing the application', () => {
   withProject((root) => {

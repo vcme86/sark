@@ -34,8 +34,9 @@ import { parseAndValidateInput } from './input'
 import {
   formatErrorResponse,
   formatResponse,
-  preserveMiddlewareCookies,
+  prepareResponse,
   preserveResponseCookies,
+  wrapMiddlewareResponse,
 } from './output'
 import { computeEffectivePolicy } from './policy'
 import { bindRequestServices, requestContext } from './request-context'
@@ -482,12 +483,9 @@ export function buildHttpApp(
   })
 
   // Centralized error boundary
-  app.onError((err: unknown, ctx: Context) => {
-    const errorResponse = formatErrorResponse(err, getConfig().production)
-    const vary = errorResponse.headers.get('Vary')
-    if (vary) ctx.header('Vary', vary)
-    return preserveResponseCookies(ctx, errorResponse)
-  })
+  app.onError((err: unknown, ctx: Context) =>
+    prepareResponse(ctx, formatErrorResponse(err, getConfig().production)),
+  )
 
   // Services and endpoint callbacks share the connection signal from their first binding.
   app.use('*', async (ctx, next) => {
@@ -517,7 +515,11 @@ export function buildHttpApp(
       if (!acceptedWs && !streaming) {
         controller.abort()
         parentSignal.removeEventListener('abort', forwardAbort)
-        await ctx.get('sark_sse_close')?.()
+        const sse = ctx.get('sark_sse')
+        if (sse) {
+          ctx.set('sark_sse', undefined)
+          await sse.close()
+        }
       }
     }
   })
@@ -561,7 +563,7 @@ export function buildHttpApp(
       if (middlewares.length === 0) {
         cached = null
       } else {
-        cached = every(...middlewares.map(preserveMiddlewareCookies))
+        cached = every(...middlewares.map(wrapMiddlewareResponse))
       }
       combinedMiddlewareCache.set(cfg, cached)
     }
@@ -582,7 +584,7 @@ export function buildHttpApp(
       .map((s) => s.middleware)
       .filter((m): m is MiddlewareHandler => typeof m === 'function')
     const routeMiddlewares = 'pageHandler' in entry ? [] : entry.declaration.options.middleware
-    const allMiddlewares = [...scopeMiddlewares, ...routeMiddlewares].map(preserveMiddlewareCookies)
+    const allMiddlewares = [...scopeMiddlewares, ...routeMiddlewares].map(wrapMiddlewareResponse)
 
     app.on([routePath.method], [routePath.urlPath], ...allMiddlewares, handler)
   }
