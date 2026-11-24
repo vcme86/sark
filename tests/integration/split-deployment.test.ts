@@ -18,7 +18,11 @@ it('serves independently built pages and API behind one public origin', async ()
   let api: Awaited<ReturnType<typeof startNodeProject>> | undefined
   let page: Awaited<ReturnType<typeof startNodeProject>> | undefined
   const gateway = createServer((incoming, outgoing) => {
-    const path = incoming.url ?? '/'
+    const path = incoming.url
+    if (!path?.startsWith('/')) {
+      outgoing.writeHead(400).end()
+      return
+    }
     const apiRequest = path.startsWith('/backend/')
     const target = apiRequest ? api : page
     if (!target) {
@@ -27,8 +31,9 @@ it('serves independently built pages and API behind one public origin', async ()
     }
     const upstreamPath = apiRequest ? '/api' + path.slice('/backend'.length) : path
     const upstream = request(
-      new URL(upstreamPath, target.origin),
+      target.origin,
       {
+        path: upstreamPath,
         method: incoming.method,
         headers: incoming.headers,
       },
